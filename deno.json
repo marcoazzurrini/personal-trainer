@@ -1,0 +1,11 @@
+{
+  "tasks": {
+    "fmt": "deno fmt",
+    "lint": "deno lint",
+    "check": "cd supabase/functions/api && deno check index.ts",
+    "hooks": "scripts/lefthook install"
+  },
+  "fmt": {
+    "exclude": ["docs/"]
+  }
+}

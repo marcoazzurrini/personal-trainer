@@ -1,0 +1,3 @@
+# Sourced by the generated git hooks before resolving the lefthook binary.
+# Points them at the Deno-run wrapper, since the stock fallback chain doesn't know Deno.
+export LEFTHOOK_BIN="$(git rev-parse --show-toplevel)/scripts/lefthook"

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs lefthook through Deno. The version pinned here is the only place it appears.
+exec deno run -A npm:lefthook@2.1.10 "$@"

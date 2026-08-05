@@ -1,0 +1,17 @@
+rc: .lefthookrc
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format
+      glob: "*.{ts,js,json,jsonc,md}"
+      exclude:
+        - docs/**
+      run: deno fmt {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "*.ts"
+      run: deno lint {staged_files}
+    - name: typecheck
+      glob: "*.ts"
+      run: deno task check
