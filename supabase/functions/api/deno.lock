@@ -1,10 +1,15 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@hono/hono@4": "4.13.0",
     "jsr:@supabase/functions-js@2": "2.112.1",
-    "npm:openai@^4.52.5": "4.104.0"
+    "npm:openai@^4.52.5": "4.104.0",
+    "npm:postgres@^3.4.0": "3.4.9"
   },
   "jsr": {
+    "@hono/hono@4.13.0": {
+      "integrity": "01944c68d43ec22e31b236923335ff8415bae8f32f76290d3a8387b9640c96af"
+    },
     "@supabase/functions-js@2.112.1": {
       "integrity": "c7a2c84fc8234de910f3e054b316b9e91d2e9dae9921206033891aed0d2f8b02",
       "dependencies": [
@@ -196,6 +201,9 @@
       ],
       "bin": true
     },
+    "postgres@3.4.9": {
+      "integrity": "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="
+    },
     "tr46@0.0.3": {
       "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw=="
     },
@@ -218,7 +226,9 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@supabase/functions-js@2"
+      "jsr:@hono/hono@4",
+      "jsr:@supabase/functions-js@2",
+      "npm:postgres@^3.4.0"
     ]
   }
 }
