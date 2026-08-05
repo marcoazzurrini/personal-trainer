@@ -19,6 +19,22 @@ const constraintMessages: Record<string, string> = {
   exercise_aliases_alias_key:
     "That alias already points at an exercise (aliases are case-insensitive). Fetch GET /api/exercises to see which.",
   muscles_name_key: "That muscle already exists.",
+  mesocycles_one_active:
+    'A mesocycle is already active. End it first (PATCH /api/mesocycles/current with {"ended_on": "YYYY-MM-DD"}) or revise it instead of creating a new one.',
+  mesocycles_starts_on_monday:
+    '"started_on" must be a Monday: mesocycles run whole weeks, Monday to Sunday.',
+  mesocycle_exercises_mesocycle_exercise_key:
+    "That exercise is already in the mesocycle's plan.",
+  mesocycle_weekly_exercise_sets_exercise_week_key:
+    "That exercise already has planned sets for that week.",
+  sets_effort_required:
+    "effort is required on a performed working set; send easy, hard, or failure.",
+  sets_actuals_pair:
+    "weight_kg and reps arrive together: send both (a performed set) or neither (not done).",
+  sets_targets_pair:
+    "target_weight_kg and target_reps arrive together: send both or neither.",
+  sets_effort_working_only: "Warmup sets do not carry effort.",
+  sets_position_key: "That position in the session is already taken.",
 };
 
 export function errorResponse(err: unknown, c: Context): Response {
@@ -37,10 +53,9 @@ export function errorResponse(err: unknown, c: Context): Response {
     return c.json({ error: message }, 409);
   }
   if (pg.code === "23514") {
-    return c.json({
-      error:
-        `The database rejected a value (check constraint "${pg.constraint_name}"). Fix the offending field and retry.`,
-    }, 422);
+    const message = constraintMessages[pg.constraint_name ?? ""] ??
+      `The database rejected a value (check constraint "${pg.constraint_name}"). Fix the offending field and retry.`;
+    return c.json({ error: message }, 422);
   }
   if (pg.code === "23503") {
     return c.json({

@@ -1,6 +1,7 @@
 import { Hono } from "@hono/hono";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
+import { resolveExerciseId } from "../lib/resolve.ts";
 import {
   optionalString,
   readJson,
@@ -122,6 +123,25 @@ exercises.post("/", async (c) => {
 
   const [created] = await selectExercise(id);
   return c.json({ exercise: created }, 201);
+});
+
+// Every working set for one lift over time. Accepts id, name, or alias.
+exercises.get("/:ref/history", async (c) => {
+  const exerciseId = await resolveExerciseId(c.req.param("ref"));
+  const [exercise] = await sql`
+    select id, name from exercises where id = ${exerciseId}`;
+  const rows = await sql`
+    select s.date, t.weight_kg::float8, t.reps, t.effort, t.session_id
+    from sets t
+    join sessions s on s.id = t.session_id
+    where t.exercise_id = ${exerciseId} and t.kind = 'working'
+      and t.reps is not null
+    order by s.date, t.position`;
+  return c.json({
+    exercise: exercise.name,
+    exercise_id: exercise.id,
+    sets: rows,
+  });
 });
 
 export const muscles = new Hono();

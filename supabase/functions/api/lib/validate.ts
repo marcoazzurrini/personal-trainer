@@ -77,3 +77,88 @@ export function requireOneOf(
   }
   return v;
 }
+
+export function requireInt(
+  body: Body,
+  field: string,
+  opts: { min?: number } = {},
+): number {
+  const v = body[field];
+  if (
+    typeof v !== "number" || !Number.isInteger(v) ||
+    (opts.min !== undefined && v < opts.min)
+  ) {
+    throw new ApiError(
+      422,
+      `"${field}" is required and must be an integer${
+        opts.min !== undefined ? ` >= ${opts.min}` : ""
+      }.`,
+    );
+  }
+  return v;
+}
+
+export function optionalInt(
+  body: Body,
+  field: string,
+  opts: { min?: number } = {},
+): number | null {
+  if (body[field] === undefined || body[field] === null) return null;
+  return requireInt(body, field, opts);
+}
+
+export function optionalNumber(
+  body: Body,
+  field: string,
+  opts: { min?: number } = {},
+): number | null {
+  const v = body[field];
+  if (v === undefined || v === null) return null;
+  if (
+    typeof v !== "number" || !Number.isFinite(v) ||
+    (opts.min !== undefined && v < opts.min)
+  ) {
+    throw new ApiError(
+      422,
+      `"${field}" must be a number${
+        opts.min !== undefined ? ` >= ${opts.min}` : ""
+      } when present.`,
+    );
+  }
+  return v;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function requireDate(body: Body, field: string): string {
+  const v = body[field];
+  if (
+    typeof v !== "string" || !DATE_RE.test(v) || Number.isNaN(Date.parse(v))
+  ) {
+    throw new ApiError(
+      422,
+      `"${field}" is required and must be a calendar date like "2026-08-10".`,
+    );
+  }
+  return v;
+}
+
+export function optionalDate(body: Body, field: string): string | null {
+  if (body[field] === undefined || body[field] === null) return null;
+  return requireDate(body, field);
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function optionalUuid(body: Body, field: string): string | null {
+  const v = body[field];
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "string" || !UUID_RE.test(v)) {
+    throw new ApiError(
+      422,
+      `"${field}" must be a UUID when present (generate one per creating call).`,
+    );
+  }
+  return v.toLowerCase();
+}

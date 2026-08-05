@@ -1,0 +1,527 @@
+{
+  "comment": "Starting exercise catalogue. counts=true only where the exercise takes that muscle close to failure (the uniform test from the design brief, applied in one sitting). Counting muscles carry fatigue=lots; assisting muscles counts=false with fatigue=some.",
+  "muscles": [
+    "quads",
+    "hamstrings",
+    "glutes",
+    "calves",
+    "chest",
+    "lats",
+    "upper back",
+    "lower back",
+    "shoulders",
+    "biceps",
+    "triceps",
+    "abs",
+    "forearms"
+  ],
+  "exercises": [
+    {
+      "name": "Back Squat",
+      "equipment": "barbell",
+      "aliases": ["squat"],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" },
+        { "muscle": "lower back", "counts": false, "fatigue": "some" },
+        { "muscle": "hamstrings", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Front Squat",
+      "equipment": "barbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "upper back", "counts": false, "fatigue": "some" },
+        { "muscle": "abs", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Pause Back Squat",
+      "equipment": "barbell",
+      "aliases": ["pause squat"],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" },
+        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Goblet Squat",
+      "equipment": "dumbbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Deficit Split Squat",
+      "equipment": "barbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Bulgarian Split Squat",
+      "equipment": "dumbbell",
+      "aliases": ["rfess", "rear foot elevated split squat"],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Walking Lunge",
+      "equipment": "dumbbell",
+      "aliases": ["lunges", "lunge"],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Reverse Lunge",
+      "equipment": "dumbbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Step-Up",
+      "equipment": "dumbbell",
+      "aliases": ["step ups"],
+      "muscles": [
+        { "muscle": "quads", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Deadlift",
+      "equipment": "barbell",
+      "aliases": ["conventional deadlift", "dl"],
+      "muscles": [
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" },
+        { "muscle": "hamstrings", "counts": false, "fatigue": "some" },
+        { "muscle": "lower back", "counts": false, "fatigue": "lots" },
+        { "muscle": "upper back", "counts": false, "fatigue": "some" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Romanian Deadlift",
+      "equipment": "barbell",
+      "aliases": ["rdl"],
+      "muscles": [
+        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" },
+        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Stiff-Leg Deadlift",
+      "equipment": "barbell",
+      "aliases": ["sldl", "stiff leg deadlift"],
+      "muscles": [
+        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" },
+        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Good Morning",
+      "equipment": "barbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" },
+        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Hip Thrust",
+      "equipment": "barbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" },
+        { "muscle": "hamstrings", "counts": false, "fatigue": "some" },
+        { "muscle": "quads", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Single-Leg Hip Thrust",
+      "equipment": "bodyweight",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Glute Bridge",
+      "equipment": "barbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Nordic Hamstring Curl",
+      "equipment": "bodyweight",
+      "aliases": ["nordic curl", "nordics"],
+      "muscles": [
+        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Back Extension",
+      "equipment": "bodyweight",
+      "aliases": ["hyperextension"],
+      "muscles": [
+        { "muscle": "lower back", "counts": true, "fatigue": "lots" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" },
+        { "muscle": "hamstrings", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Standing Calf Raise",
+      "equipment": "bodyweight",
+      "aliases": ["calf raise"],
+      "muscles": [
+        { "muscle": "calves", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Single-Leg Calf Raise",
+      "equipment": "bodyweight",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "calves", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Bench Press",
+      "equipment": "barbell",
+      "aliases": ["bench", "bp"],
+      "muscles": [
+        { "muscle": "chest", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Incline Bench Press",
+      "equipment": "barbell",
+      "aliases": ["incline bench", "incline press"],
+      "muscles": [
+        { "muscle": "chest", "counts": true, "fatigue": "lots" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Close-Grip Bench Press",
+      "equipment": "barbell",
+      "aliases": ["cgbp", "close grip bench"],
+      "muscles": [
+        { "muscle": "triceps", "counts": true, "fatigue": "lots" },
+        { "muscle": "chest", "counts": false, "fatigue": "some" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Dumbbell Bench Press",
+      "equipment": "dumbbell",
+      "aliases": ["db bench"],
+      "muscles": [
+        { "muscle": "chest", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Push-Up",
+      "equipment": "bodyweight",
+      "aliases": ["pushup", "push ups"],
+      "muscles": [
+        { "muscle": "chest", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Deficit Push-Up",
+      "equipment": "bodyweight",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "chest", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Dip",
+      "equipment": "bodyweight",
+      "aliases": ["dips"],
+      "muscles": [
+        { "muscle": "chest", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": true, "fatigue": "lots" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Overhead Press",
+      "equipment": "barbell",
+      "aliases": ["ohp", "military press", "barbell overhead press"],
+      "muscles": [
+        { "muscle": "shoulders", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" },
+        { "muscle": "abs", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Dumbbell Overhead Press",
+      "equipment": "dumbbell",
+      "aliases": ["db ohp", "dumbbell shoulder press"],
+      "muscles": [
+        { "muscle": "shoulders", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Pike Push-Up",
+      "equipment": "bodyweight",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "shoulders", "counts": true, "fatigue": "lots" },
+        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Lateral Raise",
+      "equipment": "dumbbell",
+      "aliases": ["side raise", "lateral raises"],
+      "muscles": [
+        { "muscle": "shoulders", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Front Raise",
+      "equipment": "dumbbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "shoulders", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Pull-Up",
+      "equipment": "bodyweight",
+      "aliases": ["pullup", "pull ups"],
+      "muscles": [
+        { "muscle": "lats", "counts": true, "fatigue": "lots" },
+        { "muscle": "upper back", "counts": false, "fatigue": "some" },
+        { "muscle": "biceps", "counts": false, "fatigue": "some" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Chin-Up",
+      "equipment": "bodyweight",
+      "aliases": ["chinup", "chin ups"],
+      "muscles": [
+        { "muscle": "lats", "counts": true, "fatigue": "lots" },
+        { "muscle": "biceps", "counts": true, "fatigue": "lots" },
+        { "muscle": "upper back", "counts": false, "fatigue": "some" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Neutral-Grip Pull-Up",
+      "equipment": "bodyweight",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "lats", "counts": true, "fatigue": "lots" },
+        { "muscle": "biceps", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Barbell Row",
+      "equipment": "barbell",
+      "aliases": ["bent over row", "bb row", "barbell rows"],
+      "muscles": [
+        { "muscle": "lats", "counts": true, "fatigue": "lots" },
+        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
+        { "muscle": "biceps", "counts": false, "fatigue": "some" },
+        { "muscle": "lower back", "counts": false, "fatigue": "some" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Pendlay Row",
+      "equipment": "barbell",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
+        { "muscle": "lats", "counts": true, "fatigue": "lots" },
+        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "One-Arm Dumbbell Row",
+      "equipment": "dumbbell",
+      "aliases": ["db row", "single arm row", "dumbbell row"],
+      "muscles": [
+        { "muscle": "lats", "counts": true, "fatigue": "lots" },
+        { "muscle": "upper back", "counts": false, "fatigue": "some" },
+        { "muscle": "biceps", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Inverted Row",
+      "equipment": "bodyweight",
+      "aliases": ["bodyweight row"],
+      "muscles": [
+        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
+        { "muscle": "lats", "counts": false, "fatigue": "some" },
+        { "muscle": "biceps", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Barbell Shrug",
+      "equipment": "barbell",
+      "aliases": ["shrug", "shrugs"],
+      "muscles": [
+        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Band Face Pull",
+      "equipment": "band",
+      "aliases": ["face pull", "face pulls"],
+      "muscles": [
+        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Band Pull-Apart",
+      "equipment": "band",
+      "aliases": ["pull apart", "pull aparts"],
+      "muscles": [
+        { "muscle": "upper back", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Barbell Curl",
+      "equipment": "barbell",
+      "aliases": ["curl", "bb curl", "curls"],
+      "muscles": [
+        { "muscle": "biceps", "counts": true, "fatigue": "lots" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Dumbbell Curl",
+      "equipment": "dumbbell",
+      "aliases": ["db curl"],
+      "muscles": [
+        { "muscle": "biceps", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Hammer Curl",
+      "equipment": "dumbbell",
+      "aliases": ["hammer curls"],
+      "muscles": [
+        { "muscle": "biceps", "counts": true, "fatigue": "lots" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Skull Crusher",
+      "equipment": "barbell",
+      "aliases": ["skullcrusher", "lying triceps extension", "skull crushers"],
+      "muscles": [
+        { "muscle": "triceps", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Overhead Triceps Extension",
+      "equipment": "dumbbell",
+      "aliases": ["french press", "overhead extension"],
+      "muscles": [
+        { "muscle": "triceps", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Plank",
+      "equipment": "bodyweight",
+      "aliases": [],
+      "muscles": [
+        { "muscle": "abs", "counts": true, "fatigue": "lots" }
+      ]
+    },
+    {
+      "name": "Ab Wheel Rollout",
+      "equipment": "other",
+      "aliases": ["ab rollout", "ab wheel"],
+      "muscles": [
+        { "muscle": "abs", "counts": true, "fatigue": "lots" },
+        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Hanging Knee Raise",
+      "equipment": "bodyweight",
+      "aliases": ["knee raise", "knee raises"],
+      "muscles": [
+        { "muscle": "abs", "counts": true, "fatigue": "lots" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Hanging Leg Raise",
+      "equipment": "bodyweight",
+      "aliases": ["leg raise", "leg raises"],
+      "muscles": [
+        { "muscle": "abs", "counts": true, "fatigue": "lots" },
+        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Box Jump",
+      "equipment": "other",
+      "stimulus_type": "power",
+      "aliases": ["box jumps"],
+      "muscles": [
+        { "muscle": "quads", "counts": false, "fatigue": "some" },
+        { "muscle": "calves", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Broad Jump",
+      "equipment": "bodyweight",
+      "stimulus_type": "power",
+      "aliases": ["broad jumps"],
+      "muscles": [
+        { "muscle": "quads", "counts": false, "fatigue": "some" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" }
+      ]
+    },
+    {
+      "name": "Sprint",
+      "equipment": "bodyweight",
+      "stimulus_type": "conditioning",
+      "aliases": ["sprints"],
+      "muscles": [
+        { "muscle": "hamstrings", "counts": false, "fatigue": "some" },
+        { "muscle": "quads", "counts": false, "fatigue": "some" },
+        { "muscle": "glutes", "counts": false, "fatigue": "some" },
+        { "muscle": "calves", "counts": false, "fatigue": "some" }
+      ]
+    }
+  ]
+}

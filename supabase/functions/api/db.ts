@@ -1,4 +1,8 @@
-import postgres from "postgres";
+import postgres, { type TransactionSql } from "postgres";
+
+// The handle sql.begin passes to its callback; route code that runs inside
+// transactions takes this type.
+export type Tx = TransactionSql<{ bigint: number; date: string }>;
 
 // DATABASE_URL is set explicitly per environment (locally in functions/.env,
 // hosted as a secret pointing at the transaction-mode pooler). The injected
@@ -18,6 +22,14 @@ export const sql = postgres(dbUrl!, {
       from: [20],
       serialize: (v: number) => String(v),
       parse: (v: string) => Number(v),
+    },
+    // Postgres date (oid 1082) stays a plain "YYYY-MM-DD" string instead of
+    // becoming a JS Date that serializes as a midnight-UTC timestamp.
+    date: {
+      to: 1082,
+      from: [1082],
+      serialize: (v: string) => v,
+      parse: (v: string) => v,
     },
   },
 });
