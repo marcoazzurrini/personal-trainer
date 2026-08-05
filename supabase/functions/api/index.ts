@@ -1,16 +1,11 @@
 // Type definitions for the Supabase Edge Runtime (Deno.serve, env, etc.)
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { Hono } from "@hono/hono";
-import postgres from "postgres";
-
-// DATABASE_URL is set explicitly per environment (locally in functions/.env,
-// hosted as a secret pointing at the transaction-mode pooler). The injected
-// SUPABASE_DB_URL is only a fallback — its local hostname contains
-// underscores, which DNS resolution rejects.
-// prepare: false — the transaction-mode pooler does not support prepared
-// statements.
-const dbUrl = Deno.env.get("DATABASE_URL") ?? Deno.env.get("SUPABASE_DB_URL");
-const sql = postgres(dbUrl!, { prepare: false });
+import { sql } from "./db.ts";
+import { errorResponse } from "./lib/errors.ts";
+import { bodyweight } from "./routes/bodyweight.ts";
+import { exercises, muscles } from "./routes/exercises.ts";
+import { userContext } from "./routes/user_context.ts";
 
 const app = new Hono().basePath("/api");
 
@@ -37,13 +32,15 @@ app.use(async (c, next) => {
   await next();
 });
 
+app.route("/exercises", exercises);
+app.route("/muscles", muscles);
+app.route("/user-context", userContext);
+app.route("/bodyweight", bodyweight);
+
 app.notFound((c) =>
   c.json({ error: `No route for ${c.req.method} ${c.req.path}.` }, 404)
 );
 
-app.onError((err, c) => {
-  console.error(err);
-  return c.json({ error: "Internal error. See function logs." }, 500);
-});
+app.onError((err, c) => errorResponse(err, c));
 
 Deno.serve(app.fetch);
