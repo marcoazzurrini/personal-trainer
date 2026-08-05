@@ -4,6 +4,7 @@ import { Hono } from "@hono/hono";
 import { sql } from "./db.ts";
 import { errorResponse } from "./lib/errors.ts";
 import { blocks } from "./routes/blocks.ts";
+import { logPage } from "./routes/logpage.ts";
 import { bodyweight } from "./routes/bodyweight.ts";
 import { exercises, muscles } from "./routes/exercises.ts";
 import { mesocycles } from "./routes/mesocycles.ts";
@@ -22,6 +23,10 @@ app.get("/health", async (c) => {
   await sql`select 1`;
   return c.json({ status: "ok" });
 });
+
+// The log page namespace is tokenless like /health: the unguessable
+// public_id is its auth, and the coach token never reaches a browser.
+app.route("/s", logPage);
 
 // One static bearer token on every coach-API endpoint.
 app.use(async (c, next) => {
