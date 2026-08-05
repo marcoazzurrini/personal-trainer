@@ -3,7 +3,12 @@
     "fmt": "deno fmt",
     "lint": "deno lint",
     "check": "cd supabase/functions/api && deno check index.ts",
+    "test": "deno test --allow-net --allow-env --allow-read tests/",
     "hooks": "scripts/lefthook install"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "postgres": "npm:postgres@^3.4"
   },
   "fmt": {
     "exclude": ["docs/"]

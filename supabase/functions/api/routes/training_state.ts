@@ -65,7 +65,9 @@ trainingState.get("/", async (c) => {
       coalesce((select sum(ws.sets)::int
         from mesocycle_weekly_exercise_sets ws
         join mesocycle_exercises me on me.id = ws.mesocycle_exercise_id
-        where me.mesocycle_id = ${meso.id} and ws.week = g.w), 0) as working_sets_planned,
+        join exercises e on e.id = me.exercise_id
+        where me.mesocycle_id = ${meso.id} and ws.week = g.w
+          and e.stimulus_type = 'strength'), 0) as working_sets_planned,
       coalesce((select sum(v.sets_done)::int
         from weekly_exercise_sets_done v
         where v.mesocycle_id = ${meso.id} and v.week = g.w), 0) as working_sets_done,

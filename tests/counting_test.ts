@@ -1,0 +1,162 @@
+import { assert, assertEquals } from "@std/assert";
+import {
+  api,
+  ensureCatalogue,
+  lastMonday,
+  lastTuesday,
+  resetTraining,
+  today,
+  uuid,
+} from "./helpers.ts";
+
+// The counting rules are where silent wrongness would corrupt coaching.
+// Scenario: a mesocycle started last Monday (so today is week 2) with a
+// quads-only lift, a dual-count lift (quads AND glutes), and a power
+// exercise. Last week (finished): a retro session. This week: one set today.
+Deno.test("counting rules", async (t) => {
+  await resetTraining();
+  await ensureCatalogue();
+
+  const block = await api.post("/blocks", {
+    name: "Counting block",
+    goal: "testing",
+    started_on: lastMonday(),
+  });
+  await api.post("/mesocycles", {
+    request_id: uuid(),
+    block_id: block.body.block.id,
+    name: "Counting meso",
+    intent: "testing the counters",
+    planned_weeks: 4,
+    sessions_per_week: 2,
+    started_on: lastMonday(),
+    exercises: [
+      {
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_sets: [{ week: 1, sets: 6 }, { week: 2, sets: 8 }],
+      },
+      {
+        exercise: "deficit split squat",
+        role: "accessory",
+        priority: 2,
+        weekly_sets: [{ week: 1, sets: 4 }, { week: 2, sets: 4 }],
+      },
+      {
+        exercise: "box jumps",
+        role: "accessory",
+        priority: 3,
+        weekly_sets: [{ week: 1, sets: 3 }, { week: 2, sets: 3 }],
+      },
+    ],
+  });
+
+  // Last week, retro-logged: a performed warmup (excluded), two working
+  // squat sets, one dual-count split squat set, one power set (excluded).
+  await api.post("/sessions", {
+    date: lastTuesday(),
+    rationale: "retro for counting",
+    sets: [
+      { exercise: "squat", kind: "warmup", weight_kg: 60, reps: 5 },
+      { exercise: "squat", weight_kg: 100, reps: 6, effort: "hard" },
+      { exercise: "squat", weight_kg: 100, reps: 6, effort: "hard" },
+      {
+        exercise: "deficit split squat",
+        weight_kg: 40,
+        reps: 10,
+        effort: "hard",
+      },
+      { exercise: "box jumps", weight_kg: 0, reps: 5, effort: "easy" },
+    ],
+  });
+
+  // Today, current (unfinished) week: one performed working set.
+  await api.post("/sessions", {
+    date: today(),
+    rationale: "current week session",
+    sets: [{ exercise: "squat", weight_kg: 102.5, reps: 5, effort: "hard" }],
+  });
+
+  await t.step(
+    "weekly-exercise-sets: finished weeks only, warmups and power excluded",
+    async () => {
+      const { body } = await api.get("/weekly-exercise-sets");
+      const rows = body.weekly_exercise_sets;
+      assertEquals(rows.length, 2); // week 1 only, two strength exercises
+      assert(rows.every((r: { week: number }) => r.week === 1));
+      const squat = rows.find(
+        (r: { exercise: string }) => r.exercise === "Back Squat",
+      );
+      assertEquals(squat.sets_done, 2); // warmup not counted
+      const split = rows.find(
+        (r: { exercise: string }) => r.exercise === "Deficit Split Squat",
+      );
+      assertEquals(split.sets_done, 1);
+      assert(
+        !rows.some((r: { exercise: string }) => r.exercise === "Box Jump"),
+      );
+    },
+  );
+
+  await t.step(
+    "weekly-volume: dual counts per muscle, never a total, current week absent",
+    async () => {
+      const { body } = await api.get("/weekly-volume");
+      const rows = body.weekly_volume;
+      assert(
+        rows.every((r: { week_start: string }) =>
+          r.week_start === lastMonday()
+        ),
+      );
+      const byMuscle = Object.fromEntries(
+        rows.map((r: { muscle: string; working_sets: number }) => [
+          r.muscle,
+          r.working_sets,
+        ]),
+      );
+      assertEquals(byMuscle.quads, 3); // 2 squat + 1 split squat
+      assertEquals(byMuscle.glutes, 1); // same split squat set, counted again
+      assertEquals(Object.keys(byMuscle).length, 2); // no totals row, ever
+    },
+  );
+
+  await t.step("training-state ties it together", async () => {
+    const { body } = await api.get("/training-state");
+    assertEquals(body.mesocycle.week, 2);
+
+    const squat = body.exercises.find(
+      (e: { exercise: string }) => e.exercise === "Back Squat",
+    );
+    assertEquals(squat.planned_sets_this_week, 8);
+    assertEquals(squat.sets_done_this_week, 1);
+    assertEquals(squat.days_since_trained, 0);
+
+    const split = body.exercises.find(
+      (e: { exercise: string }) => e.exercise === "Deficit Split Squat",
+    );
+    assertEquals(split.sets_done_this_week, 0);
+
+    assertEquals(body.this_week.sessions_done, 1);
+    assertEquals(body.recent_weeks.length, 1);
+    const week1 = body.recent_weeks[0];
+    assertEquals(week1.week, 1);
+    assertEquals(week1.working_sets_planned, 10); // 6 squat + 4 split, no power
+    assertEquals(week1.working_sets_done, 3);
+    assertEquals(week1.sessions_done, 1);
+
+    const recent = body.recent_sessions[0];
+    assertEquals(recent.date, today());
+    const topSquat = recent.exercises.find(
+      (e: { exercise: string }) => e.exercise === "Back Squat",
+    );
+    assertEquals(topSquat.top_weight_kg, 102.5);
+  });
+
+  await t.step("history returns working sets in date order", async () => {
+    const { body } = await api.get("/exercises/squat/history");
+    assertEquals(body.sets.length, 3); // warmup excluded
+    assertEquals(body.sets[0].date, lastTuesday());
+    assertEquals(body.sets[2].date, today());
+  });
+});

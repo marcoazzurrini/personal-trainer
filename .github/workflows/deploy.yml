@@ -22,8 +22,26 @@ jobs:
       - run: deno lint
       - run: deno task check
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Write local function env
+        run: |
+          printf 'API_TOKEN=local-dev-token\nDATABASE_URL=postgresql://postgres:postgres@db:5432/postgres\n' \
+            > supabase/functions/.env
+      - name: Start local stack (db, functions, gateway only)
+        run: supabase start -x gotrue,realtime,storage-api,imgproxy,mailpit,postgrest,postgres-meta,studio,logflare,vector
+      - run: deno task test
+
   deploy:
-    needs: checks
+    needs: [checks, test]
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
