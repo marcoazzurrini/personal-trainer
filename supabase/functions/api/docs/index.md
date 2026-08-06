@@ -38,6 +38,7 @@ One per thing a coach does.
 
 | Endpoint                             | Fetch when                                                                                  |
 | ------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `GET /docs/tasks/onboarding`         | `training-state` shows no plan and little context — establishing the person before anything is programmed |
 | `GET /docs/tasks/programming`        | Creating or changing a mesocycle — anything that touches the plan                           |
 | `GET /docs/tasks/session-generation` | Marco asks what to do today                                                                 |
 | `GET /docs/tasks/logging`            | Something needs writing down: sessions done off-app, corrections, lasting facts, bodyweight |
