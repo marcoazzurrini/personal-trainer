@@ -5,9 +5,6 @@ values. The task documents hold the procedure and the judgment; this document ho
 the mechanics they use. Fetch it whenever you are about to write, or when a read's
 parameters or shape matter.
 
-Anything marked `TODO(schema)` is defined in the implementation and must be filled
-from there — never guessed.
-
 ## Conventions
 
 - Every creating POST takes a `request_id`: a fresh UUID per call. Retrying with the
@@ -31,13 +28,15 @@ from there — never guessed.
 | `GET /training-state` | The complete current picture: active mesocycle and intent, exercise list with priorities and notes, planned vs delivered sets this week, days since each exercise was trained, recent sessions with rationales, user context. The start of every training conversation. |
 | `GET /mesocycles/:id` | The plan: exercises, weekly sets, load targets. |
 | `GET /mesocycles/:id/decisions` | The decision log for that mesocycle. |
-| `GET /weekly-volume` | Sets per muscle per week, summed through `exercise_muscles`. Direct working sets only. `?mesocycle=all` for the long view. |
+| `GET /weekly-volume` | Sets per muscle per week, summed through `exercise_muscles`. Direct working sets on `strength`-stimulus exercises only — power and conditioning work is invisible here. `?mesocycle=all` for the long view. |
 | `GET /weekly-exercise-sets` | Delivered sets per exercise per week — the counterpart to the plan's `weekly_sets`. |
 | `GET /exercises` | The catalogue: names, aliases, equipment, muscles with `counts` and `fatigue`. |
-| `GET /exercises/:name/history` | That exercise's performed sets over time. |
+| `GET /exercises/:name/history` | That exercise's performed working sets over time (warmups excluded). |
 | `GET /sessions?limit=N` | Recent sessions, newest first. |
 | `GET /sessions/:id` | One session with its sets and their ids (needed for corrections). |
-| `GET /user-context` | All context rows. Latest row per topic is the current truth. |
+| `GET /user-context` | Current truth: the latest row per topic. `?history=true` for every row ever written. |
+| `GET /blocks` | All blocks. |
+| `GET /muscles` | The known muscle names. |
 | `GET /bodyweight` | Bodyweight measurements. |
 | `GET /docs-proposals` | Pending documentation proposals. |
 
@@ -47,7 +46,7 @@ from there — never guessed.
 
 ```json
 POST /blocks
-{ "name": "...", "goal": "...", "started_on": "YYYY-MM-DD" }
+{ "name": "...", "goal": "...", "started_on": "YYYY-MM-DD", "ended_on": "<optional>" }
 ```
 
 A mesocycle arrives complete in one call — a partial plan cannot exist:
@@ -149,7 +148,8 @@ it no longer applies. Reuse existing topic strings — fetch `GET /user-context`
 
 ```json
 POST /bodyweight
-{ "value_kg": 82.5, "measured_at": "<iso timestamp, defaults to now>" }
+{ "value_kg": 82.5, "measured_at": "<iso timestamp, defaults to now>",
+  "source": "<optional, defaults to \"manual\">" }
 ```
 
 Resending the same measurement is safe; a different value for the same instant is
@@ -159,9 +159,21 @@ rejected — ask which is right rather than picking one.
 
 ```json
 POST /exercises
-TODO(schema): document the exact payload — name, equipment, aliases, and the
-muscles array with counts/fatigue per muscle.
+{
+  "name": "hack squat",
+  "equipment": "<optional>",
+  "pattern": "<optional, e.g. squat, hinge, press>",
+  "stimulus_type": "<optional: strength | power | conditioning, defaults to strength>",
+  "notes": "<optional>",
+  "aliases": ["optional", "alternative names"],
+  "muscles": [
+    { "muscle": "quads", "counts": true, "fatigue": "lots" }
+  ]
+}
 ```
+
+Muscles are referenced by name and must already exist — an unknown name is rejected
+and the error lists the known ones (`POST /muscles` with `{ "name": "..." }` adds one).
 
 Getting `counts` wrong here silently corrupts every future volume number, so the
 classification rule matters: a muscle **counts** for an exercise only when it is
@@ -178,17 +190,16 @@ without limiting is `counts: false`. When unsure, ask rather than guess.
 - `effort` — `easy` | `hard` | `failure`. Required on every performed working set.
   Warmups carry `"kind": "warmup"` and no effort. Meanings and elicitation:
   `logging`; interpretation: the method document.
-- `kind` — `"warmup"` marks a warmup set. TODO(schema): list the other values and
-  the default for working sets.
-- `role` (mesocycle exercise) — `"main"` seen in use. TODO(schema): list allowed
-  values.
-- `priority` (mesocycle exercise) — integer; low numbers deserve the freshest slots
-  in a session. TODO(schema): confirm the valid range.
-- `overall_feel` (session) — TODO(schema): list allowed values.
-- `stimulus_type` (exercise) — `strength` | `power` | `conditioning`.
-  TODO(schema): confirm whether `GET /weekly-volume` counts only `strength`
-  exercises, and state it here — it changes what the volume charts mean.
+- `kind` — `warmup` | `working`. Defaults to `working`, so it is only ever written to
+  mark a warmup.
+- `role` (mesocycle exercise) — `main` | `accessory`.
+- `priority` (mesocycle exercise) — integer ≥ 1, no upper bound; low numbers deserve
+  the freshest slots in a session.
+- `overall_feel` (session) — free text, not an enum. Write what the person said.
+- `stimulus_type` (exercise) — `strength` | `power` | `conditioning`. Only `strength`
+  exercises count in `GET /weekly-volume` — see the Reads table.
 - `exercise_muscles.counts` — boolean; whether a set of this exercise counts toward
   that muscle's weekly volume. Classification rule above.
-- `exercise_muscles.fatigue` — `some` | `lots`. TODO(schema): confirm what, if
-  anything, consumes this; if nothing does, say so here.
+- `exercise_muscles.fatigue` — `none` | `some` | `lots`. Nothing computes with it
+  today: it is stored, returned by `GET /exercises`, and feeds coaching judgment
+  about systemic fatigue — nothing else.
