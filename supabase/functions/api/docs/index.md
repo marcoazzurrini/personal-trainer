@@ -16,6 +16,8 @@ endpoints.
   reviews and "is this working" questions.
 - `charts` — the standard progress views and the reads that feed them. Fetch when the user
   asks to see progress.
+- `improving-docs` — proposing changes to these documents when evidence disagrees with
+  them. Fetch when a document has proven wrong or incomplete in practice.
 
 **Method documents** — one per training goal. They hold the coaching model: what drives
 the adaptation, how to dose it, how to read whether it is happening. Every task document
