@@ -3,30 +3,20 @@ import { api, BASE } from "./helpers.ts";
 
 Deno.test("skill documents", async (t) => {
   await t.step("docs are behind the token", async () => {
-    const res = await fetch(`${BASE}/docs/index`);
+    const res = await fetch(`${BASE}/docs/logging`);
     assertEquals(res.status, 401);
     await res.body?.cancel();
   });
 
-  await t.step("the index names the other documents", async () => {
-    const res = await fetch(`${BASE}/docs/index`, {
+  await t.step("a document serves as markdown", async () => {
+    const res = await fetch(`${BASE}/docs/logging`, {
       headers: {
         Authorization: `Bearer ${(await import("./helpers.ts")).TOKEN}`,
       },
     });
     assertEquals(res.status, 200);
     const text = await res.text();
-    for (
-      const name of [
-        "programming",
-        "session-generation",
-        "logging",
-        "evaluation",
-        "charts",
-      ]
-    ) {
-      assert(text.includes(name), `index should mention ${name}`);
-    }
+    assert(text.includes("# Logging"));
   });
 
   await t.step("an unknown document lists what exists", async () => {
