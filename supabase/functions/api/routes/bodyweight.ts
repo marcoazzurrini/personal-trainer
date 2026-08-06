@@ -10,6 +10,13 @@ import {
 
 export const bodyweight = new Hono();
 
+bodyweight.get("/", async (c) => {
+  const rows = await sql`
+    select id, value_kg::float8, measured_at, source
+    from bodyweight order by measured_at`;
+  return c.json({ bodyweight: rows });
+});
+
 // Deduped on (measured_at, source): resending the same measurement is a
 // no-op, so retries never plant a phantom point in the trend.
 bodyweight.post("/", async (c) => {

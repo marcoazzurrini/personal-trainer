@@ -4,6 +4,7 @@ import { Hono } from "@hono/hono";
 import { sql } from "./db.ts";
 import { errorResponse } from "./lib/errors.ts";
 import { blocks } from "./routes/blocks.ts";
+import { docs } from "./routes/docs.ts";
 import { logPage } from "./routes/logpage.ts";
 import { bodyweight } from "./routes/bodyweight.ts";
 import { exercises, muscles } from "./routes/exercises.ts";
@@ -54,6 +55,7 @@ app.route("/sets", sets);
 app.route("/training-state", trainingState);
 app.route("/weekly-volume", weeklyVolume);
 app.route("/weekly-exercise-sets", weeklyExerciseSets);
+app.route("/docs", docs);
 
 app.notFound((c) =>
   c.json({ error: `No route for ${c.req.method} ${c.req.path}.` }, 404)

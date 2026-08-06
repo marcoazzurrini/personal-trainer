@@ -74,5 +74,10 @@ Deno.test("reference data", async (t) => {
       value_kg: 83.1,
     });
     assertEquals(conflicting.status, 409);
+
+    const series = await api.get("/bodyweight");
+    assertEquals(series.status, 200);
+    assertEquals(series.body.bodyweight.length, 1);
+    assertEquals(series.body.bodyweight[0].value_kg, 82.5);
   });
 });
