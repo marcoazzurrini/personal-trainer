@@ -18,6 +18,8 @@ method document for the goal (`method/hypertrophy` and so on); it decides how ta
 chosen. Payload shapes are in `reference/sessions`.
 
 Then read what the person says about today: time, energy, soreness, equipment, mood.
+If any of it is pain — a tweak, a pinch, "should I train through this?" — fetch
+`tasks/pain` before deciding anything about the session.
 **Today's reality outranks the plan's ideal shape.** A plan is a set of intentions about
 an average week, and no week is average.
 
