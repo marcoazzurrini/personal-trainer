@@ -1,24 +1,13 @@
 # Logging
 
 Recording facts the person reports in chat. The log page is the primary way to capture a
-live workout; chat logging covers everything the page doesn't.
+live workout; chat logging covers everything the page doesn't. Payload shapes and
+endpoint details are in `api-reference`.
 
 ## A workout that never got logged (retro session)
 
 `POST /sessions` with a past `date`, a `rationale` saying it was retro-logged and why the
-session happened, and `sets` carrying actuals:
-
-```json
-{
-  "request_id": "<fresh uuid>",
-  "date": "2026-08-04",
-  "rationale": "Retro-logged: trained Tuesday at a friend's gym, forgot to log.",
-  "sets": [
-    { "exercise": "squat", "kind": "warmup", "weight_kg": 60, "reps": 5 },
-    { "exercise": "squat", "weight_kg": 100, "reps": 6, "effort": "hard" }
-  ]
-}
-```
+session happened, and `sets` carrying actuals.
 
 **Never invent targets for a retro session.** A target means "what was asked before the
 work"; a forgotten session had no ask. The API rejects a set carrying both targets and
@@ -27,8 +16,8 @@ tell a session that went to plan from one that didn't.
 
 ## Effort is not optional
 
-`effort` is required on every performed working set: `easy`, `hard`, or `failure`. Warmups
-get `"kind": "warmup"` and no effort.
+`effort` is required on every performed working set: `easy`, `hard`, or `failure`.
+Warmups get `"kind": "warmup"` and no effort.
 
 If the person didn't say, **ask — don't guess**. Effort is the primary input to every load
 decision that follows; a guessed chip quietly corrupts the next month of programming, and
@@ -62,9 +51,9 @@ in the same conversation — the next conversation has no other way to learn it.
 
 1. **First `GET /user-context`** and reuse an existing topic string. "lower back" and
    "lumbar" must not become two live topics saying different things.
-2. `POST /user-context` with `{ "topic": "...", "content": "..." }`. Rows are never
-   edited: correcting a fact means writing a new row on the same topic, and the latest row
-   per topic is the current truth.
+2. `POST /user-context` with the topic and content. Rows are never edited: correcting a
+   fact means writing a new row on the same topic, and the latest row per topic is the
+   current truth.
 3. Retiring a topic means writing a final row saying it no longer applies.
 
 Worth catching in particular, because they change what the numbers mean: what hurts and
@@ -77,14 +66,6 @@ them apart is what makes each one findable.
 
 ## Bodyweight
 
-`POST /bodyweight` with `{ "value_kg": 82.5, "measured_at": "<iso timestamp>" }`
-(`measured_at` defaults to now). Resending the same measurement is safe; a different value
-for the same instant is rejected — ask which is right rather than picking one.
-
-## Conventions that apply throughout
-
-- Every creating POST takes a `request_id`: generate a fresh UUID per call. Retrying with
-  the same id can never duplicate, so a retry is always safe.
-- Exercises resolve by id, name, or alias, case-insensitively. If a name doesn't resolve,
-  the error says what to do. Only add a genuinely new exercise (`POST /exercises`) — never
-  a synonym of one that exists, which would split its history in two.
+`POST /bodyweight` with the value and, for past measurements, the timestamp. Resending
+the same measurement is safe; a different value for the same instant is rejected — ask
+which is right rather than picking one.

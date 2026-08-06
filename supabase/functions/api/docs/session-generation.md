@@ -11,7 +11,7 @@ each exercise was last trained, recent sessions with their rationales, and user 
 
 Read the intent first — it says how this mesocycle is meant to progress. Then fetch the
 method document for the goal (`method/hypertrophy` and so on); it decides how targets get
-chosen.
+chosen. Payload shapes are in `api-reference`.
 
 Then read what the person says about today: time, energy, soreness, equipment, mood.
 **Today's reality outranks the plan's ideal shape.** A plan is a set of intentions about
@@ -64,26 +64,17 @@ and the progression record.
 
 ## Writing it
 
-`POST /sessions` with a fresh `request_id` UUID, today's date, the sets with their targets,
-and a **rationale** — written every time.
-
-```json
-{
-  "request_id": "<fresh uuid>",
-  "date": "2026-08-10",
-  "rationale": "Week 3 lower day: squat still 4 sets short of plan, hips fresh (3 days). Held bench weight — last session's sets all came back easy on the top set only, so raised that one. Skipped RDL, lower back grumbling since Tuesday.",
-  "sets": [
-    { "exercise": "squat", "kind": "warmup", "target_weight_kg": 60, "target_reps": 5 },
-    { "exercise": "squat", "target_weight_kg": 102.5, "target_reps": 6 },
-    { "exercise": "squat", "target_weight_kg": 102.5, "target_reps": 6 }
-  ]
-}
-```
+`POST /sessions` with a fresh `request_id` UUID, today's date, the sets with their targets
+(shape in `api-reference`), and a **rationale** — written every time.
 
 The rationale is the only part of your thinking that survives this conversation. Name what
 was prioritised, what was skipped and why, what the person said that shaped it, and why
 the loads moved or didn't. A rationale that only describes the session is wasted — the
-sets already describe the session.
+sets already describe the session. A good one reads like:
+
+> "Week 3 lower day: squat still 4 sets short of plan, hips fresh (3 days). Held bench
+> weight — last session's sets all came back easy on the top set only, so raised that
+> one. Skipped RDL, lower back grumbling since Tuesday."
 
 The response carries `public_id`. Hand the person the log page link:
 `<API base URL>/s/<public_id>`.

@@ -28,6 +28,13 @@ One per thing a coach does. Each holds the procedure and the endpoints it uses.
 | `GET /docs/charts`              | Marco asks to see progress                                                                  |
 | `GET /docs/improving-docs`      | A document has proven wrong or incomplete in practice                                       |
 
+## API reference
+
+`GET /docs/api-reference` — the mechanics: conventions (idempotency, exercise
+resolution, week boundaries), every endpoint, payload shapes, and field values.
+Fetch it before any write, and whenever a read's parameters or shape matter. Task
+documents assume you have it when they mention an endpoint.
+
 ## Method documents
 
 One per training goal. They hold the coaching model: what drives the adaptation, how

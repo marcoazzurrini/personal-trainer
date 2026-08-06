@@ -6,7 +6,8 @@ Two registers, kept apart on purpose: **what the API can express** — facts abo
 schema, which any methodology fits — and **how to decide what goes in it**, which belongs
 to the method document for this mesocycle's goal. Neither should be mistaken for the
 other. A schema fact is not a coaching opinion, and a coaching opinion is not a
-constraint.
+constraint. The schema facts and payload shapes live in `api-reference`; fetch it
+before writing.
 
 ## Before deciding anything
 
@@ -27,51 +28,19 @@ fitting nobody.
 
 ## What the API can express
 
-A **block** is the long horizon: `POST /blocks` `{ name, goal, started_on }`. Thin on
-purpose — it groups mesocycles that share a goal.
+The shapes are in `api-reference`; what matters for planning:
 
-A **mesocycle** holds a plan and arrives complete in one call. A partial plan cannot
-exist:
-
-```json
-POST /mesocycles
-{
-  "request_id": "<fresh uuid>",
-  "block_id": 1,
-  "name": "Hypertrophy 1",
-  "intent": "<the founding statement — see below>",
-  "planned_weeks": 5,
-  "sessions_per_week": 3,
-  "started_on": "2026-08-10",
-  "exercises": [
-    {
-      "exercise": "squat",
-      "role": "main",
-      "priority": 1,
-      "notes": "per-exercise prose — rep intention, cues, constraints",
-      "weekly_sets": [ { "week": 1, "sets": 10 }, { "week": 2, "sets": 10 } ],
-      "load_target": {
-        "target_weight_kg": 110, "target_reps": 5,
-        "baseline_weight_kg": 100, "baseline_reps": 5, "by_week": 5
-      }
-    }
-  ]
-}
-```
-
-- `started_on` must be a Monday. Mesocycles run whole weeks, Monday to Sunday,
-  Europe/Rome.
-- Only one mesocycle can be active. End the old one first (`PATCH /mesocycles/:id` with
-  `ended_on`) or the create is rejected.
-- `weekly_sets` carries the entire volume progression and takes any shape — flat, ramped,
-  waved, or low numbers for a deload week. `sets: 0` keeps an exercise in the plan through
-  a week it isn't trained. The schema has no opinion about which shape is right; the
-  method document does.
-- `load_target` is optional, one per exercise, at mesocycle level only — never per week.
-  The baseline is where the person was at the start: write it once, because it cannot be
+- A **block** groups mesocycles that share a goal. Thin on purpose.
+- A **mesocycle** holds the plan and arrives complete in one call — a partial plan
+  cannot exist. Only one can be active; it starts on a Monday and runs whole weeks.
+- `weekly_sets` carries the entire volume progression and takes any shape — flat,
+  ramped, waved, or low numbers for a deload week. The schema has no opinion about
+  which shape is right; the method document does.
+- `load_target` is per exercise for the whole mesocycle, never per week. The baseline
+  is where the person was at the start: write it once, because it cannot be
   reconstructed later.
-- `sessions_per_week` is an input to session generation, not a weekly schedule. Nothing
-  assigns exercises to days; that decision is made fresh each session.
+- `sessions_per_week` is an input to session generation, not a weekly schedule.
+  Nothing assigns exercises to days; that decision is made fresh each session.
 
 ## `intent` — the founding statement
 
@@ -110,24 +79,13 @@ later, the week simply comes up short, and the record says so.
 
 ## Changing a plan mid-mesocycle
 
-One call, all-or-nothing, and refused without its decision. There is no way to change the
-plan without saying why:
-
-```json
-POST /mesocycles/current/revisions
-{
-  "request_id": "<fresh uuid>",
-  "decision": { "what_changed": "...", "why": "..." },
-  "remove": ["back squat"],
-  "add": [ { ...same shape as a creation entry... } ],
-  "weekly_sets": [ { "exercise": "leg press", "week": 4, "sets": 12 } ],
-  "load_targets": [ { "exercise": "leg press", "target_weight_kg": 180, "target_reps": 8 } ]
-}
-```
+One call, all-or-nothing, and refused without its decision — there is no way to change
+the plan without saying why (`POST /mesocycles/current/revisions`; shape in
+`api-reference`).
 
 Plan tables hold only what is currently true. History lives in the decision log
 (`GET /mesocycles/:id/decisions`), and a review that changes nothing is still recorded
-(`POST /mesocycles/:id/decisions`). `current` works anywhere a mesocycle id goes.
+(`POST /mesocycles/:id/decisions`).
 
 **The bar for revising is high, and it is about evidence, not ideas.** Revise for pain,
 for equipment that disappeared, for an exercise that keeps being skipped, or for a
