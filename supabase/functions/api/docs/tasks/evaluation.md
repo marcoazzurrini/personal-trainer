@@ -9,15 +9,17 @@ are the procedure, not the standard.
 
 ## The three questions, in order
 
-**1. Was the work done?** `GET /mesocycles/current` gives planned weekly sets;
-`GET /weekly-exercise-sets` gives what was delivered, same grain, finished weeks only.
-Diff them per exercise per week.
+**1. Was the work done?** The intent states the weekly dose per exercise;
+`GET /weekly-exercise-sets` gives what was delivered, finished weeks only. Diff them
+per exercise per week — with a script, not in your head. Before calling a shortfall
+non-adherence, read the decision log: a backed-off lift or a declared light week is a
+chosen reduction, and the dose it was judged against is the one the decision set.
 
 **2. Was the work hard enough?** Effort chips on the working sets, from
 `GET /sessions?limit=30` or the exercise's history. Sets delivered at the wrong effort are
 not the work the plan asked for, even though the count matches.
 
-**3. Did it produce anything?** Load targets against actual performance
+**3. Did it produce anything?** The intent's load goals against actual performance
 (`GET /exercises/:name/history`). Reps creeping up at fixed weights, or weight up at the
 same reps, is the proxy — the adaptation itself can't be measured week to week.
 
