@@ -15,8 +15,9 @@ count for two muscles, so the total means nothing. Worth stating once when showi
 these are direct working sets only — indirect work isn't counted and the numbers read
 lower than published figures for the same training.
 
-**3. Planned against delivered** — planned rows from `GET /mesocycles/:id`, delivered from
-`GET /weekly-exercise-sets`. Paired bars per exercise per week. This is the adherence
+**3. Dose against delivered** — the weekly dose per exercise from the current intent
+(and the decision log's adjustments for backed-off lifts or declared light weeks),
+delivered from `GET /weekly-exercise-sets`. Paired bars per exercise per week. This is the adherence
 picture and it belongs in every review, because it decides whether any other chart can be
 interpreted.
 
