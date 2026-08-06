@@ -22,11 +22,14 @@ trainingState.get("/", async (c) => {
     from mesocycles where ended_on is null`;
 
   if (!meso) {
+    // The cold start routes to onboarding; a known person routes to planning.
+    const note = userContext.length === 0
+      ? "No active mesocycle and no user context: this is a first conversation. Start with GET /api/docs/tasks/onboarding — do not program anything yet."
+      : "No active mesocycle. Fetch GET /api/docs/tasks/programming, then create one with POST /api/mesocycles (blocks via POST /api/blocks).";
     return c.json({
       today: clock.today,
       mesocycle: null,
-      note:
-        "No active mesocycle. Create one with POST /api/mesocycles (blocks via POST /api/blocks).",
+      note,
       user_context: userContext,
     });
   }

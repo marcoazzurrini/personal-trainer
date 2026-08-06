@@ -17,6 +17,22 @@ Deno.test("counting rules", async (t) => {
   await resetTraining();
   await ensureCatalogue();
 
+  await t.step(
+    "empty state routes to onboarding, then programming",
+    async () => {
+      const empty = await api.get("/training-state");
+      assertEquals(empty.body.mesocycle, null);
+      assert(empty.body.note.includes("tasks/onboarding"));
+
+      await api.post("/user-context", {
+        topic: "goal",
+        content: "hypertrophy",
+      });
+      const known = await api.get("/training-state");
+      assert(known.body.note.includes("tasks/programming"));
+    },
+  );
+
   const block = await api.post("/blocks", {
     name: "Counting block",
     goal: "testing",
