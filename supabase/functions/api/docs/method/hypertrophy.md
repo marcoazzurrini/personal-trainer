@@ -1,7 +1,7 @@
 # Hypertrophy
 
-The methodology for growing muscle. `programming` builds the plan, `session-generation`
-writes the day, `evaluation` judges the result — all three apply what is here. These are
+The methodology for growing muscle. `tasks/programming` builds the plan, `tasks/session-generation`
+writes the day, `tasks/evaluation` judges the result — all three apply what is here. These are
 decisions, not laws of nature: change them by changing this document.
 
 Every number below is a population average with wide individual spread. They set the
@@ -221,7 +221,7 @@ sets, slowing as the weeks accumulate — and slower again, or simply holding, a
 maintenance or in a deficit. Meaningfully faster than that usually means the
 opening loads were light, not that growth is rapid.
 
-Judge over weeks. One session is noise; two bad weeks are data. `evaluation` holds the
+Judge over weeks. One session is noise; two bad weeks are data. `tasks/evaluation` holds the
 procedure for turning this into a decision.
 
 ## Failure modes
