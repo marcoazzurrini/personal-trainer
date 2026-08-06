@@ -3,12 +3,17 @@
 Blocks, mesocycles, revisions, decisions: payload shapes and schema rules. The
 procedure and the judgment live in `tasks/programming`.
 
+The plan's numbers — weekly doses, load goals, progression parameters — are not
+stored in tables. They live in the mesocycle's `intent`, which is the single source
+of the plan. The database stores the plan's nouns (the exercise list) and everything
+that has happened.
+
 ## Reads
 
 | Endpoint | Returns |
 | --- | --- |
 | `GET /blocks` | All blocks. |
-| `GET /mesocycles/:id` | The plan: exercises, weekly sets, load targets. |
+| `GET /mesocycles/:id` | The plan: intent, exercise list with roles, priorities and notes. |
 | `GET /mesocycles/:id/decisions` | The decision log for that mesocycle. |
 
 ## Blocks
@@ -20,15 +25,13 @@ POST /blocks
 
 ## Creating a mesocycle
 
-A mesocycle arrives complete in one call — a partial plan cannot exist:
-
 ```json
 POST /mesocycles
 {
   "request_id": "<fresh uuid>",
   "block_id": 1,
   "name": "Hypertrophy 1",
-  "intent": "<the founding statement — see tasks/programming>",
+  "intent": "<the plan itself — contents specified in tasks/programming>",
   "planned_weeks": 5,
   "sessions_per_week": 3,
   "started_on": "2026-08-10",
@@ -37,27 +40,20 @@ POST /mesocycles
       "exercise": "squat",
       "role": "main",
       "priority": 1,
-      "notes": "per-exercise prose — rep intention, cues, constraints",
-      "weekly_sets": [ { "week": 1, "sets": 10 }, { "week": 2, "sets": 10 } ],
-      "load_target": {
-        "target_weight_kg": 110, "target_reps": 5,
-        "baseline_weight_kg": 100, "baseline_reps": 5, "by_week": 5
-      }
+      "notes": "per-exercise prose — rep intention, cues, constraints"
     }
   ]
 }
 ```
 
 - Only one mesocycle can be active. End the old one first or the create is rejected.
-- `weekly_sets` takes any shape — flat, ramped, waved, deload-low. `sets: 0` keeps an
-  exercise in the plan through a week it isn't trained.
-- `load_target` is optional, one per exercise, mesocycle level only — never per week.
-  The baseline cannot be reconstructed later: write it once, at creation.
+- `started_on` must be a Monday; mesocycles run whole weeks, Monday–Sunday.
 - `sessions_per_week` is an input to session generation, not a weekly schedule.
 
 ## Revising mid-mesocycle
 
-One all-or-nothing call, refused without its decision:
+One all-or-nothing call, refused without its decision. It can change the exercise
+list, replace the intent, or both:
 
 ```json
 POST /mesocycles/current/revisions
@@ -66,10 +62,12 @@ POST /mesocycles/current/revisions
   "decision": { "what_changed": "...", "why": "..." },
   "remove": ["back squat"],
   "add": [ { "...": "same shape as a creation entry" } ],
-  "weekly_sets": [ { "exercise": "leg press", "week": 4, "sets": 12 } ],
-  "load_targets": [ { "exercise": "leg press", "target_weight_kg": 180, "target_reps": 8 } ]
+  "intent": "<optional: the full replacement intent>"
 }
 ```
+
+`intent`, when present, replaces the whole text — never a fragment. The revision
+records the prior intent in the decision log, so history is never lost.
 
 Ending: `PATCH /mesocycles/:id` with `ended_on`. Recording a review that changes
 nothing: `POST /mesocycles/:id/decisions` with `what_changed` and `why`.
