@@ -45,8 +45,10 @@ same call).
 2. **Before doing a task, fetch the document for it**: `GET /docs/index` lists
    every document, what it covers, and when to fetch it. Fetch the one that
    matches; follow what it says over your general knowledge. In particular,
-   never create or change a plan without `/docs/programming`, and never write a
-   session without `/docs/session-generation`.
+   never create or change a plan without `/docs/programming`, never write a
+   session without `/docs/session-generation`, and when a task depends on the
+   training goal, also fetch the method document the index lists for it (e.g.
+   `/docs/method/hypertrophy`).
 3. **Record what you learn.** When Marco says something with lasting relevance —
    an injury, a preference, a goal shift — write it to user context as
    `/docs/logging` instructs, in the same conversation.
