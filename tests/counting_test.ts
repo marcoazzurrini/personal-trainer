@@ -42,29 +42,15 @@ Deno.test("counting rules", async (t) => {
     request_id: uuid(),
     block_id: block.body.block.id,
     name: "Counting meso",
-    intent: "testing the counters",
+    intent:
+      "Testing the counters. Weekly dose: squat 6 then 8, split squat 4, box jumps 3.",
     planned_weeks: 4,
     sessions_per_week: 2,
     started_on: lastMonday(),
     exercises: [
-      {
-        exercise: "squat",
-        role: "main",
-        priority: 1,
-        weekly_sets: [{ week: 1, sets: 6 }, { week: 2, sets: 8 }],
-      },
-      {
-        exercise: "deficit split squat",
-        role: "accessory",
-        priority: 2,
-        weekly_sets: [{ week: 1, sets: 4 }, { week: 2, sets: 4 }],
-      },
-      {
-        exercise: "box jumps",
-        role: "accessory",
-        priority: 3,
-        weekly_sets: [{ week: 1, sets: 3 }, { week: 2, sets: 3 }],
-      },
+      { exercise: "squat", role: "main", priority: 1 },
+      { exercise: "deficit split squat", role: "accessory", priority: 2 },
+      { exercise: "box jumps", role: "accessory", priority: 3 },
     ],
   });
 
@@ -140,11 +126,12 @@ Deno.test("counting rules", async (t) => {
   await t.step("training-state ties it together", async () => {
     const { body } = await api.get("/training-state");
     assertEquals(body.mesocycle.week, 2);
+    assert(body.mesocycle.intent.includes("Weekly dose")); // the plan is here
 
     const squat = body.exercises.find(
       (e: { exercise: string }) => e.exercise === "Back Squat",
     );
-    assertEquals(squat.planned_sets_this_week, 8);
+    assertEquals(squat.planned_sets_this_week, undefined); // no planned numbers
     assertEquals(squat.sets_done_this_week, 1);
     assertEquals(squat.days_since_trained, 0);
 
@@ -157,9 +144,11 @@ Deno.test("counting rules", async (t) => {
     assertEquals(body.recent_weeks.length, 1);
     const week1 = body.recent_weeks[0];
     assertEquals(week1.week, 1);
-    assertEquals(week1.working_sets_planned, 10); // 6 squat + 4 split, no power
+    assertEquals(week1.working_sets_planned, undefined); // delivered side only
     assertEquals(week1.working_sets_done, 3);
     assertEquals(week1.sessions_done, 1);
+
+    assertEquals(body.recent_decisions, []); // present, and empty so far
 
     const recent = body.recent_sessions[0];
     assertEquals(recent.date, today());

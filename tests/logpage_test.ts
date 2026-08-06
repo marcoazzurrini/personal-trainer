@@ -26,12 +26,7 @@ Deno.test("log page namespace", async (t) => {
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
-    exercises: [{
-      exercise: "squat",
-      role: "main",
-      priority: 1,
-      weekly_sets: [{ week: 1, sets: 5 }, { week: 2, sets: 5 }],
-    }],
+    exercises: [{ exercise: "squat", role: "main", priority: 1 }],
   });
   const session = await api.post("/sessions", {
     date: today(),

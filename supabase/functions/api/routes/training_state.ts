@@ -36,12 +36,10 @@ trainingState.get("/", async (c) => {
 
   const week = meso.week < 1 ? null : meso.week;
 
-  // The fixed list with, per exercise: this week's plan, this week's delivery
-  // so far, and staleness.
+  // The fixed list with, per exercise: this week's delivery so far and
+  // staleness. The planned dose lives in the intent, not here.
   const exercises = await sql`
     select e.name as exercise, me.role, me.priority, me.notes,
-      (select ws.sets from mesocycle_weekly_exercise_sets ws
-       where ws.mesocycle_exercise_id = me.id and ws.week = ${week}) as planned_sets_this_week,
       (select count(*)::int from sets t
        join sessions s on s.id = t.session_id
        where t.exercise_id = me.exercise_id and t.kind = 'working'
@@ -61,15 +59,10 @@ trainingState.get("/", async (c) => {
     where s.mesocycle_id = ${meso.id} and s.date >= ${clock.week_start}
       and exists (select 1 from sets t where t.session_id = s.id and t.reps is not null)`;
 
-  // The last few finished weeks: planned against delivered, and sessions.
+  // The last few finished weeks: what was delivered. Judging it against the
+  // intent's dose (and the decision log's adjustments) is the coach's job.
   const recentWeeks = week === null ? [] : await sql`
     select g.w as week,
-      coalesce((select sum(ws.sets)::int
-        from mesocycle_weekly_exercise_sets ws
-        join mesocycle_exercises me on me.id = ws.mesocycle_exercise_id
-        join exercises e on e.id = me.exercise_id
-        where me.mesocycle_id = ${meso.id} and ws.week = g.w
-          and e.stimulus_type = 'strength'), 0) as working_sets_planned,
       coalesce((select sum(v.sets_done)::int
         from weekly_exercise_sets_done v
         where v.mesocycle_id = ${meso.id} and v.week = g.w), 0) as working_sets_done,
@@ -98,6 +91,15 @@ trainingState.get("/", async (c) => {
     order by s.date desc, s.id desc
     limit 5`;
 
+  // Session generation reads these: a backed-off lift or a declared light
+  // week changes what today's session should ask for.
+  const recentDecisions = await sql`
+    select id, made_at, what_changed, why
+    from mesocycle_decisions
+    where mesocycle_id = ${meso.id}
+    order by made_at desc, id desc
+    limit 5`;
+
   return c.json({
     today: clock.today,
     mesocycle: {
@@ -115,6 +117,7 @@ trainingState.get("/", async (c) => {
     },
     recent_weeks: recentWeeks,
     recent_sessions: recentSessions,
+    recent_decisions: recentDecisions,
     user_context: userContext,
   });
 });

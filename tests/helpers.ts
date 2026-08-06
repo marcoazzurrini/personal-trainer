@@ -46,8 +46,7 @@ export async function resetTraining() {
   const db = postgres(DB_URL);
   try {
     await db`
-      truncate table sets, sessions, mesocycle_load_targets,
-        mesocycle_weekly_exercise_sets, mesocycle_decisions,
+      truncate table sets, sessions, mesocycle_decisions,
         mesocycle_exercises, mesocycles, blocks, user_context, bodyweight
       restart identity`;
   } finally {

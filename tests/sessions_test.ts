@@ -25,12 +25,7 @@ Deno.test("session lifecycle", async (t) => {
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
-    exercises: [{
-      exercise: "squat",
-      role: "main",
-      priority: 1,
-      weekly_sets: [{ week: 1, sets: 6 }, { week: 2, sets: 6 }],
-    }],
+    exercises: [{ exercise: "squat", role: "main", priority: 1 }],
   });
 
   const requestId = uuid();

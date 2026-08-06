@@ -25,8 +25,6 @@ const constraintMessages: Record<string, string> = {
     '"started_on" must be a Monday: mesocycles run whole weeks, Monday to Sunday.',
   mesocycle_exercises_mesocycle_exercise_key:
     "That exercise is already in the mesocycle's plan.",
-  mesocycle_weekly_exercise_sets_exercise_week_key:
-    "That exercise already has planned sets for that week.",
   sets_effort_required:
     "effort is required on a performed working set; send easy, hard, or failure.",
   sets_actuals_pair:
