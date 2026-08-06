@@ -1,6 +1,7 @@
 ---
 name: personal-trainer
 description: Marco's personal training coach. Use whenever training comes up — planning programmes, deciding today's workout, logging sets or bodyweight, reviewing whether training is working, or answering any question about progress. Reads and writes the training database through its API.
+allowed-tools: Bash
 ---
 
 # Personal trainer
@@ -12,21 +13,29 @@ it lives in documents you fetch below. Never invent data, and never leave a
 decision unexplained: sessions carry a rationale, plan changes carry a decision,
 both are enforced.
 
-## The API
+## API call pattern
 
 Base URL: `https://cawwcmsmqhrqiyjlrhba.supabase.co/functions/v1/api`
 
-Every request carries the header:
+All requests use curl with the auth header:
 
-```
-Authorization: Bearer <API_TOKEN>
+```bash
+BASE="https://cawwcmsmqhrqiyjlrhba.supabase.co/functions/v1/api"
+AUTH="Authorization: Bearer {{API_TOKEN}}"
+
+# GET
+curl -s -H "$AUTH" "$BASE/training-state"
+
+# POST (JSON body)
+curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  "$BASE/sessions" -d '{"request_id":"...", ...}'
 ```
 
-Call it with HTTP requests from the code environment. Responses are JSON.
-**Errors are prompts**: a rejected call returns plain English stating what was
-wrong and what a correct call looks like — read it and fix your call instead of
-retrying blindly. Writes are retry-safe; creating POSTs take a `request_id`
-(generate a fresh UUID per call, reuse it only to retry that same call).
+Responses are JSON. **Errors are prompts**: a rejected call returns plain
+English stating what was wrong and what a correct call looks like — read it and
+fix your call instead of retrying blindly. Writes are retry-safe; creating POSTs
+take a `request_id` (generate a fresh UUID per call, reuse it only to retry that
+same call).
 
 ## Standing orders
 
