@@ -1,30 +1,27 @@
 import { Hono } from "@hono/hono";
+import { isDocName } from "../lib/doc_names.ts";
 import { ApiError } from "../lib/errors.ts";
 
 // The skill's documents, bundled with the function and served as markdown.
 // The whole point: updating the coach's knowledge is a git push.
-const NAMES = [
-  "index",
-  "programming",
-  "session-generation",
-  "logging",
-  "evaluation",
-  "charts",
-  "method/hypertrophy",
-];
+// No allowlist — any file merged into docs/ serves on the next deploy;
+// isDocName admits no dots, so a crafted path can never leave the folder.
 
 export const docs = new Hono();
 
 // Wildcard, not :name — document names can contain slashes (method/…).
 docs.get("/*", async (c) => {
   const raw = c.req.path.split("/docs/")[1] ?? "";
-  const name = decodeURIComponent(raw);
-  // NAMES is a closed list, so a crafted path can never reach the filesystem;
-  // the explicit traversal check is belt and braces.
-  if (name.includes("..") || name.startsWith("/") || !NAMES.includes(name)) {
+  let name: string;
+  try {
+    name = decodeURIComponent(raw);
+  } catch {
+    throw new ApiError(404, `"${raw}" is not a document name.`);
+  }
+  if (!isDocName(name)) {
     throw new ApiError(
       404,
-      `No document "${name}". Available: ${NAMES.join(", ")}.`,
+      `"${name}" is not a document name (lowercase words, hyphens, slashes). GET /api/docs/index lists the documents.`,
     );
   }
   try {
@@ -33,6 +30,9 @@ docs.get("/*", async (c) => {
     );
     return c.text(text);
   } catch {
-    throw new ApiError(404, `"${name}" is not written yet.`);
+    throw new ApiError(
+      404,
+      `No document "${name}". GET /api/docs/index lists the documents.`,
+    );
   }
 });

@@ -53,11 +53,10 @@ Deno.test("skill documents", async (t) => {
     assert(text.includes("method/hypertrophy"));
   });
 
-  await t.step("an unknown document lists what exists", async () => {
+  await t.step("an unknown document points at the index", async () => {
     const { status, body } = await api.get("/docs/nope");
     assertEquals(status, 404);
-    assert(body.error.includes("programming"));
-    assert(body.error.includes("method/hypertrophy"));
+    assert(body.error.includes("/docs/index"));
   });
 
   await t.step("traversal-looking paths are rejected", async () => {
