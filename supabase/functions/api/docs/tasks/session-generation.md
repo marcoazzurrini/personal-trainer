@@ -7,7 +7,8 @@ the day the person actually has.
 
 **`GET /training-state`.** It holds the mesocycle's intent, the exercise list with
 priorities and notes, the sets delivered so far this week, days since
-each exercise was last trained, recent sessions with their rationales, and user context.
+each exercise was last trained, recent sessions with their rationales, recent
+decisions, and user context.
 
 Read the intent first — it is the plan: the weekly dose per exercise, the load
 goals, and the progression mechanism all live in its text, so nothing about today

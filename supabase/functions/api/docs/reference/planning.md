@@ -67,7 +67,9 @@ POST /mesocycles/current/revisions
 ```
 
 `intent`, when present, replaces the whole text — never a fragment. The revision
-records the prior intent in the decision log, so history is never lost.
+records the replaced text on its decision row (`prior_intent` in
+`GET /mesocycles/:id/decisions`), so history is never lost. Changing the intent any
+other way is refused — it is the plan, and plans change only with a decision.
 
 Ending: `PATCH /mesocycles/:id` with `ended_on`. Recording a review that changes
 nothing: `POST /mesocycles/:id/decisions` with `what_changed` and `why`.
