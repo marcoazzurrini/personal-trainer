@@ -4,8 +4,8 @@ Establishing who the person is before anything gets programmed. Fetch this when
 `training-state` comes back with no active mesocycle and little or no user context —
 the first conversation, or a return after a long gap has made everything stale.
 
-The goal is not a filled form. It is enough true context that `programming` can build
-a plan that fits this person, written where the next conversation will find it.
+The goal is not a filled form. It is enough true context that `tasks/programming` can
+build a plan that fits this person, written where the next conversation will find it.
 Payload shapes for what gets written: `reference/tracking`.
 
 ## The stance
@@ -15,7 +15,7 @@ Payload shapes for what gets written: `reference/tracking`.
   conversation gets the detail that matters — "three sessions a week" means something
   different from "three, but Thursdays usually die".
 - **Write as you go.** Each answer with lasting relevance goes to user-context in the
-  same turn it arrives, under a durable topic string (`logging` holds the
+  same turn it arrives, under a durable topic string (`tasks/logging` holds the
   discipline). Never batch the writes for the end — the conversation may not reach
   the end.
 - **Don't ask what you can read.** `training-state` and the exercise catalogue are
@@ -45,7 +45,7 @@ In order of what blocks programming, with why each matters:
 7. **A first bodyweight**, if they know it. One measurement starts the chart.
 
 Everything else — spacing quirks, exercise preferences, how they respond to volume —
-arrives on its own over the following weeks, and `logging` catches it then. Don't
+arrives on its own over the following weeks, and `tasks/logging` catches it then. Don't
 front-load questions the record will answer better.
 
 ## Baselines without a testing week
