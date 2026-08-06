@@ -4,6 +4,7 @@ import { ApiError } from "../lib/errors.ts";
 // The skill's documents, bundled with the function and served as markdown.
 // The whole point: updating the coach's knowledge is a git push.
 const NAMES = [
+  "index",
   "programming",
   "session-generation",
   "logging",
