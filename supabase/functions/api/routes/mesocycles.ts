@@ -26,8 +26,6 @@ interface PlanExercise {
   exerciseId: number;
   role: string;
   priority: number;
-  repLow: number | null;
-  repHigh: number | null;
   notes: string | null;
   weeklySets: { week: number; sets: number }[];
   loadTarget: {
@@ -50,14 +48,6 @@ async function parsePlanExercise(
   }
   const e = entry as Body;
   const exerciseId = await resolveExerciseId(e.exercise);
-  const repLow = optionalInt(e, "rep_low", { min: 1 });
-  const repHigh = optionalInt(e, "rep_high", { min: 1 });
-  if ((repLow === null) !== (repHigh === null)) {
-    throw new ApiError(
-      422,
-      'A rep range is a pair: send both "rep_low" and "rep_high", or neither.',
-    );
-  }
 
   const weeklyRaw = e.weekly_sets;
   if (!Array.isArray(weeklyRaw) || weeklyRaw.length === 0) {
@@ -122,8 +112,6 @@ async function parsePlanExercise(
     exerciseId,
     role: requireOneOf(e, "role", ROLES),
     priority: requireInt(e, "priority", { min: 1 }),
-    repLow,
-    repHigh,
     notes: optionalString(e, "notes"),
     weeklySets,
     loadTarget,
@@ -137,10 +125,9 @@ async function insertPlanExercise(
 ) {
   const [me] = await tx`
     insert into mesocycle_exercises
-      (mesocycle_id, exercise_id, role, priority, rep_low, rep_high, notes)
+      (mesocycle_id, exercise_id, role, priority, notes)
     values
-      (${mesocycleId}, ${p.exerciseId}, ${p.role}, ${p.priority},
-       ${p.repLow}, ${p.repHigh}, ${p.notes})
+      (${mesocycleId}, ${p.exerciseId}, ${p.role}, ${p.priority}, ${p.notes})
     returning id`;
   for (const { week, sets } of p.weeklySets) {
     await tx`
@@ -169,7 +156,7 @@ async function mesocycleDetail(id: number) {
     from mesocycles where id = ${id}`;
   const exercises = await sql`
     select me.id, e.id as exercise_id, e.name as exercise, me.role, me.priority,
-      me.rep_low, me.rep_high, me.notes,
+      me.notes,
       coalesce(
         (select json_agg(json_build_object('week', ws.week, 'sets', ws.sets)
           order by ws.week)
@@ -225,7 +212,7 @@ mesocycles.post("/", async (c) => {
   if (!Array.isArray(body.exercises) || body.exercises.length === 0) {
     throw new ApiError(
       422,
-      'A mesocycle arrives complete: "exercises" must be a non-empty array of {exercise, role, priority, rep_low?, rep_high?, notes?, weekly_sets, load_target?}.',
+      'A mesocycle arrives complete: "exercises" must be a non-empty array of {exercise, role, priority, notes?, weekly_sets, load_target?}.',
     );
   }
   const plan: PlanExercise[] = [];

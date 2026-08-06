@@ -36,8 +36,7 @@ trainingState.get("/", async (c) => {
   // The fixed list with, per exercise: this week's plan, this week's delivery
   // so far, and staleness.
   const exercises = await sql`
-    select e.name as exercise, me.role, me.priority, me.rep_low, me.rep_high,
-      me.notes,
+    select e.name as exercise, me.role, me.priority, me.notes,
       (select ws.sets from mesocycle_weekly_exercise_sets ws
        where ws.mesocycle_exercise_id = me.id and ws.week = ${week}) as planned_sets_this_week,
       (select count(*)::int from sets t

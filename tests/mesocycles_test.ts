@@ -22,8 +22,6 @@ function planBody(requestId: string, blockId: number) {
         exercise: "squat",
         role: "main",
         priority: 1,
-        rep_low: 5,
-        rep_high: 8,
         weekly_sets: [
           { week: 1, sets: 10 },
           { week: 2, sets: 12 },

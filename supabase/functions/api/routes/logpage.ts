@@ -47,7 +47,7 @@ logPage.get("/:publicId", async (c) => {
     select t.id, t.exercise_id, e.name as exercise, t.position, t.kind,
       t.target_weight_kg::float8, t.target_reps,
       t.weight_kg::float8, t.reps, t.effort, t.notes,
-      me.rep_low, me.rep_high
+      me.notes as plan_notes
     from sets t
     join exercises e on e.id = t.exercise_id
     left join mesocycle_exercises me
@@ -380,7 +380,7 @@ const byExercise = [];
 for (const s of DATA.sets) {
   const last = byExercise[byExercise.length - 1];
   if (last && last.exercise_id === s.exercise_id) last.sets.push(s);
-  else byExercise.push({ exercise_id: s.exercise_id, name: s.exercise, rep_low: s.rep_low, rep_high: s.rep_high, sets: [s] });
+  else byExercise.push({ exercise_id: s.exercise_id, name: s.exercise, plan_notes: s.plan_notes, sets: [s] });
 }
 let maxPosition = Math.max(0, ...DATA.sets.map((s) => s.position));
 
@@ -522,7 +522,7 @@ $("select", addWrap).addEventListener("change", (ev) => {
   const id = Number(ev.target.value);
   if (!id) return;
   const name = DATA.catalogue.find((e) => e.id === id).name;
-  const group = { exercise_id: id, name, rep_low: null, rep_high: null, sets: [] };
+  const group = { exercise_id: id, name, plan_notes: null, sets: [] };
   const card = exerciseCard(group);
   app.insertBefore(card, addWrap);
   $(".ghost", card).click();
