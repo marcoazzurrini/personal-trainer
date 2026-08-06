@@ -13,7 +13,8 @@
   },
   "fmt": {
     "exclude": [
-      "docs/"
+      "docs/",
+      "supabase/functions/api/docs/"
     ]
   }
 }

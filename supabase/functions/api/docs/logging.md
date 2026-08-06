@@ -1,70 +1,90 @@
 # Logging
 
-Recording facts from conversation. The log page is the primary way to log a live
-workout; chat logging exists for everything the page doesn't cover.
+Recording facts the person reports in chat. The log page is the primary way to capture a
+live workout; chat logging covers everything the page doesn't.
 
-## A workout the user forgot to log (retro session)
+## A workout that never got logged (retro session)
 
-`POST /sessions` with a past `date`, a `rationale` (say it was retro-logged and
-why the session happened), and `sets` carrying actuals:
+`POST /sessions` with a past `date`, a `rationale` saying it was retro-logged and why the
+session happened, and `sets` carrying actuals:
 
 ```json
 {
   "request_id": "<fresh uuid>",
   "date": "2026-08-04",
-  "rationale": "Retro-logged: trained Tuesday, forgot to log.",
+  "rationale": "Retro-logged: trained Tuesday at a friend's gym, forgot to log.",
   "sets": [
-    { "exercise": "squat", "weight_kg": 100, "reps": 6, "effort": "hard" },
-    { "exercise": "squat", "kind": "warmup", "weight_kg": 60, "reps": 5 }
+    { "exercise": "squat", "kind": "warmup", "weight_kg": 60, "reps": 5 },
+    { "exercise": "squat", "weight_kg": 100, "reps": 6, "effort": "hard" }
   ]
 }
 ```
 
-- Never invent targets for a retro session. A target means "what was asked
-  before the work"; a forgotten session had no ask. The API rejects a set
-  carrying both targets and actuals.
-- `effort` is required on every performed working set: `easy`, `hard`, or
-  `failure`. If the user didn't say, ask — don't guess.
-- Warmups get `"kind": "warmup"` and no effort.
+**Never invent targets for a retro session.** A target means "what was asked before the
+work"; a forgotten session had no ask. The API rejects a set carrying both targets and
+actuals, and the rejection is protecting the distinction — without it you could no longer
+tell a session that went to plan from one that didn't.
+
+## Effort is not optional
+
+`effort` is required on every performed working set: `easy`, `hard`, or `failure`. Warmups
+get `"kind": "warmup"` and no effort.
+
+If the person didn't say, **ask — don't guess**. Effort is the primary input to every load
+decision that follows; a guessed chip quietly corrupts the next month of programming, and
+nothing downstream can tell it apart from a real one.
+
+People report this more accurately when the question is concrete. "How many more could you
+have done?" works better than "how hard was that?". Anchor the answers:
+
+- **four or more left** → `easy`
+- **one to three left** → `hard`
+- **nothing left, or the last rep broke down** → `failure`
+
+Estimates are sharpest near failure and vaguest far from it, so a report of `easy` is
+worth trusting in direction even when the person can't say by how much.
 
 ## Corrections
 
-"That was 8 reps, not 9" → `PATCH /sets/:id` with the corrected fields. Find the
-set id through `GET /sessions/:id`. Targets can never be edited — they are the
-record of what was asked.
+"That was 8 reps, not 9" → `PATCH /sets/:id` with the corrected fields. Find the set id
+through `GET /sessions/:id`. Targets can never be edited.
 
-Extra sets done but not logged → `POST /sessions/:id/sets` with actuals.
+Extra sets performed but not logged → `POST /sessions/:id/sets` with actuals.
 
-Session-level facts (notes, how it felt, completion) → `PATCH /sessions/:id`.
+Session-level facts — notes, how it felt overall, completion → `PATCH /sessions/:id`.
 
 ## User context
 
-Anything true about the person that the database should remember: goals,
-injuries, preferences, equipment, refusals, spacing needs. This arrives
-constantly and in no fixed shape — when the user says something with lasting
-relevance, write it.
+Anything true about the person that should outlive this conversation: goals, injuries,
+preferences, equipment, refusals, spacing needs, how they're eating. This arrives
+constantly and in no fixed shape. When they say something with lasting relevance, write it
+in the same conversation — the next conversation has no other way to learn it.
 
-1. First `GET /user-context` and reuse the existing topic string. "lower back"
-   and "lumbar" must not become two live topics.
-2. `POST /user-context` with `{ "topic": "...", "content": "..." }`. Rows are
-   never edited: correcting a fact means writing a new row on the same topic.
-   The latest row per topic is the current truth.
+1. **First `GET /user-context`** and reuse an existing topic string. "lower back" and
+   "lumbar" must not become two live topics saying different things.
+2. `POST /user-context` with `{ "topic": "...", "content": "..." }`. Rows are never
+   edited: correcting a fact means writing a new row on the same topic, and the latest row
+   per topic is the current truth.
 3. Retiring a topic means writing a final row saying it no longer applies.
 
-Do not write session summaries or plan reasoning here. Session reasoning lives
-in `sessions.rationale`; plan reasoning lives in the mesocycle's intent and
-decisions.
+Worth catching in particular, because they change what the numbers mean: what hurts and
+under what conditions, what equipment came or went, whether they're eating to grow or in a
+deficit, and any exercise they've decided they won't do.
+
+Do not write session summaries or plan reasoning here. Session reasoning lives in
+`sessions.rationale`; plan reasoning lives in the mesocycle's intent and decisions. Keeping
+them apart is what makes each one findable.
 
 ## Bodyweight
 
 `POST /bodyweight` with `{ "value_kg": 82.5, "measured_at": "<iso timestamp>" }`
-(`measured_at` defaults to now). Resending the same measurement is safe; a
-different value for the same instant is rejected — ask the user which is right.
+(`measured_at` defaults to now). Resending the same measurement is safe; a different value
+for the same instant is rejected — ask which is right rather than picking one.
 
-## API conventions that apply here
+## Conventions that apply throughout
 
-- Every creating POST takes a `request_id`: generate a fresh UUID per call.
-  Retrying with the same id can never duplicate.
-- Exercises resolve by id, name, or alias, case-insensitively. If a name doesn't
-  resolve, the error lists what to do; only add a genuinely new exercise
-  (`POST /exercises`), never a synonym of an existing one.
+- Every creating POST takes a `request_id`: generate a fresh UUID per call. Retrying with
+  the same id can never duplicate, so a retry is always safe.
+- Exercises resolve by id, name, or alias, case-insensitively. If a name doesn't resolve,
+  the error says what to do. Only add a genuinely new exercise (`POST /exercises`) — never
+  a synonym of one that exists, which would split its history in two.

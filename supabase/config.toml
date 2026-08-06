@@ -418,7 +418,7 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/api/deno.json"
 # The skill's documents ship inside the function; a git push updates them.
-static_files = ["./functions/api/docs/*.md"]
+static_files = ["./functions/api/docs/*.md", "./functions/api/docs/method/*.md"]
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/api/index.ts"
