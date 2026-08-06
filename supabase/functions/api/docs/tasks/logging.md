@@ -1,8 +1,9 @@
 # Logging
 
 Recording facts the person reports in chat. The log page is the primary way to capture a
-live workout; chat logging covers everything the page doesn't. Payload shapes and
-endpoint details are in `api-reference`.
+live workout; chat logging covers everything the page doesn't. Payload shapes are in
+`reference/sessions` (sessions, sets, corrections) and `reference/tracking` (user
+context, bodyweight).
 
 ## A workout that never got logged (retro session)
 

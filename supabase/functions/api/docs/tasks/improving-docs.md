@@ -31,13 +31,17 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   "$BASE/docs-proposals" -d '{
     "title": "Session generation: drop the fixed warmup count",
     "rationale": "Why, with the evidence. This becomes the PR description Marco reads.",
-    "changes": [{"path": "session-generation", "content": "the FULL new markdown"}]
+    "changes": [{"path": "tasks/session-generation", "content": "the FULL new markdown"}]
   }'
 ```
 
 Rules:
 
 - One topic per proposal; a reviewable diff beats a rewrite.
+- Documents live in folders by register — `tasks/` (procedure), `reference/`
+  (API mechanics), `method/` (coaching model) — and a proposal should respect
+  that: procedure changes go to the task document, schema facts to the
+  reference document, coaching model to the method document.
 - `{"path": "...", "delete": true}` removes a document; a new `path` creates one.
   When creating or deleting, update `index` in the same proposal so the index
   stays true.

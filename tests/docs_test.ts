@@ -18,15 +18,31 @@ Deno.test("skill documents", async (t) => {
     const text = await res.text();
     for (
       const name of [
-        "programming",
-        "session-generation",
-        "logging",
-        "evaluation",
-        "charts",
+        "tasks/programming",
+        "tasks/session-generation",
+        "tasks/logging",
+        "tasks/evaluation",
+        "tasks/charts",
+        "tasks/improving-docs",
+        "reference/planning",
+        "reference/sessions",
+        "reference/exercises",
+        "reference/tracking",
       ]
     ) {
       assert(text.includes(name), `index should mention ${name}`);
     }
+  });
+
+  await t.step("a reference document serves from its folder", async () => {
+    const res = await fetch(`${BASE}/docs/reference/sessions`, {
+      headers: {
+        Authorization: `Bearer ${(await import("./helpers.ts")).TOKEN}`,
+      },
+    });
+    assertEquals(res.status, 200);
+    const text = await res.text();
+    assert(text.includes("targets or actuals, never both"));
   });
 
   await t.step(

@@ -6,8 +6,8 @@ Two registers, kept apart on purpose: **what the API can express** — facts abo
 schema, which any methodology fits — and **how to decide what goes in it**, which belongs
 to the method document for this mesocycle's goal. Neither should be mistaken for the
 other. A schema fact is not a coaching opinion, and a coaching opinion is not a
-constraint. The schema facts and payload shapes live in `api-reference`; fetch it
-before writing.
+constraint. The schema facts and payload shapes live in `reference/planning`; fetch it
+before writing (and `reference/exercises` if a new lift must enter the catalogue).
 
 ## Before deciding anything
 
@@ -28,7 +28,7 @@ fitting nobody.
 
 ## What the API can express
 
-The shapes are in `api-reference`; what matters for planning:
+The shapes are in `reference/planning`; what matters for planning:
 
 - A **block** groups mesocycles that share a goal. Thin on purpose.
 - A **mesocycle** holds the plan and arrives complete in one call — a partial plan
@@ -81,7 +81,7 @@ later, the week simply comes up short, and the record says so.
 
 One call, all-or-nothing, and refused without its decision — there is no way to change
 the plan without saying why (`POST /mesocycles/current/revisions`; shape in
-`api-reference`).
+`reference/planning`).
 
 Plan tables hold only what is currently true. History lives in the decision log
 (`GET /mesocycles/:id/decisions`), and a review that changes nothing is still recorded

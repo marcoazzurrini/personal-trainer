@@ -11,35 +11,57 @@ Two reflexes replace memory:
 1. **Start any training conversation with `GET /training-state`.** It is the complete
    current picture — plan, week, what's been done, staleness, user context. Past chats
    are not a source.
-2. **Before doing a task, fetch its document** at the endpoint in the tables below —
-   same base URL and token as this one. What a document says overrides your general
-   knowledge. Fetch what the task needs; don't fetch what it doesn't.
+2. **Before doing a task, fetch its documents** — the task document from the first
+   table and, before any write, the reference document for the endpoint family it
+   touches (task documents name the ones they need). What a document says overrides
+   your general knowledge. Fetch what the task needs; don't fetch what it doesn't.
 
-## Task documents
+## Conventions that apply to every call
 
-One per thing a coach does. Each holds the procedure and the endpoints it uses.
+- Every creating POST takes a `request_id`: a fresh UUID per call. Retrying with the
+  same id can never duplicate, so a retry is always safe. Reuse an id only to retry
+  that same call.
+- **Errors are prompts.** A rejected call returns plain English stating what was
+  wrong. Read it and fix the call instead of retrying blindly.
+- Exercises resolve by id, name, or alias, case-insensitively. If a name doesn't
+  resolve, the error says what to do. Only add a genuinely new exercise — never a
+  synonym of one that exists, which would split its history in two.
+- `current` works anywhere a mesocycle id goes.
+- Weeks run Monday–Sunday, Europe/Rome. Mesocycles start on a Monday and run whole
+  weeks.
+- Weekly reads return finished weeks only; the current week is never blended in.
+  Don't work around this.
 
-| Endpoint                        | Fetch when                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------- |
-| `GET /docs/programming`         | Creating or changing a mesocycle — anything that touches the plan                           |
-| `GET /docs/session-generation`  | Marco asks what to do today                                                                 |
-| `GET /docs/logging`             | Something needs writing down: sessions done off-app, corrections, lasting facts, bodyweight |
-| `GET /docs/evaluation`          | Reviews and "is this working?" questions                                                    |
-| `GET /docs/charts`              | Marco asks to see progress                                                                  |
-| `GET /docs/improving-docs`      | A document has proven wrong or incomplete in practice                                       |
+## Task documents — the procedure and the judgment
 
-## API reference
+One per thing a coach does.
 
-`GET /docs/api-reference` — the mechanics: conventions (idempotency, exercise
-resolution, week boundaries), every endpoint, payload shapes, and field values.
-Fetch it before any write, and whenever a read's parameters or shape matter. Task
-documents assume you have it when they mention an endpoint.
+| Endpoint                             | Fetch when                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `GET /docs/tasks/programming`        | Creating or changing a mesocycle — anything that touches the plan                           |
+| `GET /docs/tasks/session-generation` | Marco asks what to do today                                                                 |
+| `GET /docs/tasks/logging`            | Something needs writing down: sessions done off-app, corrections, lasting facts, bodyweight |
+| `GET /docs/tasks/evaluation`         | Reviews and "is this working?" questions                                                    |
+| `GET /docs/tasks/charts`             | Marco asks to see progress                                                                  |
+| `GET /docs/tasks/improving-docs`     | A document has proven wrong or incomplete in practice                                       |
 
-## Method documents
+## Reference documents — endpoints, payloads, field values
 
-One per training goal. They hold the coaching model: what drives the adaptation, how
-to dose it, how to read whether it is happening. Every task document defers to the
-method document for the current mesocycle's goal, so fetch that one alongside.
+One per endpoint family: the exact shapes and schema rules. Fetch before writing to
+that family; the task documents point at the right one at the right moment.
+
+| Endpoint                            | Covers                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `GET /docs/reference/planning`      | Blocks, mesocycles, revisions, decisions                                  |
+| `GET /docs/reference/sessions`      | Sessions and sets: targets vs actuals, corrections, the log page          |
+| `GET /docs/reference/exercises`     | The exercise catalogue: creating exercises and muscles, history, `counts` |
+| `GET /docs/reference/tracking`      | Training state, weekly progress reads, user context, bodyweight           |
+
+## Method documents — the coaching model
+
+One per training goal: what drives the adaptation, how to dose it, how to read whether
+it is happening. Every task document defers to the method document for the current
+mesocycle's goal, so fetch that one alongside.
 
 | Endpoint                       | Goal                     |
 | ------------------------------ | ------------------------ |

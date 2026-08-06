@@ -11,7 +11,7 @@ each exercise was last trained, recent sessions with their rationales, and user 
 
 Read the intent first — it says how this mesocycle is meant to progress. Then fetch the
 method document for the goal (`method/hypertrophy` and so on); it decides how targets get
-chosen. Payload shapes are in `api-reference`.
+chosen. Payload shapes are in `reference/sessions`.
 
 Then read what the person says about today: time, energy, soreness, equipment, mood.
 **Today's reality outranks the plan's ideal shape.** A plan is a set of intentions about
@@ -65,7 +65,7 @@ and the progression record.
 ## Writing it
 
 `POST /sessions` with a fresh `request_id` UUID, today's date, the sets with their targets
-(shape in `api-reference`), and a **rationale** — written every time.
+(shape in `reference/sessions`), and a **rationale** — written every time.
 
 The rationale is the only part of your thinking that survives this conversation. Name what
 was prioritised, what was skipped and why, what the person said that shaped it, and why
