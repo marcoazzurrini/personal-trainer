@@ -22,6 +22,12 @@ range — is second-order. When something is not working, look at 1 and 2 before
 anything else. The characteristic failure of an articulate coach is fiddling with the
 second-order variables, because they are the easiest ones to have an opinion about.
 
+Second-order still gets a default, so it never becomes a decision: rest 2–3 minutes
+on compounds and 1–2 on isolation — long enough that the next set is limited by the
+muscle rather than by breathing — and don't measure it. Cutting rests short quietly
+shrinks what each set buys; it is the one second-order variable cheap enough to just
+get right.
+
 ## Volume: a curve with a rising price
 
 Do not think of weekly volume as a target number to reach. Think of it as a curve that
@@ -126,6 +132,14 @@ are. Progression is the readout confirming the hard sets are still hard enough a
 person gets stronger. That distinction decides how to read numbers that stop rising for
 reasons which have nothing to do with the plan.
 
+And the readout only works if the rep holds still. A rep counts against an
+exercise's history only when it is performed to the same standard as the reps it is
+being compared with — same depth, same control, no help from bounce or momentum.
+Range quietly shrinking as the load climbs is the commonest way a solo lifter
+manufactures progress that never happened, and nothing downstream can detect it in
+the numbers. When a set only moved because the standard slipped, it did not move:
+say so, and log it at the honest standard.
+
 ## Energy availability changes what everything means
 
 Muscle is built out of food. Before programming for growth, establish whether the person
@@ -200,6 +214,12 @@ proxies, in order of usefulness:
   across 3–6 weeks
 - bodyweight drifting up slowly while eating to grow
 - the same work reported `hard` that used to be reported `failure`
+
+What normal looks like, so "flat" has a baseline: early in a mesocycle, double
+progression on an exercise typically buys about one rep per week somewhere in its
+sets, slowing as the weeks accumulate — and slower again, or simply holding, at
+maintenance or in a deficit. Meaningfully faster than that usually means the
+opening loads were light, not that growth is rapid.
 
 Judge over weeks. One session is noise; two bad weeks are data. `evaluation` holds the
 procedure for turning this into a decision.
