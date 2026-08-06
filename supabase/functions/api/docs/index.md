@@ -1,7 +1,8 @@
 # Index
 
-One line per document. Fetch the one that matches the task; don't fetch what you
-don't need.
+Every document here is fetched the same way as this one: `GET /docs/<name>`,
+same base URL and bearer token. Fetch the one that matches the task; don't fetch
+what you don't need.
 
 - `programming` — creating or changing blocks and mesocycles: the methodology,
   and the endpoints that write plans. Fetch before deciding anything about the
