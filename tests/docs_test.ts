@@ -28,9 +28,33 @@ Deno.test("skill documents", async (t) => {
         "reference/sessions",
         "reference/exercises",
         "reference/tracking",
+        "tasks/nutrition-logging",
+        "tasks/nutrition-checkin",
+        "reference/nutrition",
+        "method/nutrition",
       ]
     ) {
       assert(text.includes(name), `index should mention ${name}`);
+    }
+  });
+
+  await t.step("every document the index names actually serves", async () => {
+    const token = (await import("./helpers.ts")).TOKEN;
+    const index = await fetch(`${BASE}/docs/index`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const text = await index.text();
+    // The index is the coach's map. A row pointing at a document that 404s
+    // sends it looking for a procedure that isn't there.
+    const named = [...text.matchAll(/GET \/docs\/([a-z0-9-]+\/[a-z0-9-]+)/g)]
+      .map((m) => m[1]);
+    assert(named.length >= 12);
+    for (const name of new Set(named)) {
+      const res = await fetch(`${BASE}/docs/${name}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      assertEquals(res.status, 200, `${name} should serve`);
+      await res.body?.cancel();
     }
   });
 

@@ -33,6 +33,27 @@ const constraintMessages: Record<string, string> = {
     "target_weight_kg and target_reps arrive together: send both or neither.",
   sets_effort_working_only: "Warmup sets do not carry effort.",
   sets_position_key: "That position in the session is already taken.",
+  foods_name_key:
+    "A food with that name already exists (names are case-insensitive). Fetch GET /api/foods?q=<part of the name> to see it — a second row for the same food splits its history the way a duplicate exercise splits a lift's. A synonym belongs in POST /api/foods/:ref/aliases.",
+  food_aliases_alias_key:
+    "That alias already points at a food (aliases are case-insensitive). GET /api/foods?q=<the alias> shows which.",
+  meals_name_key:
+    "A meal with that name already exists (names are case-insensitive). GET /api/meals lists them.",
+  meal_aliases_alias_key:
+    "That alias already points at a meal (aliases are case-insensitive). GET /api/meals shows which.",
+  meal_items_meal_food_key:
+    "That food is already in the meal. A second helping is more grams on the existing item, not a second row.",
+  intake_entries_food_grams_pair:
+    "food and grams arrive together: send both (a food entry) or neither (an ad-hoc entry with adhoc_kcal).",
+  intake_entries_food_macros_complete:
+    "A food entry stores the food's full macros as they were when logged. This one is missing protein, carbs, or fat — the food itself is probably incomplete.",
+  intake_entries_request_food_key:
+    "That request_id has already logged this food. Retrying with the same id is safe and did nothing; use a fresh id for a genuinely new entry.",
+  day_flags_day_flag_key: "That day already carries that flag.",
+  bodyfat_estimates_day_method_key:
+    "An estimate from that method is already recorded for that day.",
+  foods_source_check:
+    'source must be one of: label, crea, usda, off, estimate. Use "estimate" honestly rather than dressing a guess as a lookup — a disclosed estimate is fine, an invented number is not.',
 };
 
 export function errorResponse(err: unknown, c: Context): Response {

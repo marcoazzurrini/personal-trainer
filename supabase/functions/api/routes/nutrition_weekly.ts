@@ -1,0 +1,114 @@
+import { Hono } from "@hono/hono";
+import { sql } from "../db.ts";
+import { energyDensity, fatMassKg } from "../lib/expenditure.ts";
+import {
+  lastFinishedDay,
+  latestBodyfat,
+  loadTrend,
+} from "../lib/nutrition_read.ts";
+
+// Finished weeks only, like every other weekly read in this system: the
+// current week is never blended in, because a Tuesday's three logged days
+// would read as a collapse in intake.
+//
+// This is the evaluation surface for "is the cut working". Each row carries
+// what was eaten, what the trend did, and the expenditure that week implies
+// on its own. A single week's implied expenditure is noisy by construction —
+// it is here so a run of them can be read as a direction, not so any one of
+// them can be reacted to.
+
+export const nutritionWeekly = new Hono();
+
+nutritionWeekly.get("/", async (c) => {
+  const end = await lastFinishedDay();
+  const weeks = Number(c.req.query("weeks") ?? 8);
+  const trend = await loadTrend();
+  const bodyfat = await latestBodyfat();
+
+  const rows = await sql`
+    select
+      w.week_start,
+      (w.week_start + 6) as week_end,
+      (select count(distinct i.day)::int from intake_entries i
+       where i.day >= w.week_start and i.day <= w.week_start + 6)
+        as days_logged,
+      (select avg(d.kcal)::float8 from (
+         select i.day, sum(i.kcal) as kcal from intake_entries i
+         where i.day >= w.week_start and i.day <= w.week_start + 6
+           and not exists (select 1 from day_flags f
+                           where f.day = i.day and f.flag = 'incomplete')
+         group by i.day) d)
+        as mean_kcal,
+      (select avg(d.protein)::float8 from (
+         select i.day, sum(i.protein_g) as protein from intake_entries i
+         where i.day >= w.week_start and i.day <= w.week_start + 6
+         group by i.day) d)
+        as mean_protein_g,
+      (select count(*)::int from daily_bodyweight b
+       where b.day >= w.week_start and b.day <= w.week_start + 6)
+        as weigh_ins,
+      (select count(*)::int from day_flags f
+       where f.flag = 'incomplete'
+         and f.day >= w.week_start and f.day <= w.week_start + 6)
+        as days_flagged,
+      coalesce((select json_agg(json_build_object(
+                 'day', e.day, 'kind', e.kind, 'note', e.note) order by e.day)
+                from nutrition_events e
+                where e.day >= w.week_start and e.day <= w.week_start + 6),
+               '[]') as events
+    from (
+      select (${end}::date - 6 - (g * 7))::date as week_start
+      from generate_series(0, ${weeks - 1}) g
+    ) w
+    order by w.week_start`;
+
+  const byDay = new Map(trend.map((p) => [p.day, p]));
+
+  const enriched = rows.map((row) => {
+    const start = byDay.get(row.week_start);
+    const finish = byDay.get(row.week_end);
+    const trendStart = start?.trend_kg ?? null;
+    const trendEnd = finish?.trend_kg ?? null;
+
+    // Implied expenditure for the week on its own, when the week has both
+    // ends of a trend and a mean intake to work from. Null is the honest
+    // answer otherwise — a week missing its bookend weigh-ins cannot say
+    // anything about expenditure, and filling it in would manufacture a
+    // trend out of nothing.
+    let impliedTdee: number | null = null;
+    if (
+      trendStart !== null && trendEnd !== null && row.mean_kcal !== null &&
+      bodyfat !== null
+    ) {
+      const density = energyDensity(fatMassKg(trendEnd, bodyfat));
+      impliedTdee = Math.round(
+        row.mean_kcal - (trendEnd - trendStart) / 7 * density,
+      );
+    }
+
+    return {
+      week_start: row.week_start,
+      week_end: row.week_end,
+      days_logged: row.days_logged,
+      days_flagged: row.days_flagged,
+      weigh_ins: row.weigh_ins,
+      mean_kcal: row.mean_kcal === null ? null : Math.round(row.mean_kcal),
+      mean_protein_g: row.mean_protein_g === null
+        ? null
+        : Math.round(row.mean_protein_g),
+      trend_start_kg: trendStart,
+      trend_end_kg: trendEnd,
+      trend_delta_kg: trendStart === null || trendEnd === null
+        ? null
+        : Math.round((trendEnd - trendStart) * 100) / 100,
+      implied_tdee_kcal: impliedTdee,
+      events: row.events,
+    };
+  });
+
+  return c.json({
+    weeks: enriched,
+    note:
+      "Finished weeks only. A single week's implied_tdee_kcal is noisy — read the run, not the point, and never react to one week's movement inside the estimate's band.",
+  });
+});

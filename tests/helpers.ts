@@ -38,6 +38,8 @@ export const api = {
     request("POST", path, body, token),
   patch: (path: string, body: unknown, token?: string | null) =>
     request("PATCH", path, body, token),
+  delete: (path: string, token?: string | null) =>
+    request("DELETE", path, undefined, token),
 };
 
 // Wipes the training record and plan, keeping the exercise catalogue.
@@ -51,6 +53,71 @@ export async function resetTraining() {
       restart identity`;
   } finally {
     await db.end();
+  }
+}
+
+// Wipes the food registry and everything eaten. Separate from resetTraining:
+// the two halves of the coach share a database but not a test fixture.
+export async function resetNutrition() {
+  const db = postgres(DB_URL);
+  try {
+    await db`
+      truncate table intake_entries, meal_items, meal_aliases, meals,
+        food_aliases, foods, day_flags, bodyfat_estimates, bodyweight,
+        nutrition_targets, nutrition_events
+      restart identity`;
+  } finally {
+    await db.end();
+  }
+}
+
+/** The Sunday that ended the most recent finished Rome week. */
+export function lastFinishedSunday(): string {
+  const monday = new Date(`${thisMonday()}T00:00:00Z`);
+  return isoDate(addDays(monday, -1));
+}
+
+interface CutSeed {
+  days: number;
+  kcal: number;
+  startWeightKg: number;
+  kgPerWeek: number;
+  /** Leave the most recent N days unlogged and unweighed — a lapse. */
+  skipLastDays?: number;
+}
+
+// Seeds a history through the API rather than the database, so the tests
+// exercise the same writes the coach uses. The window ends on the last
+// finished Sunday, which is where the expenditure back-solve looks.
+export async function seedCut(seed: CutSeed) {
+  const skip = seed.skipLastDays ?? 0;
+  const end = new Date(`${lastFinishedSunday()}T00:00:00Z`);
+
+  await api.post("/foods", {
+    name: "Seed Food",
+    kcal_100g: 100,
+    protein_100g: 5,
+    carbs_100g: 12,
+    fat_100g: 3,
+    source: "estimate",
+    source_note: "test fixture",
+    request_id: uuid(),
+  });
+
+  for (let i = seed.days - 1; i >= skip; i--) {
+    const day = isoDate(addDays(end, -i));
+    const elapsed = seed.days - 1 - i;
+    const weight = seed.startWeightKg + seed.kgPerWeek / 7 * elapsed;
+    await api.post("/bodyweight", {
+      value_kg: Math.round(weight * 100) / 100,
+      measured_at: `${day}T05:30:00Z`, // 07:30 Rome, a morning weigh-in
+    });
+    await api.post("/intake", {
+      day,
+      food: "Seed Food",
+      grams: seed.kcal, // 100 kcal/100 g, so grams == kcal
+      request_id: uuid(),
+    });
   }
 }
 

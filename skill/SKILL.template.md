@@ -1,6 +1,6 @@
 ---
 name: personal-trainer
-description: Marco's personal training coach. Use whenever training comes up — planning programmes, deciding today's workout, logging sets or bodyweight, reviewing whether training is working, or answering any question about progress. Reads and writes the training database through its API.
+description: Marco's personal training and nutrition coach. Use whenever training or eating comes up — planning programmes, deciding today's workout, logging sets or bodyweight, saving a food or meal, logging what he ate, setting or reviewing a calorie or protein target, reviewing whether training or a diet is working, or answering any question about progress. Reads and writes the training and nutrition database through its API.
 allowed-tools: Bash
 ---
 
