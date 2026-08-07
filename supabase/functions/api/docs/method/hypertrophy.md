@@ -4,9 +4,27 @@ The methodology for growing muscle. `tasks/programming` builds the plan, `tasks/
 writes the day, `tasks/evaluation` judges the result — all three apply what is here. These are
 decisions, not laws of nature: change them by changing this document.
 
-Every number below is a population average with wide individual spread. They set the
-starting point. This person's own record overrides them, always — it is the one piece of
-evidence no study has.
+Every number below is a population average with wide individual spread. They set the starting
+point; this person's own record overrides them, always — it is the one piece of evidence no
+study has.
+
+## Defaults at a glance
+
+The numbers, so they never have to be re-decided. The sections below hold the judgment for
+deviating.
+
+| Variable                    | Default                                                       |
+| --------------------------- | ------------------------------------------------------------- |
+| Weekly sets per muscle      | 8–12 for a priority muscle, lower for secondary (fractional)  |
+| Effort per working set      | `hard` (1–3 RIR); `failure` occasionally, never as the norm   |
+| Rep ranges                  | Compounds 5–10 · machines/cables 8–15 · isolation 10–20       |
+| Rest                        | 2–3 min compounds, 1–2 min isolation; don't measure it        |
+| Sets per exercise/session   | 3–5                                                           |
+| Exercises per muscle        | 2–3, non-redundant                                            |
+| Progression                 | Double progression; +2.5 kg upper / +5 kg lower at range top  |
+| Volume across a mesocycle   | Flat                                                          |
+| Deload                      | Reactive only: one week, half the sets, same loads and effort |
+| Protein floor               | ~1.6 g/kg/day                                                 |
 
 ## What actually drives growth
 
@@ -14,215 +32,155 @@ Three things, in order of how much they matter:
 
 1. **Enough hard sets per muscle per week.** The dose.
 2. **Sets taken close enough to failure.** The quality of each unit of dose.
-3. **Load or reps rising over months.** Not a driver — the evidence that the first two
-   are still working as the person adapts.
+3. **Load or reps rising over months.** Not a driver — the readout confirming 1 and 2 still
+   work as the person adapts.
 
 Nearly everything else — exercise order, rest length, tempo, split design, the exact rep
 range — is second-order. When something is not working, look at 1 and 2 before touching
 anything else. The characteristic failure of an articulate coach is fiddling with the
 second-order variables, because they are the easiest ones to have an opinion about.
 
-Second-order still gets a default, so it never becomes a decision: rest 2–3 minutes
-on compounds and 1–2 on isolation — long enough that the next set is limited by the
-muscle rather than by breathing — and don't measure it. Cutting rests short quietly
-shrinks what each set buys; it is the one second-order variable cheap enough to just
-get right.
+Second-order still gets its one judgment: rest long enough that the next set is limited by
+the muscle rather than by breathing. Cutting rests short quietly shrinks what each set buys —
+it is the one second-order variable cheap enough to just get right, so hold the default and
+don't measure it.
 
 ## Volume: a curve with a rising price
 
-Do not think of weekly volume as a target number to reach. Think of it as a curve that
-keeps rising and keeps getting more expensive:
+Not a target number — a curve that keeps rising and keeps getting more expensive. Around 4
+weekly sets already produces detectable growth; each further increment costs more sets than
+the last (roughly 6 extra weekly sets per increment in the 5–10 range, ~8.5 in 11–18, ~10.75
+in 19–29 — treat the tiers as shape, not precision). No ceiling has been found, but data
+above ~25 sets is thin and claims about the top of the curve are guesses.
 
-- Around 4 weekly sets for a muscle already produces detectable growth.
-- Each further increment of growth costs more sets than the last: roughly 6 extra weekly
-  sets to buy one increment in the 5–10 range, ~8.5 in the 11–18 range, ~10.75 in the
-  19–29 range.
-- No ceiling has been found where more stops working. But data above ~25 sets is thin and
-  the uncertainty is wide, so claims about the top of the curve are guesses.
+The practical consequence: **there is no optimum to find.** Above roughly 4 sets almost any
+honest dose grows muscle; more is mildly better and steeply more expensive. Choose volume by
+what the person can deliver every week for two months. Go higher only when sets are actually
+delivered, effort is honest, and progress has stalled for a reason volume could plausibly
+explain.
 
-The practical consequence: **there is no optimum to find.** There is a dose that fits this
-person's recovery, schedule and willingness, and above roughly 4 sets almost any honest
-dose grows muscle. More is mildly better and steeply more expensive. So choose volume by
-asking what they can deliver every week for two months, not by asking what the maximum is.
-
-Start a priority muscle around 8–12 weekly sets and a secondary muscle lower. Go higher
-only when the sets are actually being delivered, effort is honest, and progress has
-stalled for a reason volume could plausibly explain.
-
-**The counting scale matches the research.** The research figures above count in
-fractional sets: a directly trained muscle earns 1.0 per set, an indirectly trained one
-0.5. The database speaks the same language — each set adds its `volume_factor` to every
-muscle it trains — so `GET /weekly-volume` returns numbers on the same scale as the
-dose-response landmarks above, no conversion needed. The numbers are fractional
-(glutes 13.5 is a normal reading), and the classification behind them lives in the
-catalogue — `reference/exercises` holds the rule.
+**The counting scale matches the research.** These figures count fractional sets: 1.0 for a
+directly trained muscle, 0.5 indirect. `GET /weekly-volume` returns the same scale (glutes
+13.5 is a normal reading); the classification lives in the catalogue — `reference/exercises`
+holds the rule.
 
 ## Effort: what decides whether a set counts
 
-Hypertrophy improves as sets are taken closer to failure. Strength barely cares. This is
-the single largest difference between programming for size and programming for strength,
-and it inverts how load gets chosen.
+Hypertrophy improves as sets approach failure; strength barely cares. This is the single
+largest difference between programming for size and for strength, and it inverts how load is
+chosen: **choose the effort first, then find the weight that produces it.** The prescription
+is "a hard set of 8", not "80 kg for 8" — which is why repeating last session's numbers is a
+sane default but never the aim.
 
-**Choose the effort first, then find the weight that produces it.** The prescription is "a
-hard set of 8", not "80 kg for 8". The weight is whatever makes 8 reps hard today. This is
-why a target that was right last week can be wrong this week, and why repeating last
-session's numbers is a sane default but never the aim.
+The three effort chips:
 
-The three effort chips mean:
-
-- `easy` — four or more reps left. The set was too light to buy much. This is a
-  programming error, not a fact about the person.
+- `easy` — 4+ reps left. Too light to buy much. A programming error, not a fact about the person.
 - `hard` — roughly 1–3 reps left. Where the large majority of hypertrophy sets belong.
-- `failure` — nothing left, or the last rep broke down. Effective, but costly in fatigue,
-  and it degrades every set that follows it. Occasionally is fine. Every set of every
-  session is a fatigue problem that will surface later as a stall.
+- `failure` — nothing left, or the last rep broke down. Effective but costly: it degrades
+  every set that follows.
+  Occasionally fine; every set of every session is a fatigue problem that surfaces as a stall.
 
-Trust these reports unevenly. People judge proximity to failure well when they are close
-to it and badly when they are far from it. So `hard` and `failure` are reasonably
-reliable, and `easy` is reliable in the direction that matters — the weight was too light
-— even if the person cannot say by how much.
-
-**`easy` everywhere with flat numbers is not a stalled programme.** It is under-effort.
-Raise the loads before concluding anything about the plan, and never add sets to
-compensate for sets that were not hard.
+Trust the reports unevenly: people judge proximity to failure well when close to it, badly
+when far. `hard` and `failure` are reasonably reliable; `easy` is reliable in the direction
+that matters. **`easy` everywhere with flat numbers is under-effort, not a stalled
+programme** — raise loads before concluding anything, and never add sets to compensate for
+sets that were not hard.
 
 ## Frequency: mostly free
 
-At matched weekly volume, training a muscle more often has a negligible effect on growth.
-Treat this as liberating rather than limiting: the weekly dose is what matters and how it
-is spread across days is largely the person's to arrange around their life.
+At matched weekly volume, frequency has a negligible effect on growth. Treat this as
+liberating: the weekly dose matters, and how it spreads across days is the person's to
+arrange around their life. Never program more sessions than they said they can do; a missed
+day is a volume question (do the week's sets still land?), not a frequency question. Returns
+fall off past ~10 hard sets for one muscle in one session — far more than a normal session
+holds. Keep one exercise to 3–5 sets for a different reason: past five, later sets are
+degraded and per-exercise progress becomes hard to read.
 
-- Never program more sessions than the person said they can do. Frequency buys almost
-  nothing that the same sets arranged differently do not.
-- A missed day is a volume question, not a frequency question. Ask whether the week's sets
-  still land, not whether the split is broken.
-- Do not pursue "every muscle three times a week" as a goal in itself.
+## Load, reps, progression
 
-One within-session limit is worth knowing: returns fall off past roughly ten hard sets for
-a single muscle in one session. That is far more than a normal session holds, so it rarely
-binds. The reason to keep one exercise to 3–5 sets in a session is different and more
-practical — past five, the later sets are degraded by fatigue from the earlier ones, and
-per-exercise progress becomes hard to read.
+For growth, roughly 5–30 reps all works when effort is matched; heavy loads matter for
+strength, not size. So each exercise's range is a practical choice: can the set be pushed
+near failure safely (a solo heavy squat at 1 RIR is not a leg press), does heavy loading
+aggravate a joint, and is the set readable (very high reps are noisy). Write the intention
+in the exercise's `notes`.
 
-## Load and reps
+Double progression is the mechanism: hold the weight, add reps; when every working set hits
+the top of the range, add the smallest jump and drop to the bottom. It keeps effort in the
+right band without maximum tests and makes progress readable per exercise. State it in the
+mesocycle's `intent`.
 
-For growth a wide span of loads works provided effort is matched — roughly 5 to 30 reps.
-Heavy loads are meaningfully better for strength, not for size. So the rep range for each
-exercise is a practical choice, not a physiological one:
+The readout only works if the rep holds still: same depth, same control, no bounce. Range
+quietly shrinking as load climbs is the commonest way a solo lifter manufactures progress
+that never happened, and nothing downstream detects it. When a set only moved because the
+standard slipped, it did not move — say so, and log the honest standard.
 
-- **Can the set be pushed near failure safely?** A heavy free-weight squat to 1 RIR alone
-  at home is a different proposition from a leg press. Where failure is risky, use lighter
-  loads and higher reps so the last reps are genuinely reachable.
-- **Joint comfort.** If heavy loading aggravates something, higher reps deliver the same
-  growth stimulus with less of the problem.
-- **Readability.** Very high rep sets are noisy — a small load change swings reps a lot.
+## Context that changes what everything means
 
-The usual outcome is heavier compounds at 5–10, machine and cable work at 8–15, isolation
-at 10–20. Write the intention in that exercise's `notes`.
+Muscle is built out of food and recovery. This document owns nutrition and lifestyle only as
+far as they change how training data is read; targets, tracking and planning are out of
+scope (a future `method/nutrition` will own them).
 
-**Double progression is the default mechanism.** Hold the weight and add reps week to
-week; when every working set reaches the top of the range, add the smallest useful jump
-(2.5 kg on upper body, 5 kg on lower) and drop back to the bottom. Use it because it keeps
-effort inside the right band without ever needing a maximum test, and because it makes
-progress readable one exercise at a time. State it in the mesocycle's `intent` so later
-conversations apply it the same way.
-
-Keep clear about what progression is for. Rising numbers are not the stimulus — hard sets
-are. Progression is the readout confirming the hard sets are still hard enough as the
-person gets stronger. That distinction decides how to read numbers that stop rising for
-reasons which have nothing to do with the plan.
-
-And the readout only works if the rep holds still. A rep counts against an
-exercise's history only when it is performed to the same standard as the reps it is
-being compared with — same depth, same control, no help from bounce or momentum.
-Range quietly shrinking as the load climbs is the commonest way a solo lifter
-manufactures progress that never happened, and nothing downstream can detect it in
-the numbers. When a set only moved because the standard slipped, it did not move:
-say so, and log it at the honest standard.
-
-## Energy availability changes what everything means
-
-Muscle is built out of food. Before programming for growth, establish whether the person
-is eating to grow, eating to maintain, or in a deficit. If they have not said, ask. It is
-not optional context.
-
-It changes little about the training and almost everything about the interpretation:
-
-- **Eating to grow.** Load and reps should climb. Weeks of flat performance with sets
-  delivered is a real signal about the plan.
-- **Maintenance or deficit.** Growth is slow or absent, and holding performance is a
-  success rather than a stall. Do not diagnose a failing programme, do not add volume in
-  response, and say plainly that the binding constraint is food, not training.
-
-Record what they say in user context so it outlives the conversation.
+- **Energy state.** Establish whether the person is eating to grow, maintaining, or in a
+  deficit — if unsaid, ask; it is not optional. Eating to grow: flat weeks with sets
+  delivered are a real signal about the plan. Maintenance or deficit: holding performance is
+  success, not a stall — do not diagnose the programme, do not add volume, say plainly the
+  binding constraint is food. Record it in user context.
+- **Protein floor.** Below ~1.6 g/kg/day, food is the constraint before the programme is.
+  Ask once, record it.
+- **Creatine** is the one supplement with robust evidence (~+1 kg lean mass over training
+  alone). 3–5 g/day; a ~0.3 g/kg loading week is optional and only buys speed. Mention once
+  when relevant; never push.
+- **Sleep.** With chronically short sleep, read stalls as a recovery problem before a
+  programming problem — same logic as the deficit.
+- **Cardio.** Recreational amounts do not meaningfully blunt hypertrophy. Treat it as a
+  schedule and recovery input, not a threat; do not "fix" a programme for an interference
+  effect that is not there.
 
 ## Exercise selection
 
-- **Choose lifts where the target muscle is what actually ends the set.** This is the
-  commonest reason a muscle fails to grow while its volume looks fine on paper. If someone's
-  quads give out before their glutes in every squat pattern, the glutes are not being
-  trained, however many sets are logged against them.
-- **Full range of motion is the default.** Training at long muscle lengths has a modest
-  edge in some evidence and none in other; it is nowhere near settled enough to
-  reorganise a programme around. Do not present it as established, and do not shorten
-  range in pursuit of it.
-- **Stability beats novelty.** Progress is read per exercise, so a swap throws that
-  reading away. The bar for swapping mid-mesocycle is pain, unavailability, or a lift that
-  keeps being skipped — never boredom and never a better idea.
-- **Pick lifts the person will actually do.** A disliked exercise is an exercise that gets
-  skipped, and a skipped exercise delivers nothing. This outranks theoretical superiority
-  every time.
-- **Two or three exercises per muscle is plenty.** More fragments the volume and makes
-  progress unreadable.
+- **Choose lifts where the target muscle is what ends the set.** The commonest reason a
+  muscle fails to grow while its volume looks fine on paper. (Coaching judgment —
+  mechanically sensible, not directly trial-tested.)
+- **Full range of motion is the default.** Long-length training has a modest edge in some
+  evidence and none in other; not settled enough to reorganise a programme around.
+- **2–3 exercises per muscle, non-redundant.** Systematic variation across angles and
+  resistance profiles aids regional growth; excessive, random variation compromises it. More
+  exercises fragments volume and makes progress unreadable.
+- **Stability beats novelty.** Progress is read per exercise; a swap throws the reading
+  away. The bar for swapping mid-mesocycle is pain, unavailability, or a lift that keeps
+  being skipped — never boredom, never a better idea.
+- **Pick lifts the person will actually do.** A disliked exercise gets skipped and delivers
+  nothing. This outranks theoretical superiority every time.
 
-## Volume across a mesocycle: usually hold, don't ramp
+## Volume across a mesocycle: hold by default
 
-Ramping weekly sets upward through a mesocycle is common practice with weak support: in
-trained lifters, progressively adding sets has not outperformed holding a constant,
-adequate volume — though it does reliably make the training feel harder.
-
-So the default is a flat, sustainable weekly volume for the length of the mesocycle. Ramp
-only as a deliberate experiment — the work is being delivered, effort is honest, progress
-has stalled — and treat the ramp as a question being asked rather than a schedule being
-followed. Never ride volume upward because a model says higher is better; that is exactly
-the mistake the shape of the curve warns about.
+Default to a flat, sustainable weekly volume. The direct trials on adding sets through a
+mesocycle in trained lifters show clear extra strength gains from ramping, and for
+hypertrophy no significant difference — with a possible small dose–response trend at higher
+volumes. So ramping is an option, not an error: hold because sustainability and readability
+win, not because ramping fails. Ramp as a deliberate experiment — sets delivered, effort
+honest, progress stalled — and treat it as a question being asked. Never ride volume upward
+because a model says higher is better; that is the mistake the curve's shape warns about.
 
 ## Deloads: reactive, not scheduled
 
-Scheduled deloads are traditional and poorly supported. The clearest direct test placed a
-one-week deload in the middle of a nine-week programme and found no hypertrophy benefit
-and worse strength gains than training straight through.
-
-Deload when there is a reason:
-
-- performance falling across several sessions while the sets are being delivered
-- joints or connective tissue complaining
-- sleep, stress or life making honest hard sets unrealistic
-- the person has lost the appetite for training
-
-What it looks like: cut the sets to roughly half, keep the loads and the effort of the
-sets that remain, keep training. Complete rest is worse — strength goes first. A deload is
-one week. If a second seems necessary, the question is no longer fatigue; it is whether
-the programme fits this person's life.
+Scheduled deloads are poorly supported: the clearest test placed one mid-programme and found
+no hypertrophy benefit and worse strength than training straight through. Deload when there
+is a reason — performance falling across several sessions with sets delivered, joints
+complaining, life making honest hard sets unrealistic, appetite for training gone. One week,
+roughly half the sets, keep loads and effort, keep training (complete rest is worse). If a
+second week seems necessary, the question is no longer fatigue but whether the programme
+fits the person's life.
 
 ## What "working" looks like
 
-Growth cannot be seen week to week, and nothing available here measures muscle size. The
-proxies, in order of usefulness:
-
-- reps rising at a fixed weight, or weight rising at fixed reps, on the same exercise
-  across 3–6 weeks
-- bodyweight drifting up slowly while eating to grow
-- the same work reported `hard` that used to be reported `failure`
-
-What normal looks like, so "flat" has a baseline: early in a mesocycle, double
-progression on an exercise typically buys about one rep per week somewhere in its
-sets, slowing as the weeks accumulate — and slower again, or simply holding, at
-maintenance or in a deficit. Meaningfully faster than that usually means the
-opening loads were light, not that growth is rapid.
-
-Judge over weeks. One session is noise; two bad weeks are data. `tasks/evaluation` holds the
-procedure for turning this into a decision.
+Growth is invisible week to week and nothing here measures muscle size. Proxies, in order:
+reps rising at fixed weight (or weight at fixed reps) on the same exercise across 3–6 weeks;
+bodyweight drifting up slowly while eating to grow; the same work reported `hard` that used
+to be `failure`. Normal early in a mesocycle is about one rep per week somewhere in an
+exercise's sets, slowing as weeks accumulate — slower or flat at maintenance or in a
+deficit. Meaningfully faster usually means the opening loads were light. One session is
+noise; two bad weeks are data. `tasks/evaluation` holds the procedure.
 
 ## Failure modes
 
@@ -246,13 +204,19 @@ proposing any change:
 
 Kept short so the claims can be re-checked when the evidence moves:
 
-- Volume dose–response and the efficiency tiers, and frequency's negligible independent
-  effect on hypertrophy — Pelland et al., *Sports Medicine*, 2025 (meta-regression, 67
-  studies).
-- Per-session ceiling around 11 fractional sets — Remmert et al., SportRxiv, 2025.
+- Volume dose–response, fractional counting, and frequency's negligible independent effect
+  on hypertrophy — Pelland et al., *Sports Medicine*, 2025 (meta-regression, 67 studies).
+- Per-session ceiling around 11 fractional sets — Remmert et al., SportRxiv, 2025 (preprint).
 - Proximity to failure, and its asymmetry between size and strength — Robinson et al.,
-  *Sports Medicine*, 2024.
-- Ramped versus constant weekly sets in trained lifters — Enes et al., *MSSE*, 2024.
+  *Sports Medicine*, 2024 (exploratory meta-regression; estimated RIR).
+- Ramped versus constant weekly sets in trained lifters — Enes et al., *MSSE*, 2024: clear
+  extra strength from ramping, hypertrophy differences non-significant with a possible
+  small trend; the 2025 female follow-up (*J Sports Sci*) found greater VL-CSA with
+  progression.
 - Mid-programme deload — Coleman et al., *PeerJ*, 2024.
 - Long muscle lengths, contested — Wolf et al., *PeerJ*, 2025 (equivalence with full ROM)
   against a 2025 meta-analysis favouring long lengths.
+- Protein breakpoint ~1.6 g/kg/day — Morton et al., *BJSM*, 2018 (meta-regression, 49 RCTs).
+- Creatine ~+1 kg lean mass — Desai et al., *JSCR*, 2024 (meta-analysis).
+- Systematic versus random exercise variation — Kassiano et al., *JSCR*, 2022 (systematic
+  review).
