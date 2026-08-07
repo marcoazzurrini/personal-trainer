@@ -1,5 +1,5 @@
 {
-  "comment": "Starting exercise catalogue. counts=true only where the exercise takes that muscle close to failure (the uniform test from the design brief, applied in one sitting). Counting muscles carry fatigue=lots; assisting muscles counts=false with fatigue=some.",
+  "comment": "Starting exercise catalogue. counts=true only where the exercise takes that muscle close to failure (the classification rule in docs/reference/exercises, applied uniformly in one sitting). Counting muscles carry fatigue=lots; assisting muscles counts=false with fatigue=some.",
   "muscles": [
     "quads",
     "hamstrings",
