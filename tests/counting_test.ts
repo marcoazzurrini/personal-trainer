@@ -11,8 +11,9 @@ import {
 
 // The counting rules are where silent wrongness would corrupt coaching.
 // Scenario: a mesocycle started last Monday (so today is week 2) with a
-// quads-only lift, a dual-count lift (quads AND glutes), and a power
-// exercise. Last week (finished): a retro session. This week: one set today.
+// squat (quads/adductors direct, glutes indirect, hamstrings excluded), a
+// dual-direct lift (quads AND glutes at 1.0), and a power exercise. Last
+// week (finished): a retro session. This week: one set today.
 Deno.test("counting rules", async (t) => {
   await resetTraining();
   await ensureCatalogue();
@@ -102,7 +103,7 @@ Deno.test("counting rules", async (t) => {
   );
 
   await t.step(
-    "weekly-volume: dual counts per muscle, never a total, current week absent",
+    "weekly-volume: fractional sums per muscle, never a total, current week absent",
     async () => {
       const { body } = await api.get("/weekly-volume");
       const rows = body.weekly_volume;
@@ -117,9 +118,12 @@ Deno.test("counting rules", async (t) => {
           r.working_sets,
         ]),
       );
-      assertEquals(byMuscle.quads, 3); // 2 squat + 1 split squat
-      assertEquals(byMuscle.glutes, 1); // same split squat set, counted again
-      assertEquals(Object.keys(byMuscle).length, 2); // no totals row, ever
+      assertEquals(byMuscle.quads, 3); // squat 1.0 × 2 + split squat 1.0
+      assertEquals(byMuscle.glutes, 2); // squat 0.5 × 2 + split squat 1.0
+      assertEquals(byMuscle.adductors, 2.5); // squat 1.0 × 2 + split squat 0.5
+      // Exactly these three: the squat's excluded muscles (hamstrings,
+      // lower back at 0) produce no rows, and there is no totals row, ever.
+      assertEquals(Object.keys(byMuscle).length, 3);
     },
   );
 

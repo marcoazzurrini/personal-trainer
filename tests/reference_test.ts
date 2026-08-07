@@ -13,12 +13,14 @@ Deno.test("reference data", async (t) => {
       (e: { name: string }) => e.name === "Back Squat",
     );
     assert(squat.aliases.includes("squat"));
-    assert(
-      squat.muscles.some(
-        (m: { muscle: string; counts: boolean }) =>
-          m.muscle === "quads" && m.counts,
-      ),
-    );
+    assertEquals(squat.systemic_fatigue, "high");
+    const factorOf = (muscle: string) =>
+      squat.muscles.find(
+        (m: { muscle: string; volume_factor: number }) => m.muscle === muscle,
+      )?.volume_factor;
+    assertEquals(factorOf("quads"), 1); // direct
+    assertEquals(factorOf("glutes"), 0.5); // indirect
+    assertEquals(factorOf("hamstrings"), 0); // considered and excluded
   });
 
   await t.step("duplicate exercise names are rejected, any case", async () => {
@@ -32,11 +34,37 @@ Deno.test("reference data", async (t) => {
   await t.step("an unknown muscle names the known ones", async () => {
     const { status, body } = await api.post("/exercises", {
       name: "Test Exercise",
-      muscles: [{ muscle: "quadz", counts: true, fatigue: "lots" }],
+      muscles: [{ muscle: "quadz", volume_factor: 1 }],
     });
     assertEquals(status, 422);
     assert(body.error.includes("quads"));
   });
+
+  await t.step(
+    "the old muscle fields are rejected with directions",
+    async () => {
+      const oldCounts = await api.post("/exercises", {
+        name: "Test Exercise",
+        muscles: [{ muscle: "quads", counts: true }],
+      });
+      assertEquals(oldCounts.status, 422);
+      assert(oldCounts.body.error.includes("volume_factor"));
+
+      const oldFatigue = await api.post("/exercises", {
+        name: "Test Exercise",
+        muscles: [{ muscle: "quads", volume_factor: 1, fatigue: "lots" }],
+      });
+      assertEquals(oldFatigue.status, 422);
+      assert(oldFatigue.body.error.includes("systemic_fatigue"));
+
+      const freeForm = await api.post("/exercises", {
+        name: "Test Exercise",
+        muscles: [{ muscle: "quads", volume_factor: 0.75 }],
+      });
+      assertEquals(freeForm.status, 422);
+      assert(freeForm.body.error.includes("0.5"));
+    },
+  );
 
   await t.step("user context: latest row per topic wins", async () => {
     await api.post("/user-context", {

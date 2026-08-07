@@ -56,7 +56,7 @@ that family; the task documents point at the right one at the right moment.
 | ----------------------------------- | ------------------------------------------------------------------------- |
 | `GET /docs/reference/planning`      | Blocks, mesocycles, revisions, decisions                                  |
 | `GET /docs/reference/sessions`      | Sessions and sets: targets vs actuals, corrections, the log page          |
-| `GET /docs/reference/exercises`     | The exercise catalogue: creating exercises and muscles, history, `counts` |
+| `GET /docs/reference/exercises`     | The exercise catalogue: creating exercises and muscles, history, `volume_factor` |
 | `GET /docs/reference/tracking`      | Training state, weekly progress reads, user context, bodyweight           |
 
 ## Method documents — the coaching model

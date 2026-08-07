@@ -10,12 +10,14 @@ import {
 } from "../lib/validate.ts";
 
 const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
-const FATIGUE_LEVELS = ["none", "some", "lots"] as const;
+const SYSTEMIC_FATIGUE_LEVELS = ["normal", "high"] as const;
+const VOLUME_FACTORS = [0, 0.5, 1];
 
 function selectExercise(id?: number) {
   return sql`
     select
-      e.id, e.name, e.equipment, e.pattern, e.stimulus_type, e.notes,
+      e.id, e.name, e.equipment, e.pattern, e.stimulus_type,
+      e.systemic_fatigue, e.notes,
       coalesce(
         (select array_agg(a.alias order by a.alias)
          from exercise_aliases a where a.exercise_id = e.id),
@@ -23,7 +25,7 @@ function selectExercise(id?: number) {
       ) as aliases,
       coalesce(
         (select json_agg(
-           json_build_object('muscle', m.name, 'counts', em.counts, 'fatigue', em.fatigue)
+           json_build_object('muscle', m.name, 'volume_factor', em.volume_factor::float8)
            order by m.name)
          from exercise_muscles em
          join muscles m on m.id = em.muscle_id
@@ -55,6 +57,12 @@ exercises.post("/", async (c) => {
     STIMULUS_TYPES,
     "strength",
   );
+  const systemicFatigue = requireOneOf(
+    body,
+    "systemic_fatigue",
+    SYSTEMIC_FATIGUE_LEVELS,
+    "normal",
+  );
 
   const aliases = body.aliases === undefined ? [] : body.aliases;
   if (
@@ -68,7 +76,7 @@ exercises.post("/", async (c) => {
   if (!Array.isArray(muscleInputs)) {
     throw new ApiError(
       422,
-      '"muscles" must be an array of {muscle, counts, fatigue} objects, e.g. {"muscle": "quads", "counts": true, "fatigue": "lots"}.',
+      '"muscles" must be an array of {muscle, volume_factor} objects, e.g. {"muscle": "quads", "volume_factor": 1.0}.',
     );
   }
   const muscles = muscleInputs.map((entry) => {
@@ -76,23 +84,40 @@ exercises.post("/", async (c) => {
     if (typeof m !== "object" || m === null) {
       throw new ApiError(422, 'Each entry in "muscles" must be an object.');
     }
-    if (typeof m.counts !== "boolean") {
+    if (m.counts !== undefined) {
       throw new ApiError(
         422,
-        `"counts" must be true or false on every muscle entry: true only if the exercise takes that muscle close to failure.`,
+        '"counts" was replaced by "volume_factor": 1.0 (direct — primary force generator), 0.5 (indirect — meaningfully trained, not primary), 0 (considered and deliberately excluded). See GET /api/docs/reference/exercises.',
+      );
+    }
+    if (m.fatigue !== undefined) {
+      throw new ApiError(
+        422,
+        'Per-muscle "fatigue" no longer exists. Systemic fatigue is a property of the exercise: send "systemic_fatigue": "normal" | "high" at the top level (defaults to "normal").',
+      );
+    }
+    if (
+      typeof m.volume_factor !== "number" ||
+      !VOLUME_FACTORS.includes(m.volume_factor)
+    ) {
+      throw new ApiError(
+        422,
+        '"volume_factor" must be 0, 0.5, or 1.0 on every muscle entry. 1.0 = direct (primary force generator, loaded dynamically through range), 0.5 = indirect (meaningfully trained, not primary), 0 = considered and deliberately excluded.',
       );
     }
     return {
       muscle: requireString(m, "muscle"),
-      counts: m.counts,
-      fatigue: requireOneOf(m, "fatigue", FATIGUE_LEVELS),
+      volumeFactor: m.volume_factor,
     };
   });
 
   const id = await sql.begin(async (sql) => {
     const [exercise] = await sql`
-      insert into exercises (name, equipment, pattern, stimulus_type, notes)
-      values (${name}, ${equipment}, ${pattern}, ${stimulusType}, ${notes})
+      insert into exercises
+        (name, equipment, pattern, stimulus_type, systemic_fatigue, notes)
+      values
+        (${name}, ${equipment}, ${pattern}, ${stimulusType},
+         ${systemicFatigue}, ${notes})
       returning id`;
 
     for (const alias of aliases as string[]) {
@@ -101,7 +126,7 @@ exercises.post("/", async (c) => {
         values (${exercise.id}, ${alias.trim()})`;
     }
 
-    for (const { muscle, counts, fatigue } of muscles) {
+    for (const { muscle, volumeFactor } of muscles) {
       const [row] = await sql`
         select id from muscles where lower(name) = lower(${muscle})`;
       if (!row) {
@@ -114,8 +139,8 @@ exercises.post("/", async (c) => {
         );
       }
       await sql`
-        insert into exercise_muscles (exercise_id, muscle_id, counts, fatigue)
-        values (${exercise.id}, ${row.id}, ${counts}, ${fatigue})`;
+        insert into exercise_muscles (exercise_id, muscle_id, volume_factor)
+        values (${exercise.id}, ${row.id}, ${volumeFactor})`;
     }
 
     return exercise.id as number;

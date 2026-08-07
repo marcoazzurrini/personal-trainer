@@ -1,9 +1,10 @@
 {
-  "comment": "Starting exercise catalogue. counts=true only where the exercise takes that muscle close to failure (the classification rule in docs/reference/exercises, applied uniformly in one sitting). Counting muscles carry fatigue=lots; assisting muscles counts=false with fatigue=some.",
+  "comment": "Starting exercise catalogue. volume_factor per (exercise, muscle): 1.0 = direct (primary force generator, loaded dynamically through range), 0.5 = indirect (meaningfully trained, not primary), 0 = considered and deliberately excluded (the row records the decision). Tiebreaker: longitudinal hypertrophy evidence beats mechanical intuition. systemic_fatigue: high = heavy axial loading + large total mass moved; everything else normal.",
   "muscles": [
     "quads",
     "hamstrings",
     "glutes",
+    "adductors",
     "calves",
     "chest",
     "lats",
@@ -20,31 +21,38 @@
       "name": "Back Squat",
       "equipment": "barbell",
       "aliases": ["squat"],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" },
-        { "muscle": "lower back", "counts": false, "fatigue": "some" },
-        { "muscle": "hamstrings", "counts": false, "fatigue": "some" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "adductors", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "hamstrings", "volume_factor": 0 },
+        { "muscle": "lower back", "volume_factor": 0 }
       ]
     },
     {
       "name": "Front Squat",
       "equipment": "barbell",
       "aliases": [],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "upper back", "counts": false, "fatigue": "some" },
-        { "muscle": "abs", "counts": false, "fatigue": "some" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "adductors", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "upper back", "volume_factor": 0 },
+        { "muscle": "abs", "volume_factor": 0 }
       ]
     },
     {
       "name": "Pause Back Squat",
       "equipment": "barbell",
       "aliases": ["pause squat"],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" },
-        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "adductors", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "lower back", "volume_factor": 0 }
       ]
     },
     {
@@ -52,8 +60,9 @@
       "equipment": "dumbbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "adductors", "volume_factor": 0.5 }
       ]
     },
     {
@@ -61,8 +70,9 @@
       "equipment": "barbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 1.0 },
+        { "muscle": "adductors", "volume_factor": 0.5 }
       ]
     },
     {
@@ -70,8 +80,9 @@
       "equipment": "dumbbell",
       "aliases": ["rfess", "rear foot elevated split squat"],
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 1.0 },
+        { "muscle": "adductors", "volume_factor": 0.5 }
       ]
     },
     {
@@ -79,8 +90,9 @@
       "equipment": "dumbbell",
       "aliases": ["lunges", "lunge"],
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 1.0 },
+        { "muscle": "adductors", "volume_factor": 0.5 }
       ]
     },
     {
@@ -88,8 +100,9 @@
       "equipment": "dumbbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 1.0 },
+        { "muscle": "adductors", "volume_factor": 0.5 }
       ]
     },
     {
@@ -97,49 +110,54 @@
       "equipment": "dumbbell",
       "aliases": ["step ups"],
       "muscles": [
-        { "muscle": "quads", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" }
+        { "muscle": "quads", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 1.0 }
       ]
     },
     {
       "name": "Deadlift",
       "equipment": "barbell",
       "aliases": ["conventional deadlift", "dl"],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" },
-        { "muscle": "hamstrings", "counts": false, "fatigue": "some" },
-        { "muscle": "lower back", "counts": false, "fatigue": "lots" },
-        { "muscle": "upper back", "counts": false, "fatigue": "some" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "glutes", "volume_factor": 1.0 },
+        { "muscle": "hamstrings", "volume_factor": 0.5 },
+        { "muscle": "lower back", "volume_factor": 0.5 },
+        { "muscle": "upper back", "volume_factor": 0 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
       "name": "Romanian Deadlift",
       "equipment": "barbell",
       "aliases": ["rdl"],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" },
-        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+        { "muscle": "hamstrings", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "lower back", "volume_factor": 0.5 }
       ]
     },
     {
       "name": "Stiff-Leg Deadlift",
       "equipment": "barbell",
       "aliases": ["sldl", "stiff leg deadlift"],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" },
-        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+        { "muscle": "hamstrings", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "lower back", "volume_factor": 0.5 }
       ]
     },
     {
       "name": "Good Morning",
       "equipment": "barbell",
       "aliases": [],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" },
-        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+        { "muscle": "hamstrings", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "lower back", "volume_factor": 0.5 }
       ]
     },
     {
@@ -147,9 +165,9 @@
       "equipment": "barbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" },
-        { "muscle": "hamstrings", "counts": false, "fatigue": "some" },
-        { "muscle": "quads", "counts": false, "fatigue": "some" }
+        { "muscle": "glutes", "volume_factor": 1.0 },
+        { "muscle": "hamstrings", "volume_factor": 0 },
+        { "muscle": "quads", "volume_factor": 0 }
       ]
     },
     {
@@ -157,7 +175,7 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+        { "muscle": "glutes", "volume_factor": 1.0 }
       ]
     },
     {
@@ -165,7 +183,7 @@
       "equipment": "barbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "glutes", "counts": true, "fatigue": "lots" }
+        { "muscle": "glutes", "volume_factor": 1.0 }
       ]
     },
     {
@@ -173,7 +191,7 @@
       "equipment": "bodyweight",
       "aliases": ["nordic curl", "nordics"],
       "muscles": [
-        { "muscle": "hamstrings", "counts": true, "fatigue": "lots" }
+        { "muscle": "hamstrings", "volume_factor": 1.0 }
       ]
     },
     {
@@ -181,9 +199,9 @@
       "equipment": "bodyweight",
       "aliases": ["hyperextension"],
       "muscles": [
-        { "muscle": "lower back", "counts": true, "fatigue": "lots" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" },
-        { "muscle": "hamstrings", "counts": false, "fatigue": "some" }
+        { "muscle": "lower back", "volume_factor": 1.0 },
+        { "muscle": "glutes", "volume_factor": 0.5 },
+        { "muscle": "hamstrings", "volume_factor": 0.5 }
       ]
     },
     {
@@ -191,7 +209,7 @@
       "equipment": "bodyweight",
       "aliases": ["calf raise"],
       "muscles": [
-        { "muscle": "calves", "counts": true, "fatigue": "lots" }
+        { "muscle": "calves", "volume_factor": 1.0 }
       ]
     },
     {
@@ -199,7 +217,7 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "calves", "counts": true, "fatigue": "lots" }
+        { "muscle": "calves", "volume_factor": 1.0 }
       ]
     },
     {
@@ -207,9 +225,9 @@
       "equipment": "barbell",
       "aliases": ["bench", "bp"],
       "muscles": [
-        { "muscle": "chest", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+        { "muscle": "chest", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 0.5 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -217,9 +235,9 @@
       "equipment": "barbell",
       "aliases": ["incline bench", "incline press"],
       "muscles": [
-        { "muscle": "chest", "counts": true, "fatigue": "lots" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+        { "muscle": "chest", "volume_factor": 1.0 },
+        { "muscle": "shoulders", "volume_factor": 0.5 },
+        { "muscle": "triceps", "volume_factor": 0.5 }
       ]
     },
     {
@@ -227,9 +245,9 @@
       "equipment": "barbell",
       "aliases": ["cgbp", "close grip bench"],
       "muscles": [
-        { "muscle": "triceps", "counts": true, "fatigue": "lots" },
-        { "muscle": "chest", "counts": false, "fatigue": "some" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+        { "muscle": "triceps", "volume_factor": 1.0 },
+        { "muscle": "chest", "volume_factor": 0.5 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -237,9 +255,9 @@
       "equipment": "dumbbell",
       "aliases": ["db bench"],
       "muscles": [
-        { "muscle": "chest", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+        { "muscle": "chest", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 0.5 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -247,9 +265,9 @@
       "equipment": "bodyweight",
       "aliases": ["pushup", "push ups"],
       "muscles": [
-        { "muscle": "chest", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+        { "muscle": "chest", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 0.5 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -257,8 +275,9 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "chest", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+        { "muscle": "chest", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 0.5 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -266,9 +285,9 @@
       "equipment": "bodyweight",
       "aliases": ["dips"],
       "muscles": [
-        { "muscle": "chest", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": true, "fatigue": "lots" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+        { "muscle": "chest", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 1.0 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -276,9 +295,9 @@
       "equipment": "barbell",
       "aliases": ["ohp", "military press", "barbell overhead press"],
       "muscles": [
-        { "muscle": "shoulders", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" },
-        { "muscle": "abs", "counts": false, "fatigue": "some" }
+        { "muscle": "shoulders", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 0.5 },
+        { "muscle": "abs", "volume_factor": 0 }
       ]
     },
     {
@@ -286,8 +305,8 @@
       "equipment": "dumbbell",
       "aliases": ["db ohp", "dumbbell shoulder press"],
       "muscles": [
-        { "muscle": "shoulders", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+        { "muscle": "shoulders", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 0.5 }
       ]
     },
     {
@@ -295,8 +314,8 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "shoulders", "counts": true, "fatigue": "lots" },
-        { "muscle": "triceps", "counts": false, "fatigue": "some" }
+        { "muscle": "shoulders", "volume_factor": 1.0 },
+        { "muscle": "triceps", "volume_factor": 0.5 }
       ]
     },
     {
@@ -304,7 +323,7 @@
       "equipment": "dumbbell",
       "aliases": ["side raise", "lateral raises"],
       "muscles": [
-        { "muscle": "shoulders", "counts": true, "fatigue": "lots" }
+        { "muscle": "shoulders", "volume_factor": 1.0 }
       ]
     },
     {
@@ -312,7 +331,7 @@
       "equipment": "dumbbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "shoulders", "counts": true, "fatigue": "lots" }
+        { "muscle": "shoulders", "volume_factor": 1.0 }
       ]
     },
     {
@@ -320,10 +339,10 @@
       "equipment": "bodyweight",
       "aliases": ["pullup", "pull ups"],
       "muscles": [
-        { "muscle": "lats", "counts": true, "fatigue": "lots" },
-        { "muscle": "upper back", "counts": false, "fatigue": "some" },
-        { "muscle": "biceps", "counts": false, "fatigue": "some" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "lats", "volume_factor": 1.0 },
+        { "muscle": "upper back", "volume_factor": 0.5 },
+        { "muscle": "biceps", "volume_factor": 0.5 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
@@ -331,10 +350,10 @@
       "equipment": "bodyweight",
       "aliases": ["chinup", "chin ups"],
       "muscles": [
-        { "muscle": "lats", "counts": true, "fatigue": "lots" },
-        { "muscle": "biceps", "counts": true, "fatigue": "lots" },
-        { "muscle": "upper back", "counts": false, "fatigue": "some" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "lats", "volume_factor": 1.0 },
+        { "muscle": "biceps", "volume_factor": 1.0 },
+        { "muscle": "upper back", "volume_factor": 0.5 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
@@ -342,30 +361,34 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "lats", "counts": true, "fatigue": "lots" },
-        { "muscle": "biceps", "counts": false, "fatigue": "some" }
+        { "muscle": "lats", "volume_factor": 1.0 },
+        { "muscle": "biceps", "volume_factor": 0.5 },
+        { "muscle": "upper back", "volume_factor": 0.5 }
       ]
     },
     {
       "name": "Barbell Row",
       "equipment": "barbell",
       "aliases": ["bent over row", "bb row", "barbell rows"],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "lats", "counts": true, "fatigue": "lots" },
-        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
-        { "muscle": "biceps", "counts": false, "fatigue": "some" },
-        { "muscle": "lower back", "counts": false, "fatigue": "some" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "lats", "volume_factor": 1.0 },
+        { "muscle": "upper back", "volume_factor": 1.0 },
+        { "muscle": "biceps", "volume_factor": 0.5 },
+        { "muscle": "lower back", "volume_factor": 0 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
       "name": "Pendlay Row",
       "equipment": "barbell",
       "aliases": [],
+      "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
-        { "muscle": "lats", "counts": true, "fatigue": "lots" },
-        { "muscle": "lower back", "counts": false, "fatigue": "some" }
+        { "muscle": "upper back", "volume_factor": 1.0 },
+        { "muscle": "lats", "volume_factor": 1.0 },
+        { "muscle": "biceps", "volume_factor": 0.5 },
+        { "muscle": "lower back", "volume_factor": 0 }
       ]
     },
     {
@@ -373,9 +396,9 @@
       "equipment": "dumbbell",
       "aliases": ["db row", "single arm row", "dumbbell row"],
       "muscles": [
-        { "muscle": "lats", "counts": true, "fatigue": "lots" },
-        { "muscle": "upper back", "counts": false, "fatigue": "some" },
-        { "muscle": "biceps", "counts": false, "fatigue": "some" }
+        { "muscle": "lats", "volume_factor": 1.0 },
+        { "muscle": "upper back", "volume_factor": 0.5 },
+        { "muscle": "biceps", "volume_factor": 0.5 }
       ]
     },
     {
@@ -383,9 +406,9 @@
       "equipment": "bodyweight",
       "aliases": ["bodyweight row"],
       "muscles": [
-        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
-        { "muscle": "lats", "counts": false, "fatigue": "some" },
-        { "muscle": "biceps", "counts": false, "fatigue": "some" }
+        { "muscle": "upper back", "volume_factor": 1.0 },
+        { "muscle": "lats", "volume_factor": 0.5 },
+        { "muscle": "biceps", "volume_factor": 0.5 }
       ]
     },
     {
@@ -393,8 +416,8 @@
       "equipment": "barbell",
       "aliases": ["shrug", "shrugs"],
       "muscles": [
-        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "upper back", "volume_factor": 1.0 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
@@ -402,8 +425,8 @@
       "equipment": "band",
       "aliases": ["face pull", "face pulls"],
       "muscles": [
-        { "muscle": "upper back", "counts": true, "fatigue": "lots" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+        { "muscle": "upper back", "volume_factor": 1.0 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -411,7 +434,8 @@
       "equipment": "band",
       "aliases": ["pull apart", "pull aparts"],
       "muscles": [
-        { "muscle": "upper back", "counts": true, "fatigue": "lots" }
+        { "muscle": "upper back", "volume_factor": 1.0 },
+        { "muscle": "shoulders", "volume_factor": 0.5 }
       ]
     },
     {
@@ -419,8 +443,8 @@
       "equipment": "barbell",
       "aliases": ["curl", "bb curl", "curls"],
       "muscles": [
-        { "muscle": "biceps", "counts": true, "fatigue": "lots" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "biceps", "volume_factor": 1.0 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
@@ -428,7 +452,7 @@
       "equipment": "dumbbell",
       "aliases": ["db curl"],
       "muscles": [
-        { "muscle": "biceps", "counts": true, "fatigue": "lots" }
+        { "muscle": "biceps", "volume_factor": 1.0 }
       ]
     },
     {
@@ -436,8 +460,8 @@
       "equipment": "dumbbell",
       "aliases": ["hammer curls"],
       "muscles": [
-        { "muscle": "biceps", "counts": true, "fatigue": "lots" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "biceps", "volume_factor": 1.0 },
+        { "muscle": "forearms", "volume_factor": 0.5 }
       ]
     },
     {
@@ -445,7 +469,7 @@
       "equipment": "barbell",
       "aliases": ["skullcrusher", "lying triceps extension", "skull crushers"],
       "muscles": [
-        { "muscle": "triceps", "counts": true, "fatigue": "lots" }
+        { "muscle": "triceps", "volume_factor": 1.0 }
       ]
     },
     {
@@ -453,7 +477,7 @@
       "equipment": "dumbbell",
       "aliases": ["french press", "overhead extension"],
       "muscles": [
-        { "muscle": "triceps", "counts": true, "fatigue": "lots" }
+        { "muscle": "triceps", "volume_factor": 1.0 }
       ]
     },
     {
@@ -461,7 +485,7 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "abs", "counts": true, "fatigue": "lots" }
+        { "muscle": "abs", "volume_factor": 1.0 }
       ]
     },
     {
@@ -469,8 +493,8 @@
       "equipment": "other",
       "aliases": ["ab rollout", "ab wheel"],
       "muscles": [
-        { "muscle": "abs", "counts": true, "fatigue": "lots" },
-        { "muscle": "shoulders", "counts": false, "fatigue": "some" }
+        { "muscle": "abs", "volume_factor": 1.0 },
+        { "muscle": "shoulders", "volume_factor": 0 }
       ]
     },
     {
@@ -478,8 +502,8 @@
       "equipment": "bodyweight",
       "aliases": ["knee raise", "knee raises"],
       "muscles": [
-        { "muscle": "abs", "counts": true, "fatigue": "lots" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "abs", "volume_factor": 1.0 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
@@ -487,8 +511,8 @@
       "equipment": "bodyweight",
       "aliases": ["leg raise", "leg raises"],
       "muscles": [
-        { "muscle": "abs", "counts": true, "fatigue": "lots" },
-        { "muscle": "forearms", "counts": false, "fatigue": "some" }
+        { "muscle": "abs", "volume_factor": 1.0 },
+        { "muscle": "forearms", "volume_factor": 0 }
       ]
     },
     {
@@ -497,8 +521,8 @@
       "stimulus_type": "power",
       "aliases": ["box jumps"],
       "muscles": [
-        { "muscle": "quads", "counts": false, "fatigue": "some" },
-        { "muscle": "calves", "counts": false, "fatigue": "some" }
+        { "muscle": "quads", "volume_factor": 0 },
+        { "muscle": "calves", "volume_factor": 0 }
       ]
     },
     {
@@ -507,8 +531,8 @@
       "stimulus_type": "power",
       "aliases": ["broad jumps"],
       "muscles": [
-        { "muscle": "quads", "counts": false, "fatigue": "some" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" }
+        { "muscle": "quads", "volume_factor": 0 },
+        { "muscle": "glutes", "volume_factor": 0 }
       ]
     },
     {
@@ -517,10 +541,10 @@
       "stimulus_type": "conditioning",
       "aliases": ["sprints"],
       "muscles": [
-        { "muscle": "hamstrings", "counts": false, "fatigue": "some" },
-        { "muscle": "quads", "counts": false, "fatigue": "some" },
-        { "muscle": "glutes", "counts": false, "fatigue": "some" },
-        { "muscle": "calves", "counts": false, "fatigue": "some" }
+        { "muscle": "hamstrings", "volume_factor": 0 },
+        { "muscle": "quads", "volume_factor": 0 },
+        { "muscle": "glutes", "volume_factor": 0 },
+        { "muscle": "calves", "volume_factor": 0 }
       ]
     }
   ]

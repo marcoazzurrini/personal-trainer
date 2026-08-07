@@ -49,13 +49,13 @@ Start a priority muscle around 8–12 weekly sets and a secondary muscle lower. 
 only when the sets are actually being delivered, effort is honest, and progress has
 stalled for a reason volume could plausibly explain.
 
-**The counting scale matters.** The research figures above count an indirect set — one
-where the muscle assists but is not the limiter — as half a set. This database does not:
-it counts a set for a muscle only when that muscle is trained directly, all or nothing. So
-`GET /weekly-volume` returns a systematically lower number than the research scale for the
-same training. Never add sets to make the database number match a figure from the
-literature. Read the number as what it is — direct work only — with the person's indirect
-work a real but uncounted bonus on top.
+**The counting scale matches the research.** The research figures above count in
+fractional sets: a directly trained muscle earns 1.0 per set, an indirectly trained one
+0.5. The database speaks the same language — each set adds its `volume_factor` to every
+muscle it trains — so `GET /weekly-volume` returns numbers on the same scale as the
+dose-response landmarks above, no conversion needed. The numbers are fractional
+(glutes 13.5 is a normal reading), and the classification behind them lives in the
+catalogue — `reference/exercises` holds the rule.
 
 ## Effort: what decides whether a set counts
 
@@ -238,7 +238,6 @@ proposing any change:
 - **Programming for a person who does not exist.** More sessions, more lifts, more
   discipline than they said they have. The excellent programme they abandon loses to the
   modest one they run.
-- **Chasing a literature number on the wrong counting scale.** See the note on counting.
 - **Treating these numbers as more precise than they are.** They are wide, averaged, and
   mostly compatible with one another. This person's record is better evidence than any of
   them.

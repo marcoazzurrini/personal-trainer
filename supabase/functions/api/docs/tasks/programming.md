@@ -94,7 +94,7 @@ plans that don't add up.
    `notes`.
 3. **Weekly dose per exercise.** This is the volume decision, and the method document
    owns it. Then check your work from the muscle's side: sum your draft doses into
-   per-muscle weekly sets through the catalogue's `counts` flags (`GET /exercises`).
+   per-muscle weekly sets through the catalogue's `volume_factor`s (`GET /exercises`).
    **Do this arithmetic with a small script, never in your head** — a silent
    miscount here misprices the whole plan. Per-exercise doses are how you write a
    plan; per-muscle sets are how you judge it against the method's guidance.
