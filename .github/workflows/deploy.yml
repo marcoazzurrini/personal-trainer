@@ -31,7 +31,8 @@ jobs:
           deno-version: v2.x
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned: 2.112.0 broke `supabase link` (inserted_at SchemaError)
+          version: 2.111.0
       - name: Write local function env
         run: |
           printf 'API_TOKEN=local-dev-token\nDATABASE_URL=postgresql://postgres:postgres@db:5432/postgres\n' \
@@ -51,7 +52,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned: 2.112.0 broke `supabase link` (inserted_at SchemaError)
+          version: 2.111.0
       - run: supabase link --project-ref "$PROJECT_REF"
       - run: supabase db push
       - run: supabase functions deploy api
