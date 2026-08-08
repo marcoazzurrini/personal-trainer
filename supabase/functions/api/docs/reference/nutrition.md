@@ -243,24 +243,40 @@ what the coach is allowed to say.
 | `ok` | Back-solved over the current window. `tdee_kcal` ± `band_kcal`. |
 | `damped` | A registered transient is being absorbed; the update is capped at 100 kcal/day. Explain the water, don't chase it. |
 | `stale` | The current window stopped qualifying, so the last good estimate is **held** — `as_of` says which window it came from. Frozen, never extrapolated. |
-| `insufficient_data` | No estimate. `reason` says exactly what is missing. |
+| `insufficient_data` | No estimate at all. `blockers` lists every unmet condition; `as_of` is null, because there is nothing to date-stamp. |
+
+`as_of` is the window the returned number belongs to: today's under `ok` and `damped`,
+an older one under `stale`, and **null under `insufficient_data`**. A date beside a null
+`tdee_kcal` would read as "current as of", implying a number exists when none does.
 
 The method is `TDEE ≈ mean(intake) − ΔE_stored/Δt`, validated against doubly-labeled
 water to roughly ±150–250 kcal/day for an individual. **The band is not decoration.**
 A week-over-week move inside it is noise by construction, and reacting to one is the
 single most common way to make this system worse.
 
-Three things the server refuses to fudge, all reported as `insufficient_data` with a
-reason rather than a guess:
+**The window is the last 21 days**, whole-week aligned so weekend eating cancels out.
+A day inside it is *usable* if it has logged intake; days flagged `incomplete` are
+excluded rather than counted as zero. So the requirement is 14 usable days out of 21 —
+roughly two days logged in every three. That ratio is what lets you answer the question
+Marco will actually ask: how many more days until there's a number.
 
-- fewer than 14 usable days in the window (days flagged `incomplete` are excluded, not
-  counted as zero);
-- fewer than 3 weigh-ins a week — the trend cannot carry a slope worth solving;
+Three things the server refuses to fudge, all reported as `insufficient_data` rather
+than a guess:
+
+- fewer than **14 usable days out of the 21**;
+- fewer than **3 weigh-ins a week** — the trend cannot carry a slope worth solving;
 - **no body-fat estimate on record.** The energy density of a weight change is
   composition-weighted (Forbes: `p = 10.4/(10.4+FM)`, blending 1,020 kcal/kg for
   fat-free mass and 9,440 for fat). A flat 7,700 would bias the estimate upward
   throughout a lean cut. `POST /bodyfat` with a rough number fixes it; precision is
-  not critical, presence is.
+  not critical, presence is. Nothing in daily use asks for this, so it is the one that
+  gets forgotten — and without it the estimate never arrives no matter how well Marco
+  logs.
+
+**All unmet conditions are reported together**, in `blockers` as a list and joined into
+`reason`. Tell Marco everything that is missing at once; the alternative is him
+perfecting his logging for a fortnight and then discovering he also needed a body-fat
+number.
 
 Trend weight is an EMA (α = 0.10) over the earliest weigh-in of each Rome day. A single
 missing day is interpolated; longer gaps are **not** filled, because inventing a flat

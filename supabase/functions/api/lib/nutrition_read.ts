@@ -109,8 +109,13 @@ export async function activeTransients(
 }
 
 export interface ExpenditureRead extends Expenditure {
-  /** The window end the estimate belongs to; older than today when stale. */
-  as_of: string;
+  /**
+   * Which window the returned estimate belongs to — today's for `ok` and
+   * `damped`, an older one for `stale`. Null under `insufficient_data`,
+   * because there is no estimate for it to date-stamp and a date sitting
+   * beside a null tdee reads as "current as of", implying a number exists.
+   */
+  as_of: string | null;
 }
 
 // The whole estimate, with the two things that stop it lying: damping when a
@@ -157,7 +162,8 @@ export async function currentExpenditure(
     }
   }
 
-  return { ...current, as_of: to };
+  // No estimate, so nothing to stamp.
+  return { ...current, as_of: null };
 }
 
 export interface ActiveTarget {

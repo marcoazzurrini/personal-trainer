@@ -1,8 +1,15 @@
-# Onboarding
+# Onboarding — training
 
 Establishing who the person is before anything gets programmed. Fetch this when
 `training-state` comes back with no active mesocycle and little or no user context —
 the first conversation, or a return after a long gap has made everything stale.
+
+This is the training half only. Setting up food logging, targets and the expenditure
+estimate is `tasks/nutrition-onboarding`, which triggers on its own condition —
+`nutrition-state` with no target and an empty registry. The two halves are months
+apart as often as not, and an empty record on one side says nothing about the other.
+Do not run both interviews in one conversation because both happen to be empty; ask
+which one the person came for.
 
 The goal is not a filled form. It is enough true context that `tasks/programming` can
 build a plan that fits this person, written where the next conversation will find it.
@@ -38,7 +45,14 @@ In order of what blocks programming, with why each matters:
    diagnosis avoided later.
 5. **How they're eating.** To grow, at maintenance, or in a deficit. The method
    document calls this non-optional, because it changes what every future number
-   means.
+   means. **Read it before asking**: if a nutrition target is active,
+   `GET /nutrition-targets` already states the goal and the rate, and asking anyway
+   wastes their time and risks recording a second, contradicting answer. If there is
+   no target, one sentence in their own words is enough here — "eating to grow",
+   "cutting slowly" — written to user-context like any other fact. Do not slide into
+   setting up food logging mid-interview: if they want calorie tracking, that is
+   `tasks/nutrition-onboarding`, offered after this conversation lands, not folded
+   into it.
 6. **Recent training.** What they've actually been doing and the working weights
    they remember, as stated — no verification, no testing. This is the baseline
    material.
@@ -71,12 +85,15 @@ still right?" is faster and more respectful of the person's time than pretending
 know nothing. But only what the person confirms in this conversation gets written,
 and once written, user-context is the record. Nothing unconfirmed is acted on.
 
-## What onboarding is not
+## What training onboarding is not
 
 - Not a physical assessment. No measurements beyond bodyweight, no movement
   screens, no testing.
 - Not the plan. Resist sketching the programme mid-interview — half-known context
   produces confident wrong plans, and promises made early constrain the design.
+- Not nutrition setup. Item 5 records how they're eating in one line; it does not
+  source foods, save meals, or set a calorie target. That is a different document
+  with a different trigger.
 - Not exhaustive. Six confirmed answers written down beat twenty collected and
   half-remembered.
 
@@ -87,3 +104,7 @@ with the method document for the goal — in the same conversation if the person
 willing. The first plan should be modest: the excellent programme they abandon loses
 to the modest one they run, and the first mesocycle is also the instrument that
 measures everything you just wrote down.
+
+If they also want to track what they eat, mention it once at the end and leave it
+there — nutrition onboarding is its own conversation, and stacking it onto this one
+produces two half-built systems instead of one working plan.

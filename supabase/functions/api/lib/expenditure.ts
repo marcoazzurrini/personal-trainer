@@ -150,6 +150,11 @@ export interface WindowInput {
 export interface Expenditure {
   status: ExpenditureStatus;
   reason: string;
+  // Every unmet condition, not just the first one hit. Three separate things
+  // can block an estimate, and reporting them one at a time means the coach
+  // fixes logging for a fortnight and is then ambushed by the body-fat
+  // requirement it could have asked for on day one.
+  blockers: string[];
   tdee_kcal: number | null;
   band_kcal: number | null;
   window: {
@@ -169,10 +174,11 @@ export interface Expenditure {
   } | null;
 }
 
-function insufficient(reason: string): Expenditure {
+function insufficient(blockers: string[]): Expenditure {
   return {
     status: "insufficient_data",
-    reason,
+    reason: blockers.join(" "),
+    blockers,
     tdee_kcal: null,
     band_kcal: null,
     window: null,
@@ -197,49 +203,60 @@ function bandFor(coverage: number): number {
 export function backSolve(input: WindowInput): Expenditure {
   const { days, intakeByDay, excludedDays, trend, bodyfatPercent } = input;
 
-  if (days.length < MIN_WINDOW_DAYS) {
-    return insufficient(
-      `The window is ${days.length} days and the estimate needs at least ${MIN_WINDOW_DAYS}. Keep logging — this resolves itself with time, not with a different calculation.`,
-    );
-  }
-
-  const usable = days.filter((d) => !excludedDays.has(d) && intakeByDay.has(d));
-  if (usable.length < MIN_WINDOW_DAYS) {
-    return insufficient(
-      `Only ${usable.length} of ${days.length} days in the window have logged intake (days flagged incomplete are excluded on purpose). The estimate needs ${MIN_WINDOW_DAYS}.`,
-    );
-  }
-
-  if (bodyfatPercent === null) {
-    return insufficient(
-      "No body-fat estimate on record. The energy density of a weight change depends on body composition — without it the back-solve would have to assume a flat 7,700 kcal/kg, which is biased for a lean trainee. POST /api/bodyfat with a rough estimate (BIA, DXA, or an honest visual guess); precision is not critical.",
-    );
-  }
-
   const from = days[0];
   const to = days[days.length - 1];
   const inWindow = trend.filter((p) =>
     daysBetween(from, p.day) >= 0 && daysBetween(p.day, to) >= 0
   );
   const weighInDays = inWindow.filter((p) => !p.interpolated).length;
-
+  const usable = days.filter((d) => !excludedDays.has(d) && intakeByDay.has(d));
   const weeks = Math.max(1, Math.round(days.length / 7));
-  if (weighInDays < MIN_WEIGH_INS_PER_WEEK * weeks) {
-    return insufficient(
-      `${weighInDays} weigh-ins across ${weeks} weeks; the trend needs at least ${MIN_WEIGH_INS_PER_WEEK} a week to carry a slope worth back-solving. Daily weighing is the one habit that keeps this whole system working through a logging lapse.`,
+
+  // Collected, not short-circuited: the caller gets the whole list of what is
+  // missing so it can say "two more weeks of logging and a body-fat number"
+  // instead of discovering the second requirement after satisfying the first.
+  const blockers: string[] = [];
+
+  if (days.length < MIN_WINDOW_DAYS) {
+    blockers.push(
+      `The window is only ${days.length} days and the estimate needs at least ${MIN_WINDOW_DAYS}.`,
     );
   }
-  if (inWindow.length < 2) {
-    return insufficient(
-      "Not enough trend points in the window to measure a slope.",
+  if (usable.length < MIN_WINDOW_DAYS) {
+    blockers.push(
+      `Only ${usable.length} of the ${days.length} days in the window have logged intake, and the estimate needs ${MIN_WINDOW_DAYS} (days flagged incomplete are excluded on purpose, not counted as zero).`,
     );
+  }
+  if (weighInDays < MIN_WEIGH_INS_PER_WEEK * weeks) {
+    blockers.push(
+      `${weighInDays} weigh-ins across ${weeks} ${
+        weeks === 1 ? "week" : "weeks"
+      }; the trend needs at least ${MIN_WEIGH_INS_PER_WEEK} a week to carry a slope worth back-solving. Daily weighing is the one habit that keeps this working through a logging lapse.`,
+    );
+  }
+  if (bodyfatPercent === null) {
+    blockers.push(
+      "No body-fat estimate on record. The energy density of a weight change depends on body composition — without it the back-solve would have to assume a flat 7,700 kcal/kg, which is biased for a lean trainee. POST /api/bodyfat with a rough figure (BIA, DXA, or an honest visual guess); precision is not critical, presence is.",
+    );
+  }
+  // The bodyfatPercent half is redundant with the blocker pushed just above;
+  // it is spelled out so the compiler can narrow the type for the arithmetic
+  // further down, which is cheaper than asserting non-null at the use site.
+  if (blockers.length > 0 || bodyfatPercent === null) {
+    return insufficient(blockers);
+  }
+
+  if (inWindow.length < 2) {
+    return insufficient([
+      "Not enough trend points in the window to measure a slope.",
+    ]);
   }
 
   const trendFrom = inWindow[0];
   const trendTo = inWindow[inWindow.length - 1];
   const span = daysBetween(trendFrom.day, trendTo.day);
   if (span <= 0) {
-    return insufficient("The trend does not span the window.");
+    return insufficient(["The trend does not span the window."]);
   }
 
   const meanIntake = usable.reduce((sum, d) => sum + intakeByDay.get(d)!, 0) /
@@ -261,7 +278,8 @@ export function backSolve(input: WindowInput): Expenditure {
   return {
     status: "ok",
     reason:
-      `Back-solved over ${usable.length} logged days and ${weighInDays} weigh-ins.`,
+      `Back-solved over ${usable.length} logged days and ${weighInDays} weigh-ins in a ${days.length}-day window.`,
+    blockers: [],
     tdee_kcal: Math.round(tdee),
     band_kcal: bandFor(coverage),
     window: {

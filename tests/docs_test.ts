@@ -58,6 +58,40 @@ Deno.test("skill documents", async (t) => {
     }
   });
 
+  await t.step("documents never point at documents that 404", async () => {
+    const token = (await import("./helpers.ts")).TOKEN;
+    const auth = { Authorization: `Bearer ${token}` };
+    const index = await fetch(`${BASE}/docs/index`, { headers: auth });
+    const named = new Set(
+      [...(await index.text()).matchAll(
+        /GET \/docs\/([a-z0-9-]+\/[a-z0-9-]+)/g,
+      )]
+        .map((m) => m[1]),
+    );
+
+    // Cross-references inside the documents, not just the index's own table.
+    // A task doc telling the coach to fetch `tasks/training-onboarding` when
+    // the route is `tasks/onboarding` sends it looking for a procedure that
+    // isn't there, and the index-coverage check above cannot see that.
+    const seen = new Set<string>();
+    for (const name of named) {
+      const res = await fetch(`${BASE}/docs/${name}`, { headers: auth });
+      assertEquals(res.status, 200, `${name} should serve`);
+      const body = await res.text();
+      for (
+        const m of body.matchAll(/`(tasks|reference|method)\/([a-z0-9-]+)`/g)
+      ) {
+        seen.add(`${m[1]}/${m[2]}`);
+      }
+    }
+    assert(seen.size >= 8, `expected cross-references, found ${seen.size}`);
+    for (const ref of seen) {
+      const res = await fetch(`${BASE}/docs/${ref}`, { headers: auth });
+      assertEquals(res.status, 200, `a document references ${ref}, which 404s`);
+      await res.body?.cancel();
+    }
+  });
+
   await t.step("a reference document serves from its folder", async () => {
     const res = await fetch(`${BASE}/docs/reference/sessions`, {
       headers: {

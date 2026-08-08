@@ -572,6 +572,25 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(body.target, null);
     assertEquals(body.expenditure.status, "insufficient_data");
     assertEquals(body.expenditure.tdee_kcal, null);
+    // No estimate, so nothing to date-stamp: a date beside a null tdee reads
+    // as "current as of" and implies a number exists.
+    assertEquals(body.expenditure.as_of, null);
+    // Every unmet condition at once, not the first one hit. Body fat is on
+    // record by this point in the file, so the blockers here are the logging
+    // and weigh-in ones; the both-at-once case is covered as a unit test.
+    assert(body.expenditure.blockers.length >= 2);
+    assert(
+      body.expenditure.blockers.some((b: string) =>
+        b.includes("logged intake")
+      ),
+    );
+    assert(
+      body.expenditure.blockers.some((b: string) => b.includes("weigh-ins")),
+    );
+    assert(
+      body.expenditure.blockers.some((b: string) => b.includes("21")),
+      "the window length belongs in the message, not just the docs",
+    );
     assertEquals(body.latest_bodyfat.percent, 14.5);
     assertEquals(typeof body.adherence.days_logged_last_7, "number");
     assertEquals(typeof body.adherence.weigh_ins_last_7, "number");

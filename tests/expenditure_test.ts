@@ -174,6 +174,24 @@ Deno.test("expenditure back-solve", async (t) => {
     assertEquals(result.window!.usable_days, 16);
   });
 
+  await t.step("every blocker is reported, not just the first", () => {
+    // Nothing logged and no body-fat estimate: both must come back, or the
+    // coach solves one problem and meets the next a fortnight later.
+    const { days, trend } = steadyCut();
+    const result = backSolve({
+      days,
+      intakeByDay: new Map(),
+      excludedDays: new Set(),
+      trend,
+      bodyfatPercent: null,
+    });
+    assertEquals(result.status, "insufficient_data");
+    assertEquals(result.blockers.length, 2);
+    assert(result.blockers.some((b) => b.includes("logged intake")));
+    assert(result.blockers.some((b) => b.includes("body-fat")));
+    assertEquals(result.reason, result.blockers.join(" "));
+  });
+
   await t.step("no body-fat estimate blocks the estimate", () => {
     const { days, intakeByDay, trend } = steadyCut();
     const result = backSolve({

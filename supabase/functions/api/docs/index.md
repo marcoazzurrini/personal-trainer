@@ -51,14 +51,15 @@ One per thing a coach does.
 
 | Endpoint                             | Fetch when                                                                                  |
 | ------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `GET /docs/tasks/onboarding`         | `training-state` shows no plan and little context — establishing the person before anything is programmed |
+| `GET /docs/tasks/onboarding`         | `training-state` shows no mesocycle and little context — establishing the person before anything is programmed |
 | `GET /docs/tasks/programming`        | Creating or changing a mesocycle — anything that touches the plan                           |
 | `GET /docs/tasks/session-generation` | Marco asks what to do today                                                                 |
 | `GET /docs/tasks/pain`               | Marco reports pain, a tweak, or asks whether to train through something                     |
 | `GET /docs/tasks/logging`            | Something needs writing down: sessions done off-app, corrections, lasting facts, bodyweight |
 | `GET /docs/tasks/evaluation`         | Reviews and "is this working?" questions                                                    |
-| `GET /docs/tasks/charts`             | Marco asks to see progress                                                                  |
+| `GET /docs/tasks/charts`             | Marco asks to see progress, in either half — training, nutrition, or the two together      |
 | `GET /docs/tasks/improving-docs`     | A document has proven wrong or incomplete in practice                                       |
+| `GET /docs/tasks/nutrition-onboarding` | `nutrition-state` shows no target and an empty registry — setting up weighing, staples and the first target before anything is logged |
 | `GET /docs/tasks/nutrition-logging`  | Marco says he ate something, wants to save a food or meal, or asks about today's intake     |
 | `GET /docs/tasks/nutrition-checkin`  | "How's the cut going", "should we adjust", setting up a goal phase or changing a target |
 
