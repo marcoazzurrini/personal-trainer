@@ -47,11 +47,18 @@ Deno.test("every creating POST that could duplicate requires a request_id", asyn
   await api.post("/mesocycles", {
     block_id: block.body.block.id,
     name: "Inventory meso",
+    track: "hypertrophy",
     intent: "testing",
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
-    exercises: [{ exercise: "squat", role: "main", priority: 1 }],
+    exercises: [{
+      exercise: "squat",
+      role: "main",
+      priority: 1,
+      weekly_dose: 9,
+      weekly_dose_unit: "sets",
+    }],
   });
   const session = await api.post("/sessions", {
     date: today(),
@@ -114,11 +121,18 @@ Deno.test("every creating POST that could duplicate requires a request_id", asyn
     ["mesocycles", "/mesocycles", {
       block_id: block.body.block.id,
       name: "M2",
+      track: "strength",
       intent: "i",
       planned_weeks: 4,
       sessions_per_week: 3,
       started_on: lastMonday(),
-      exercises: [{ exercise: "squat", role: "main", priority: 1 }],
+      exercises: [{
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_dose: 9,
+        weekly_dose_unit: "sets",
+      }],
     }],
     ["mesocycle revisions", "/mesocycles/current/revisions", {
       decision: { what_changed: "x", why: "y" },

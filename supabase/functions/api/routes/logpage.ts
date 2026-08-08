@@ -7,6 +7,8 @@
 import { Hono } from "@hono/hono";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
+import { resolveSetMesocycleId } from "../lib/resolve.ts";
+import { assertEffort, assertSetMeasures } from "../lib/training.ts";
 import {
   type Body,
   optionalInt,
@@ -24,7 +26,7 @@ export const logPage = new Hono();
 async function sessionByPublicId(publicId: string): Promise<any> {
   const [session] = await sql`
     select id, public_id, date, rationale, notes, overall_feel,
-      started_at, completed_at, mesocycle_id
+      started_at, completed_at
     from sessions where public_id = ${publicId}`;
   if (!session) {
     throw new ApiError(404, "No session here. Check the link.");
@@ -35,8 +37,11 @@ async function sessionByPublicId(publicId: string): Promise<any> {
 // A set may only be written through the session link it belongs to.
 async function setInSession(setId: number, sessionId: number) {
   const [row] = await sql`
-    select id, kind, performed_at from sets
-    where id = ${setId} and session_id = ${sessionId}`;
+    select t.id, t.kind, t.performed_at, t.effort, t.weight_kg::float8, t.reps,
+      t.distance_m::float8, t.duration_s::float8,
+      e.name as exercise, e.measure, e.stimulus_type
+    from sets t join exercises e on e.id = t.exercise_id
+    where t.id = ${setId} and t.session_id = ${sessionId}`;
   if (!row) throw new ApiError(404, "That set is not part of this session.");
   return row;
 }
@@ -45,14 +50,17 @@ logPage.get("/:publicId", async (c) => {
   const session = await sessionByPublicId(c.req.param("publicId"));
 
   const sets = await sql`
-    select t.id, t.exercise_id, e.name as exercise, t.position, t.kind,
+    select t.id, t.exercise_id, e.name as exercise, e.measure, t.position,
+      t.kind,
       t.target_weight_kg::float8, t.target_reps,
-      t.weight_kg::float8, t.reps, t.effort, t.notes,
+      t.target_distance_m::float8, t.target_duration_s::float8,
+      t.weight_kg::float8, t.reps,
+      t.distance_m::float8, t.duration_s::float8, t.effort, t.notes,
       me.notes as plan_notes
     from sets t
     join exercises e on e.id = t.exercise_id
     left join mesocycle_exercises me
-      on me.mesocycle_id = ${session.mesocycle_id}
+      on me.mesocycle_id = t.mesocycle_id
       and me.exercise_id = t.exercise_id
     where t.session_id = ${session.id}
     order by t.position`;
@@ -63,25 +71,29 @@ logPage.get("/:publicId", async (c) => {
   const lastTime = exerciseIds.length === 0 ? [] : await sql`
     select x.exercise_id, prev.date,
       (select json_agg(json_build_object(
-          'weight_kg', p.weight_kg::float8, 'reps', p.reps, 'effort', p.effort)
+          'weight_kg', p.weight_kg::float8, 'reps', p.reps,
+          'distance_m', p.distance_m::float8, 'duration_s', p.duration_s::float8,
+          'effort', p.effort)
         order by p.position)
        from sets p
        where p.session_id = prev.id and p.exercise_id = x.exercise_id
-         and p.kind = 'working' and p.reps is not null) as sets
+         and p.kind = 'working'
+         and set_performed(p.reps, p.distance_m, p.duration_s)) as sets
     from unnest(${sql.array(exerciseIds)}::bigint[]) as x(exercise_id)
     cross join lateral (
       select s2.id, s2.date
       from sessions s2
       join sets t2 on t2.session_id = s2.id
       where t2.exercise_id = x.exercise_id and t2.kind = 'working'
-        and t2.reps is not null and s2.id <> ${session.id}
+        and set_performed(t2.reps, t2.distance_m, t2.duration_s)
+        and s2.id <> ${session.id}
         and s2.date <= ${session.date}
       order by s2.date desc, s2.id desc
       limit 1
     ) prev`;
 
   const catalogue = await sql`
-    select id, name from exercises order by name`;
+    select id, name, measure from exercises order by name`;
 
   return c.html(renderPage(session, sets, lastTime, catalogue));
 });
@@ -98,6 +110,12 @@ logPage.patch("/:publicId/sets/:setId", async (c) => {
     fields.weight_kg = optionalNumber(body, "weight_kg", { min: 0 });
   }
   if ("reps" in body) fields.reps = optionalInt(body, "reps", { min: 1 });
+  if ("distance_m" in body) {
+    fields.distance_m = optionalNumber(body, "distance_m", { min: 0 });
+  }
+  if ("duration_s" in body) {
+    fields.duration_s = optionalNumber(body, "duration_s", { min: 0 });
+  }
   if ("effort" in body) {
     fields.effort = body.effort === null ? null : requireOneOf(
       body,
@@ -109,18 +127,37 @@ logPage.patch("/:publicId/sets/:setId", async (c) => {
   if (Object.keys(fields).length === 0) {
     throw new ApiError(422, "Nothing to save.");
   }
+  const pick = <T>(field: string, was: T) =>
+    field in fields ? fields[field] as T : was;
+  assertSetMeasures(existing.measure, existing.exercise, "actual", {
+    weightKg: pick("weight_kg", existing.weight_kg),
+    reps: pick("reps", existing.reps),
+    distanceM: pick("distance_m", existing.distance_m),
+    durationS: pick("duration_s", existing.duration_s),
+  });
+  assertEffort(
+    existing.stimulus_type,
+    existing.exercise,
+    existing.kind,
+    pick("reps", existing.reps),
+    pick("effort", existing.effort),
+  );
+
+  const measured = fields.reps != null || fields.distance_m != null ||
+    fields.duration_s != null;
   if (
     fields.performed_at === undefined && existing.performed_at === null &&
-    (fields.weight_kg != null || fields.reps != null)
+    measured
   ) {
     fields.performed_at = new Date().toISOString();
   }
 
   const [row] = await sql`
     update sets set ${sql(fields)} where id = ${setId}
-    returning id, weight_kg::float8, reps, effort, performed_at, notes`;
+    returning id, weight_kg::float8, reps, distance_m::float8,
+      duration_s::float8, effort, performed_at, notes`;
   // The first logged set starts the session clock.
-  if (session.started_at === null && (fields.weight_kg != null)) {
+  if (session.started_at === null && measured) {
     await sql`
       update sessions set started_at = coalesce(started_at, now())
       where id = ${session.id}`;
@@ -142,22 +179,48 @@ logPage.post("/:publicId/sets", async (c) => {
     ["warmup", "working"] as const,
     "working",
   );
-  const weightKg = optionalNumber(body, "weight_kg", { min: 0 });
-  const reps = optionalInt(body, "reps", { min: 1 });
+  const actual = {
+    weightKg: optionalNumber(body, "weight_kg", { min: 0 }),
+    reps: optionalInt(body, "reps", { min: 1 }),
+    distanceM: optionalNumber(body, "distance_m", { min: 0 }),
+    durationS: optionalNumber(body, "duration_s", { min: 0 }),
+  };
   const effort = body.effort === undefined || body.effort === null
     ? null
     : requireOneOf(body, "effort", ["easy", "hard", "failure"] as const);
 
+  const [exercise] = await sql`
+    select name, measure, stimulus_type from exercises where id = ${exerciseId}`;
+  if (!exercise) {
+    throw new ApiError(404, "That exercise is not in the catalogue.");
+  }
+  assertSetMeasures(exercise.measure, exercise.name, "actual", actual);
+  assertEffort(
+    exercise.stimulus_type,
+    exercise.name,
+    kind,
+    actual.reps,
+    effort,
+  );
+
+  // The page never says which plan the work serves — it does not know plans
+  // exist. The exercise decides it, exactly as it does in chat.
+  const mesocycleId = await resolveSetMesocycleId(exerciseId, undefined);
+  const measured = actual.reps !== null || actual.distanceM !== null ||
+    actual.durationS !== null;
+
   const [row] = await sql`
     insert into sets
-      (session_id, exercise_id, position, kind, weight_kg, reps, effort,
-       performed_at)
+      (session_id, exercise_id, mesocycle_id, position, kind, weight_kg, reps,
+       distance_m, duration_s, effort, performed_at)
     values
-      (${session.id}, ${exerciseId}, ${position}, ${kind}, ${weightKg},
-       ${reps}, ${effort},
-       ${weightKg === null ? null : new Date().toISOString()})
+      (${session.id}, ${exerciseId}, ${mesocycleId}, ${position}, ${kind},
+       ${actual.weightKg}, ${actual.reps}, ${actual.distanceM},
+       ${actual.durationS}, ${effort},
+       ${measured ? new Date().toISOString() : null})
     on conflict (session_id, position) do update
       set weight_kg = excluded.weight_kg, reps = excluded.reps,
+        distance_m = excluded.distance_m, duration_s = excluded.duration_s,
         effort = excluded.effort,
         performed_at = coalesce(sets.performed_at, excluded.performed_at)
     returning id, position`;
@@ -278,12 +341,13 @@ function renderPage(
     padding: .4rem .5rem .4rem 0; cursor: pointer; font-family: inherit;
   }
   .target:active { color: var(--chalk); }
-  input.w, input.r {
+  input.w, input.r, input.d, input.t {
     width: 4.2rem; padding: .55rem .4rem; text-align: center;
     font-size: 1.15rem; font-weight: 700; color: var(--chalk);
     background: var(--iron); border: 1px solid var(--seam); border-radius: .5rem;
   }
   input.r { width: 4rem; }
+  input.d, input.t { width: 5.2rem; }
   .times { color: var(--dust); }
   input:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible {
     outline: 2px solid var(--chalk); outline-offset: 2px;
@@ -364,7 +428,15 @@ async function flush() {
     const job = queue[0];
     try { await api(job.path, job.body, job.method); }
     catch { break; }
-    queue.shift(); localStorage.setItem(QKEY, JSON.stringify(queue));
+    // Remove *this* job, not whatever is at the head now. An edit made while
+    // the request was in flight replaced it under us, and a blind shift()
+    // would drop that edit unsent — the set would read back as the older
+    // numbers with an empty queue and no error, which is the one failure this
+    // queue exists to prevent. If it was replaced, indexOf finds nothing, the
+    // replacement stays queued, and the next pass sends it.
+    const at = queue.indexOf(job);
+    if (at >= 0) queue.splice(at, 1);
+    localStorage.setItem(QKEY, JSON.stringify(queue));
   }
   flushing = false; updateSync();
 }
@@ -381,51 +453,115 @@ const byExercise = [];
 for (const s of DATA.sets) {
   const last = byExercise[byExercise.length - 1];
   if (last && last.exercise_id === s.exercise_id) last.sets.push(s);
-  else byExercise.push({ exercise_id: s.exercise_id, name: s.exercise, plan_notes: s.plan_notes, sets: [s] });
+  else byExercise.push({ exercise_id: s.exercise_id, name: s.exercise, measure: s.measure, plan_notes: s.plan_notes, sets: [s] });
 }
 let maxPosition = Math.max(0, ...DATA.sets.map((s) => s.position));
 
-function fmt(w, r) { return (w % 1 ? w.toFixed(1) : w) + "\\u2009\\u00d7\\u2009" + r; }
+// What a set of an exercise records. Mirrors the server's rules, so the page
+// asks for exactly the fields the API will accept and no others — a sprint
+// gets metres and a stopwatch, never an empty kg box it would reject.
+const MEASURES = {
+  load_reps: { fields: [["weight_kg","w","kg","decimal"],["reps","r","reps","numeric"]], mode: "all", chips: true, sep: "\\u00d7" },
+  reps: { fields: [["reps","r","reps","numeric"]], mode: "all", chips: true, sep: "" },
+  distance: { fields: [["distance_m","d","m","decimal"]], mode: "all", chips: false, sep: "" },
+  duration: { fields: [["duration_s","t","time","text"]], mode: "all", chips: false, sep: "" },
+  distance_duration: { fields: [["distance_m","d","m","decimal"],["duration_s","t","time","text"]], mode: "any", chips: false, sep: "in" },
+};
+const spec = (m) => MEASURES[m] || MEASURES.load_reps;
+const isTime = (key) => key === "duration_s";
+
+// Times are typed the way they are said: "5.21" for a sprint, "28:30" for a
+// run, "1:12:00" for a long one. Seconds are what the column holds.
+function parseTime(v) {
+  v = String(v).trim();
+  if (v === "") return null;
+  let total = 0;
+  for (const part of v.split(":")) {
+    const n = Number(part);
+    if (part === "" || !isFinite(n)) return null;
+    total = total * 60 + n;
+  }
+  return total;
+}
+function fmtTime(s) {
+  if (s === null || s === undefined) return "";
+  if (s < 60) return String(s);
+  const m = Math.floor(s / 60), r = Math.round((s - m * 60) * 100) / 100;
+  return m + ":" + (r < 10 ? "0" : "") + r;
+}
+function num(v) { return v % 1 ? String(Number(v.toFixed(2))) : String(v); }
+function readField(el, key) { return isTime(key) ? parseTime(el.value) : (el.value === "" ? null : Number(el.value)); }
+function writeField(el, key, v) { el.value = v === null || v === undefined ? "" : (isTime(key) ? fmtTime(v) : v); }
+
+// One set as a line of text: the target chip, and the "last ·" history.
+function fmtSet(measure, v, prefix) {
+  const parts = spec(measure).fields
+    .map(function (f) { const raw = v[prefix + f[0]]; return raw === null || raw === undefined ? null : (isTime(f[0]) ? fmtTime(raw) : num(raw) + (f[2] === "m" ? " m" : "")); })
+    .filter(function (x) { return x !== null; });
+  if (!parts.length) return "";
+  const sep = spec(measure).sep;
+  const glue = sep === "\\u00d7" ? "\\u2009\\u00d7\\u2009" : (sep ? " " + sep + " " : " ");
+  return parts.join(glue) + (measure === "reps" ? " reps" : "");
+}
 
 function setRow(s) {
   const div = document.createElement("div");
   div.className = "set"; div.dataset.id = s.id;
   const isWork = s.kind === "working";
+  const sp = spec(s.measure);
+  const targetText = fmtSet(s.measure, s, "target_");
+  const inputs = sp.fields.map(function (f, i) {
+    const key = f[0], cls = f[1], ph = f[2], mode = f[3];
+    const shown = isTime(key) ? fmtTime(s[key]) : (s[key] === null || s[key] === undefined ? "" : s[key]);
+    return (i && sp.sep ? '<span class="times">' + sp.sep + "</span>" : "") +
+      '<input class="' + cls + ' num" inputmode="' + mode + '" placeholder="' + ph + '" value="' + shown + '">';
+  }).join("");
   div.innerHTML =
     '<div class="set-line">' +
     '<span class="pos num">' + s.position + "</span>" +
     (isWork ? "" : '<span class="warmup-tag">warmup</span>') +
-    (s.target_reps !== null
-      ? '<button class="target num" title="use target">' + fmt(s.target_weight_kg, s.target_reps) + "</button>"
+    (targetText
+      ? '<button class="target num" title="use target">' + targetText + "</button>"
       : "") +
-    '<input class="w num" inputmode="decimal" placeholder="kg" value="' + (s.weight_kg ?? "") + '">' +
-    '<span class="times">\\u00d7</span>' +
-    '<input class="r num" inputmode="numeric" placeholder="reps" value="' + (s.reps ?? "") + '">' +
+    inputs +
     "</div>" +
-    (isWork
+    (isWork && sp.chips
       ? '<div class="chips">' +
         ["easy", "hard", "failure"].map((e) =>
           '<button class="chip' + (s.effort === e ? " on" : "") + '" data-effort="' + e + '">' +
           (e === "failure" ? "fail" : e) + "</button>"
         ).join("") + "</div>"
       : "");
-  const w = $(".w", div), r = $(".r", div);
+  const boxes = sp.fields.map((f) => [f[0], $("." + f[1], div)]);
+  // The body the API expects for this measure: every field it records, null
+  // when blank, so clearing one is a correction rather than a no-op.
+  div.readBody = () => {
+    const body = {};
+    for (const [key, el] of boxes) body[key] = readField(el, key);
+    const filled = boxes.filter(([key, el]) => readField(el, key) !== null).length;
+    const enough = sp.mode === "all" ? filled === boxes.length : filled > 0;
+    if (!enough) return null;
+    if (isWork && sp.chips) {
+      const effort = $(".chip.on", div)?.dataset.effort ?? null;
+      if (!effort) return null; // chips are required; wait for the tap
+      body.effort = effort;
+    }
+    return body;
+  };
   const save = () => {
     if (s.id === null) return; // unplanned rows have their own sender
-    const weight = w.value === "" ? null : Number(w.value);
-    const reps = r.value === "" ? null : Number(r.value);
-    const effort = $(".chip.on", div)?.dataset.effort ?? null;
-    if (weight === null || reps === null) return;
-    if (isWork && !effort) return; // chips are required; wait for the tap
-    enqueue({ key: "set-" + s.id, path: "/sets/" + s.id, body: { weight_kg: weight, reps, effort } });
+    const body = div.readBody();
+    if (!body) return;
+    enqueue({ key: "set-" + s.id, path: "/sets/" + s.id, body });
     div.classList.remove("saved"); void div.offsetWidth; div.classList.add("saved");
     updateProgress();
   };
   const tgt = $(".target", div);
   if (tgt) tgt.addEventListener("click", () => {
-    w.value = s.target_weight_kg; r.value = s.target_reps; save(); w.focus();
+    for (const [key, el] of boxes) writeField(el, key, s["target_" + key]);
+    save(); boxes[0][1].focus();
   });
-  [w, r].forEach((el) => el.addEventListener("change", save));
+  boxes.forEach(([, el]) => el.addEventListener("change", save));
   div.querySelectorAll(".chip").forEach((chip) =>
     chip.addEventListener("click", () => {
       div.querySelectorAll(".chip").forEach((x) => x.classList.remove("on"));
@@ -439,13 +575,10 @@ function exerciseCard(group) {
   card.className = "exercise";
   const last = DATA.lastTime[group.exercise_id];
   card.innerHTML =
-    "<h2>" + group.name +
-    (group.rep_low !== null && group.rep_low !== undefined && group.rep_low !== null
-      ? '<span class="range num">' + group.rep_low + "\\u2013" + group.rep_high + " reps</span>" : "") +
-    "</h2>" +
+    "<h2>" + group.name + "</h2>" +
     (last && last.sets
       ? '<div class="last num">last \\u00b7 ' +
-        last.sets.map((x) => fmt(x.weight_kg, x.reps)).join(" \\u00b7 ") + "</div>"
+        last.sets.map((x) => fmtSet(group.measure, x, "")).join(" \\u00b7 ") + "</div>"
       : '<div class="last">first time \\u2014 no history</div>');
   for (const s of group.sets) card.appendChild(setRow(s));
   const actions = document.createElement("div");
@@ -454,9 +587,12 @@ function exerciseCard(group) {
   addBtn.className = "ghost"; addBtn.textContent = "+ set";
   addBtn.addEventListener("click", () => {
     maxPosition += 1;
-    const s = { id: null, exercise_id: group.exercise_id, position: maxPosition,
-      kind: "working", target_weight_kg: null, target_reps: null,
-      weight_kg: null, reps: null, effort: null, clientPos: maxPosition };
+    const s = { id: null, exercise_id: group.exercise_id, measure: group.measure,
+      position: maxPosition, kind: "working",
+      target_weight_kg: null, target_reps: null,
+      target_distance_m: null, target_duration_s: null,
+      weight_kg: null, reps: null, distance_m: null, duration_s: null,
+      effort: null, clientPos: maxPosition };
     const row = unplannedRow(s, group.name);
     card.insertBefore(row, actions);
   });
@@ -475,19 +611,15 @@ function exerciseCard(group) {
 // makes the post safe to retry.
 function unplannedRow(s, _name) {
   const div = setRow(s);
-  const w = $(".w", div), r = $(".r", div);
   const post = () => {
-    const weight = w.value === "" ? null : Number(w.value);
-    const reps = r.value === "" ? null : Number(r.value);
-    const effort = $(".chip.on", div)?.dataset.effort ?? null;
-    if (weight === null || reps === null || !effort) return;
-    enqueue({ key: "new-" + s.clientPos, path: "/sets", method: "POST",
-      body: { exercise_id: s.exercise_id, position: s.clientPos, kind: "working",
-        weight_kg: weight, reps, effort } });
+    const body = div.readBody();
+    if (!body) return;
+    body.exercise_id = s.exercise_id; body.position = s.clientPos; body.kind = "working";
+    enqueue({ key: "new-" + s.clientPos, path: "/sets", method: "POST", body });
     div.classList.remove("saved"); void div.offsetWidth; div.classList.add("saved");
     updateProgress();
   };
-  [w, r].forEach((el) => { el.removeEventListener("change", post); el.addEventListener("change", post); });
+  div.querySelectorAll("input").forEach((el) => { el.removeEventListener("change", post); el.addEventListener("change", post); });
   div.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", post));
   return div;
 }
@@ -506,8 +638,8 @@ function saveNotes() {
 
 function updateProgress() {
   const rows = [...document.querySelectorAll('.set')];
-  const working = rows.filter((d) => $(".chips", d));
-  const done = working.filter((d) => $(".w", d).value !== "" && $(".r", d).value !== "" && $(".chip.on", d));
+  const working = rows.filter((d) => !$(".warmup-tag", d));
+  const done = working.filter((d) => d.readBody && d.readBody() !== null);
   $("#progress").textContent = done.length + "/" + working.length + " sets";
 }
 
@@ -522,8 +654,8 @@ addWrap.innerHTML = '<select><option value="">add exercise\\u2026</option>' +
 $("select", addWrap).addEventListener("change", (ev) => {
   const id = Number(ev.target.value);
   if (!id) return;
-  const name = DATA.catalogue.find((e) => e.id === id).name;
-  const group = { exercise_id: id, name, plan_notes: null, sets: [] };
+  const entry = DATA.catalogue.find((e) => e.id === id);
+  const group = { exercise_id: id, name: entry.name, measure: entry.measure, plan_notes: null, sets: [] };
   const card = exerciseCard(group);
   app.insertBefore(card, addWrap);
   $(".ghost", card).click();

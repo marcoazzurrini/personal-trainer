@@ -7,8 +7,8 @@ muscle classification that every volume number depends on.
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /exercises` | The catalogue: names, aliases, equipment, `systemic_fatigue`, muscles with `volume_factor`. |
-| `GET /exercises/:name/history` | That exercise's performed working sets over time (warmups excluded). |
+| `GET /exercises` | The catalogue: names, aliases, equipment, `measure`, `systemic_fatigue`, muscles with `volume_factor`. |
+| `GET /exercises/:name/history` | That exercise's performed working sets over time (warmups excluded), with its `measure` so the columns can be read. A sprint's history is metres and seconds; reading it for a rising weight would find nothing and conclude wrongly that nothing is happening. |
 | `GET /muscles` | The known muscle names. |
 
 ## Creating an exercise
@@ -20,6 +20,7 @@ POST /exercises
   "equipment": "<optional>",
   "pattern": "<optional, e.g. squat, hinge, press>",
   "stimulus_type": "<optional: strength | power | conditioning, defaults to strength>",
+  "measure": "<optional: load_reps | reps | distance | duration | distance_duration, defaults to load_reps>",
   "systemic_fatigue": "<optional: normal | high, defaults to normal>",
   "notes": "<optional>",
   "aliases": ["optional", "alternative names"],
@@ -58,8 +59,18 @@ disagree, classify by measured growth. When unsure, ask rather than guess.
 
 ## Field values
 
+- `measure` (exercise) — what a set of it records: `load_reps` (weight and reps,
+  the barbell default), `reps` (push-ups, jump contacts), `distance` (broad jump),
+  `duration` (plank, a run logged by time), `distance_duration` (a sprint, an
+  interval, a tempo run — either or both). A property of the exercise, never a
+  per-set choice: a back squat is never measured in metres. It decides which
+  fields a set may carry (`reference/sessions`), which units its weekly dose may
+  be stated in (`reference/planning`), and which inputs the log page renders.
+  Getting it wrong makes the exercise unloggable, which is at least loud.
 - `stimulus_type` (exercise) — `strength` | `power` | `conditioning`. Only `strength`
-  exercises count in `GET /weekly-volume` — see `reference/tracking`.
+  exercises count in `GET /weekly-volume` — see `reference/tracking`. It is
+  independent of `measure`: a sled push is measured in metres and is still a
+  strength stimulus, and both facts matter separately.
 - `systemic_fatigue` (exercise) — `normal` | `high`, defaults to `normal`. `high`
   flags exercises whose whole-body cost is disproportionate to their set count:
   heavy axial loading plus large total mass moved (hinges, barbell squats, heavy

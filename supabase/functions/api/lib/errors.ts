@@ -19,20 +19,32 @@ const constraintMessages: Record<string, string> = {
   exercise_aliases_alias_key:
     "That alias already points at an exercise (aliases are case-insensitive). Fetch GET /api/exercises to see which.",
   muscles_name_key: "That muscle already exists.",
-  mesocycles_one_active:
-    'A mesocycle is already active. End it first (PATCH /api/mesocycles/current with {"ended_on": "YYYY-MM-DD"}) or revise it instead of creating a new one.',
+  mesocycles_one_active_per_track:
+    'A mesocycle is already active on that track. End it first (PATCH /api/mesocycles/current:<track> with {"ended_on": "YYYY-MM-DD"}) or revise it instead of creating a new one. Plans on other tracks run alongside it and are not in the way.',
+  mesocycles_track_check:
+    'track must be one of: hypertrophy, strength, speed, endurance. It also names the method document the coach reads (GET /api/docs/method/<track>). Rehab is not a track — it is a role an exercise plays inside a plan, so send "role": "rehab" on the exercise instead.',
   mesocycles_starts_on_monday:
     '"started_on" must be a Monday: mesocycles run whole weeks, Monday to Sunday.',
   mesocycle_exercises_mesocycle_exercise_key:
     "That exercise is already in the mesocycle's plan.",
-  sets_effort_required:
-    "effort is required on a performed working set; send easy, hard, or failure.",
-  sets_actuals_pair:
-    "weight_kg and reps arrive together: send both (a performed set) or neither (not done).",
-  sets_targets_pair:
-    "target_weight_kg and target_reps arrive together: send both or neither.",
+  mesocycle_exercises_role_check:
+    "role must be one of: main, accessory, rehab.",
+  mesocycle_exercises_weekly_dose_unit_check:
+    "weekly_dose_unit must be one of: sets, minutes, km.",
+  mesocycle_exercises_weekly_dose_positive:
+    "weekly_dose must be greater than 0. An exercise that should not be trained this week either leaves the plan (a revision) or is backed off by a decision saying for how long — a dose of 0 would read as a plan asking for nothing, forever.",
+  sets_weight_accompanies_a_measure:
+    "weight_kg cannot stand on its own: a load is a modifier on a measurement, not a measurement. Send it with reps, distance_m, or duration_s.",
+  sets_target_weight_accompanies_a_measure:
+    "target_weight_kg cannot stand on its own. Send it with target_reps, target_distance_m, or target_duration_s.",
   sets_effort_working_only: "Warmup sets do not carry effort.",
   sets_position_key: "That position in the session is already taken.",
+  exercises_measure_check:
+    "measure must be one of: load_reps, reps, distance, duration, distance_duration.",
+  week_schedules_starts_on_monday:
+    '"week_start" must be a Monday: weeks run Monday to Sunday, Europe/Rome.',
+  week_schedules_week_start_key:
+    "That week already has a schedule. Writing again replaces it — this collision means the write was not sent as a replacement.",
   foods_name_key:
     "A food with that name already exists (names are case-insensitive). Fetch GET /api/foods?q=<part of the name> to see it — a second row for the same food splits its history the way a duplicate exercise splits a lift's. A synonym belongs in POST /api/foods/:ref/aliases.",
   food_aliases_alias_key:

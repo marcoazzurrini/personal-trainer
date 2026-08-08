@@ -22,7 +22,7 @@ Deno.test("counting rules", async (t) => {
     "empty state routes to onboarding, then programming",
     async () => {
       const empty = await api.get("/training-state");
-      assertEquals(empty.body.mesocycle, null);
+      assertEquals(empty.body.mesocycles, []);
       assert(empty.body.note.includes("tasks/onboarding"));
 
       await api.post("/user-context", {
@@ -43,15 +43,33 @@ Deno.test("counting rules", async (t) => {
     request_id: uuid(),
     block_id: block.body.block.id,
     name: "Counting meso",
-    intent:
-      "Testing the counters. Weekly dose: squat 6 then 8, split squat 4, box jumps 3.",
+    track: "hypertrophy",
+    intent: "Testing the counters.",
     planned_weeks: 4,
     sessions_per_week: 2,
     started_on: lastMonday(),
     exercises: [
-      { exercise: "squat", role: "main", priority: 1 },
-      { exercise: "deficit split squat", role: "accessory", priority: 2 },
-      { exercise: "box jumps", role: "accessory", priority: 3 },
+      {
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_dose: 6,
+        weekly_dose_unit: "sets",
+      },
+      {
+        exercise: "deficit split squat",
+        role: "accessory",
+        priority: 2,
+        weekly_dose: 4,
+        weekly_dose_unit: "sets",
+      },
+      {
+        exercise: "box jumps",
+        role: "accessory",
+        priority: 3,
+        weekly_dose: 3,
+        weekly_dose_unit: "sets",
+      },
     ],
   });
 
@@ -70,7 +88,7 @@ Deno.test("counting rules", async (t) => {
         reps: 10,
         effort: "hard",
       },
-      { exercise: "box jumps", weight_kg: 0, reps: 5, effort: "easy" },
+      { exercise: "box jumps", reps: 5, effort: "easy" }, // measured in reps
     ],
   });
 
@@ -82,23 +100,29 @@ Deno.test("counting rules", async (t) => {
   });
 
   await t.step(
-    "weekly-exercise-sets: finished weeks only, warmups and power excluded",
+    "weekly-exercise-sets: finished weeks only, warmups excluded, every stimulus counted",
     async () => {
       const { body } = await api.get("/weekly-exercise-sets");
       const rows = body.weekly_exercise_sets;
-      assertEquals(rows.length, 2); // week 1 only, two strength exercises
+      assertEquals(rows.length, 3); // week 1 only, all three exercises
       assert(rows.every((r: { week: number }) => r.week === 1));
       const squat = rows.find(
         (r: { exercise: string }) => r.exercise === "Back Squat",
       );
       assertEquals(squat.sets_done, 2); // warmup not counted
+      assertEquals(squat.dose, 6);
+      assertEquals(squat.delivered, 2); // in the dose's own unit
       const split = rows.find(
         (r: { exercise: string }) => r.exercise === "Deficit Split Squat",
       );
       assertEquals(split.sets_done, 1);
-      assert(
-        !rows.some((r: { exercise: string }) => r.exercise === "Box Jump"),
+      // Power work is delivery like any other and appears here. It is excluded
+      // from weekly-volume, not from the plan's own adherence: a speed plan
+      // whose delivery read zero every week would be unjudgeable.
+      const jumps = rows.find(
+        (r: { exercise: string }) => r.exercise === "Box Jump",
       );
+      assertEquals(jumps.sets_done, 1);
     },
   );
 
@@ -129,30 +153,37 @@ Deno.test("counting rules", async (t) => {
 
   await t.step("training-state ties it together", async () => {
     const { body } = await api.get("/training-state");
-    assertEquals(body.mesocycle.week, 2);
-    assert(body.mesocycle.intent.includes("Weekly dose")); // the plan is here
+    assertEquals(body.mesocycles.length, 1);
+    const meso = body.mesocycles[0];
+    assertEquals(meso.week, 2);
+    assertEquals(meso.track, "hypertrophy");
+    // The hypertrophy method document exists, so the API names it rather than
+    // leaving the coach to find out there isn't one.
+    assertEquals(meso.method_doc, "GET /api/docs/method/hypertrophy");
+    assertEquals(meso.method_note, null);
 
-    const squat = body.exercises.find(
+    const squat = meso.exercises.find(
       (e: { exercise: string }) => e.exercise === "Back Squat",
     );
-    assertEquals(squat.planned_sets_this_week, undefined); // no planned numbers
-    assertEquals(squat.sets_done_this_week, 1);
+    assertEquals(squat.dose, 6); // the plan's number, from its column
+    assertEquals(squat.dose_unit, "sets");
+    assertEquals(squat.delivered_this_week, 1);
     assertEquals(squat.days_since_trained, 0);
 
-    const split = body.exercises.find(
+    const split = meso.exercises.find(
       (e: { exercise: string }) => e.exercise === "Deficit Split Squat",
     );
-    assertEquals(split.sets_done_this_week, 0);
+    assertEquals(split.delivered_this_week, 0);
 
-    assertEquals(body.this_week.sessions_done, 1);
-    assertEquals(body.recent_weeks.length, 1);
-    const week1 = body.recent_weeks[0];
+    assertEquals(meso.this_week.sessions_done, 1);
+    assertEquals(meso.recent_weeks.length, 1);
+    const week1 = meso.recent_weeks[0];
     assertEquals(week1.week, 1);
     assertEquals(week1.working_sets_planned, undefined); // delivered side only
-    assertEquals(week1.working_sets_done, 3);
+    assertEquals(week1.working_sets_done, 4); // squat 2, split 1, jumps 1
     assertEquals(week1.sessions_done, 1);
 
-    assertEquals(body.recent_decisions, []); // present, and empty so far
+    assertEquals(meso.recent_decisions, []); // present, and empty so far
 
     const recent = body.recent_sessions[0];
     assertEquals(recent.date, today());

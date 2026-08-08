@@ -155,21 +155,34 @@ Deno.test("a mesocycle naming an unknown exercise is not created", async () => {
   const { status, body } = await api.post("/mesocycles", {
     block_id: block.body.block.id,
     name: "Meso with a typo in it",
+    track: "hypertrophy",
     intent: "testing",
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
     exercises: [
-      { exercise: "squat", role: "main", priority: 1 },
-      { exercise: "zercher yoke walk", role: "accessory", priority: 2 },
+      {
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_dose: 9,
+        weekly_dose_unit: "sets",
+      },
+      {
+        exercise: "zercher yoke walk",
+        role: "accessory",
+        priority: 2,
+        weekly_dose: 6,
+        weekly_dose_unit: "sets",
+      },
     ],
   });
   assertEquals(status, 422);
   assert(body.error.includes("Unknown exercise"), body.error);
 
-  // "Only one active mesocycle" is a unique index, so an orphan here does not
-  // just sit there — it takes the slot, and every retry after the typo is
-  // fixed comes back as a conflict about a mesocycle nobody planned.
+  // "One active mesocycle per track" is a unique index, so an orphan here does
+  // not just sit there — it takes the track's slot, and every retry after the
+  // typo is fixed comes back as a conflict about a mesocycle nobody planned.
   const current = await api.get("/mesocycles/current");
   assertEquals(current.status, 404);
 });

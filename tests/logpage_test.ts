@@ -19,21 +19,42 @@ Deno.test("log page namespace", async (t) => {
     goal: "testing",
     started_on: lastMonday(),
   });
-  await api.post("/mesocycles", {
+  const meso = await api.post("/mesocycles", {
     block_id: block.body.block.id,
     name: "Meso",
+    track: "hypertrophy",
     intent: "testing",
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
-    exercises: [{ exercise: "squat", role: "main", priority: 1 }],
+    exercises: [
+      {
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_dose: 9,
+        weekly_dose_unit: "sets",
+        notes: "6-10 reps",
+      },
+      {
+        exercise: "sprint",
+        role: "accessory",
+        priority: 2,
+        weekly_dose: 0.4,
+        weekly_dose_unit: "km",
+      },
+    ],
   });
+  // Asserted, not assumed: without it a rejected fixture leaves every step
+  // below running against no plan at all, and still passing.
+  assertEquals(meso.status, 201);
   const session = await api.post("/sessions", {
     date: today(),
     rationale: "log page test",
     sets: [
       { exercise: "squat", target_weight_kg: 100, target_reps: 5 },
       { exercise: "squat", target_weight_kg: 100, target_reps: 5 },
+      { exercise: "sprint", target_distance_m: 40, target_duration_s: 5.2 },
     ],
   });
   const publicId = session.body.session.public_id;
@@ -128,6 +149,69 @@ Deno.test("log page namespace", async (t) => {
     assertEquals(unplanned.reps, 4); // latest wins
     assertEquals(unplanned.target_weight_kg, null);
   });
+
+  // The page renders whatever the exercise records; these two steps are the
+  // write half of that — a sprint logged in metres and seconds through the
+  // same tokenless path a squat uses.
+  await t.step("a sprint logs in metres and seconds", async () => {
+    const sprintSet = session.body.session.sets.find(
+      (x: { exercise: string }) => x.exercise === "Sprint",
+    );
+    assertEquals(sprintSet.measure, "distance_duration");
+    const res = await fetch(s(`/sets/${sprintSet.id}`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ distance_m: 40, duration_s: 5.18 }),
+    });
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(body.set.distance_m, 40);
+    assertEquals(body.set.duration_s, 5.18);
+    assert(body.set.performed_at !== null); // the clock starts on its own
+  });
+
+  await t.step("the measure rule bites through this path too", async () => {
+    const sprintSet = session.body.session.sets.find(
+      (x: { exercise: string }) => x.exercise === "Sprint",
+    );
+    const res = await fetch(s(`/sets/${sprintSet.id}`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weight_kg: 100, reps: 5 }),
+    });
+    assertEquals(res.status, 422);
+    const body = await res.json();
+    assert(body.error.includes("not reps"), body.error);
+  });
+
+  // The page has no idea plans exist. It posts an exercise and a position;
+  // which plan the work serves is worked out server-side, exactly as it is
+  // when the coach logs the same set in chat.
+  await t.step(
+    "an unplanned set is attributed without the page saying so",
+    async () => {
+      const res = await fetch(s("/sets"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exercise_id: session.body.session.sets.find(
+            (x: { exercise: string }) => x.exercise === "Sprint",
+          ).exercise_id,
+          position: 20,
+          kind: "working",
+          distance_m: 40,
+          duration_s: 5.4,
+        }),
+      });
+      assertEquals(res.status, 201);
+      await res.body?.cancel();
+      const check = await api.get(`/sessions/${session.body.session.id}`);
+      const added = check.body.session.sets.find(
+        (x: { position: number }) => x.position === 20,
+      );
+      assertEquals(added.mesocycle_id, meso.body.mesocycle.id);
+    },
+  );
 
   await t.step("notes save without finishing the session", async () => {
     const res = await fetch(s("/notes"), {

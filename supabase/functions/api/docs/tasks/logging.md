@@ -15,10 +15,28 @@ work"; a forgotten session had no ask. The API rejects a set carrying both targe
 actuals, and the rejection is protecting the distinction — without it you could no longer
 tell a session that went to plan from one that didn't.
 
+## What a set records
+
+Each exercise declares what a set of it carries — weight and reps, reps alone, metres,
+seconds, or metres and seconds together. The table is in `reference/sessions`. Send what
+the exercise is measured in and the API accepts it; send anything else and it says so.
+Times are seconds and distances are metres: a 28-minute run is `"duration_s": 1680`.
+
+An unloaded set of a loaded exercise is `weight_kg: 0`, not an absent weight. Absent means
+the set was not done, and the two must never collapse into each other.
+
+Work with no plan behind it — a hike, a game of five-a-side — logs the same way and records
+itself as off-plan, measured against no dose. Don't invent a plan for it.
+
 ## Effort is not optional
 
-`effort` is required on every performed working set: `easy`, `hard`, or `failure`.
-Warmups get `"kind": "warmup"` and no effort.
+`effort` is required on every performed working set of a **`strength`-stimulus** exercise
+that counted reps: `easy`, `hard`, or `failure`. A push-up needs one as much as a squat.
+
+Warmups get `"kind": "warmup"` and no effort — and so does explosive and conditioning work.
+A box jump is not taken to failure and a sprint's record is its time; `easy` on either would
+not be a mild inaccuracy but a false reading, since `easy` is defined as "too light, a
+programming error" and evaluation acts on it.
 
 If the person didn't say, **ask — don't guess**. Effort is the primary input to every load
 decision that follows; a guessed chip quietly corrupts the next month of programming, and

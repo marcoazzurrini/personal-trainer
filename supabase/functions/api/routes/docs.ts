@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { isDocName } from "../lib/doc_names.ts";
+import { docUrl, isDocName } from "../lib/doc_names.ts";
 import { ApiError } from "../lib/errors.ts";
 
 // The skill's documents, bundled with the function and served as markdown.
@@ -25,9 +25,7 @@ docs.get("/*", async (c) => {
     );
   }
   try {
-    const text = await Deno.readTextFile(
-      new URL(`../docs/${name}.md`, import.meta.url),
-    );
+    const text = await Deno.readTextFile(docUrl(name));
     return c.text(text);
   } catch {
     throw new ApiError(

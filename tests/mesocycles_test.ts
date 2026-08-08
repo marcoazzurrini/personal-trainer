@@ -8,10 +8,10 @@ import {
   uuid,
 } from "./helpers.ts";
 
-// The intent is the plan: doses, goals and progression live in its text,
-// and the exercise list is the plan's nouns.
-const INTENT = "Hypertrophy. Weekly dose: squat 10, chin ups 6. " +
-  "Double progression 6-10; smallest jump 5 kg. " +
+// The intent holds the plan's judgment — goals, progression, the
+// falsification line. The weekly dose is the one number that left it for a
+// column, because the server computes behind-and-ahead from it.
+const INTENT = "Hypertrophy. Double progression 6-10; smallest jump 5 kg. " +
   "Rethink if two weeks land under 70% of dose.";
 
 function planBody(requestId: string, blockId: number) {
@@ -19,13 +19,27 @@ function planBody(requestId: string, blockId: number) {
     request_id: requestId,
     block_id: blockId,
     name: "Test meso",
+    track: "hypertrophy",
     intent: INTENT,
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
     exercises: [
-      { exercise: "squat", role: "main", priority: 1, notes: "6-10 reps" },
-      { exercise: "chin ups", role: "accessory", priority: 2 },
+      {
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_dose: 10,
+        weekly_dose_unit: "sets",
+        notes: "6-10 reps",
+      },
+      {
+        exercise: "chin ups",
+        role: "accessory",
+        priority: 2,
+        weekly_dose: 6,
+        weekly_dose_unit: "sets",
+      },
     ],
   };
 }
@@ -55,12 +69,14 @@ Deno.test("mesocycle lifecycle", async (t) => {
     assertEquals(body.mesocycle.exercises.length, 2);
     const squat = body.mesocycle.exercises[0];
     assertEquals(squat.exercise, "Back Squat"); // alias resolved server-side
-    assertEquals(squat.weekly_sets, undefined); // no plan numbers in tables
+    assertEquals(body.mesocycle.track, "hypertrophy");
+    assertEquals(squat.weekly_dose, 10); // the dose is structured
+    assertEquals(squat.weekly_dose_unit, "sets");
     assertEquals(body.mesocycle.week, 2); // started last Monday
   });
 
   await t.step(
-    "an entry carrying weekly_sets points at the intent",
+    "an entry carrying weekly_sets is pointed at weekly_dose",
     async () => {
       await api.patch(`/mesocycles/${mesoId}`, { ended_on: today() });
       const bad = planBody(uuid(), blockId);
@@ -68,7 +84,7 @@ Deno.test("mesocycle lifecycle", async (t) => {
       (bad.exercises[0] as any).weekly_sets = [{ week: 1, sets: 10 }];
       const { status, body } = await api.post("/mesocycles", bad);
       assertEquals(status, 422);
-      assert(body.error.includes("intent"));
+      assert(body.error.includes("weekly_dose"), body.error);
       await api.patch(`/mesocycles/${mesoId}`, { ended_on: null });
     },
   );
@@ -82,13 +98,36 @@ Deno.test("mesocycle lifecycle", async (t) => {
     assertEquals(body.mesocycle.id, mesoId);
   });
 
-  await t.step("a second active mesocycle is impossible", async () => {
-    const { status, body } = await api.post(
-      "/mesocycles",
-      { ...planBody(uuid(), blockId), started_on: lastMonday() },
-    );
-    assertEquals(status, 409);
-    assert(body.error.includes("already active"));
+  await t.step(
+    "a second active mesocycle on the track is impossible",
+    async () => {
+      const { status, body } = await api.post(
+        "/mesocycles",
+        { ...planBody(uuid(), blockId), started_on: lastMonday() },
+      );
+      assertEquals(status, 409);
+      assert(body.error.includes("already active on that track"), body.error);
+    },
+  );
+
+  // The point of tracks: another line of training is not in the way. Ended
+  // immediately so the rest of this suite keeps a single active plan and
+  // "current" stays unambiguous — the ambiguity itself is tracks_test's job.
+  await t.step("a plan on another track runs alongside it", async () => {
+    const { status, body } = await api.post("/mesocycles", {
+      ...planBody(uuid(), blockId),
+      name: "Speed alongside",
+      track: "speed",
+      exercises: [{
+        exercise: "sprint",
+        role: "main",
+        priority: 1,
+        weekly_dose: 0.3,
+        weekly_dose_unit: "km",
+      }],
+    });
+    assertEquals(status, 201);
+    await api.patch(`/mesocycles/${body.mesocycle.id}`, { ended_on: today() });
   });
 
   await t.step("a non-Monday start is rejected", async () => {
@@ -137,13 +176,39 @@ Deno.test("mesocycle lifecycle", async (t) => {
     assert(body.error.includes("decision"));
   });
 
-  await t.step("a revision with weekly_sets points at the intent", async () => {
+  await t.step("a revision with weekly_sets points at redose", async () => {
     const { status, body } = await api.post("/mesocycles/current/revisions", {
       decision: { what_changed: "x", why: "y" },
       weekly_sets: [{ exercise: "squat", week: 3, sets: 15 }],
     });
     assertEquals(status, 422);
-    assert(body.error.includes("intent"));
+    assert(body.error.includes("redose"), body.error);
+  });
+
+  // A dose change is a plan change: same call, same mandatory decision.
+  await t.step("a dose changes only through a revision", async () => {
+    const { status, body } = await api.post("/mesocycles/current/revisions", {
+      decision: { what_changed: "squat 10 -> 12 sets", why: "recovering well" },
+      redose: [{
+        exercise: "squat",
+        weekly_dose: 12,
+        weekly_dose_unit: "sets",
+      }],
+    });
+    assertEquals(status, 200);
+    const squat = body.mesocycle.exercises.find(
+      (e: { exercise: string }) => e.exercise === "Back Squat",
+    );
+    assertEquals(squat.weekly_dose, 12);
+  });
+
+  await t.step("redosing an exercise outside the plan is refused", async () => {
+    const { status, body } = await api.post("/mesocycles/current/revisions", {
+      decision: { what_changed: "x", why: "y" },
+      redose: [{ exercise: "bench", weekly_dose: 8, weekly_dose_unit: "sets" }],
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes("not in this mesocycle's plan"), body.error);
   });
 
   await t.step("an empty revision is rejected with guidance", async () => {
@@ -154,7 +219,7 @@ Deno.test("mesocycle lifecycle", async (t) => {
     assert(body.error.includes("decisions"));
   });
 
-  const REVISED_INTENT = INTENT.replace("chin ups 6", "pull ups 6");
+  const REVISED_INTENT = INTENT.replace("6-10", "5-8");
 
   await t.step(
     "a revision swaps exercises and replaces the intent atomically",
@@ -166,7 +231,13 @@ Deno.test("mesocycle lifecycle", async (t) => {
           why: "elbow niggle",
         },
         remove: ["chin ups"],
-        add: [{ exercise: "pull ups", role: "accessory", priority: 2 }],
+        add: [{
+          exercise: "pull ups",
+          role: "accessory",
+          priority: 2,
+          weekly_dose: 6,
+          weekly_dose_unit: "sets",
+        }],
         intent: REVISED_INTENT,
       });
       assertEquals(status, 200);
@@ -206,6 +277,6 @@ Deno.test("mesocycle lifecycle", async (t) => {
     });
     assertEquals(status, 201);
     const log = await api.get("/mesocycles/current/decisions");
-    assertEquals(log.body.decisions.length, 2); // revision + hold
+    assertEquals(log.body.decisions.length, 3); // swap + redose + hold
   });
 });

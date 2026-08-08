@@ -3,25 +3,38 @@
 Judging whether a mesocycle is working, and what to do about it. This is what separates a
 coach from a workout logger.
 
-Fetch the method document for the goal first (`method/hypertrophy` and so on). It defines
+Fetch the method document for the track first (`method/hypertrophy` and so on). It defines
 what "working" looks like for this adaptation and over what timescale — the questions below
 are the procedure, not the standard.
 
+**Review one line at a time.** Each plan has its own dose, its own method and its own
+week numbers, and a verdict that averages across them describes nothing. Where the lines
+interact — a speed block going backwards while lifting volume climbs — that is a finding
+about the pair, and it belongs in both decision logs.
+
 ## The three questions, in order
 
-**1. Was the work done?** The intent states the weekly dose per exercise;
-`GET /weekly-exercise-sets` gives what was delivered, finished weeks only. Diff them
-per exercise per week — with a script, not in your head. Before calling a shortfall
+**1. Was the work done?** `GET /weekly-exercise-sets` returns the dose and what was
+delivered against it side by side, in the dose's own unit, finished weeks only. The diff
+is the answer; the read has already done the conversion. Before calling a shortfall
 non-adherence, read the decision log: a backed-off lift or a declared light week is a
-chosen reduction, and the dose it was judged against is the one the decision set.
+chosen reduction, and the dose it was judged against is the one the decision set. Note
+that the dose shown is the plan's *current* dose — where one was changed mid-mesocycle,
+the earlier one is in the decision log, and comparing an early week against today's dose
+would manufacture a shortfall that never happened.
 
 **2. Was the work hard enough?** Effort chips on the working sets, from
 `GET /sessions?limit=30` or the exercise's history. Sets delivered at the wrong effort are
-not the work the plan asked for, even though the count matches.
+not the work the plan asked for, even though the count matches. Explosive and conditioning work carries no
+chip at all — for those the output itself is the intensity record, and a sprint block
+delivering its metres at drifting times, or a jump session losing height across sets, is
+the same finding as a wall of `easy`.
 
 **3. Did it produce anything?** The intent's load goals against actual performance
-(`GET /exercises/:name/history`). Reps creeping up at fixed weights, or weight up at the
-same reps, is the proxy — the adaptation itself can't be measured week to week.
+(`GET /exercises/:name/history`, which returns the exercise's `measure` so the columns
+can be read). Reps creeping up at fixed weights, or weight up at the same reps, is the
+proxy for lifting; times falling at a fixed distance is the proxy for speed. The
+adaptation itself can't be measured week to week.
 
 The order matters because no answer is interpretable on its own:
 

@@ -1,5 +1,5 @@
 {
-  "comment": "Starting exercise catalogue. volume_factor per (exercise, muscle): 1.0 = direct (primary force generator, loaded dynamically through range), 0.5 = indirect (meaningfully trained, not primary), 0 = considered and deliberately excluded (the row records the decision). Tiebreaker: longitudinal hypertrophy evidence beats mechanical intuition. systemic_fatigue: high = heavy axial loading + large total mass moved; everything else normal.",
+  "comment": "Starting exercise catalogue. volume_factor per (exercise, muscle): 1.0 = direct (primary force generator, loaded dynamically through range), 0.5 = indirect (meaningfully trained, not primary), 0 = considered and deliberately excluded (the row records the decision). Tiebreaker: longitudinal hypertrophy evidence beats mechanical intuition. systemic_fatigue: high = heavy axial loading + large total mass moved; everything else normal. measure: what a set of the exercise records — load_reps (weight and reps, the default and so left unstated), reps, distance, duration, distance_duration. Power and conditioning exercises carry explicit 0 volume_factors: the row records that the muscle was considered and deliberately excluded from hypertrophy volume, which an absent row would leave looking like an oversight.",
   "muscles": [
     "quads",
     "hamstrings",
@@ -20,14 +20,31 @@
     {
       "name": "Back Squat",
       "equipment": "barbell",
-      "aliases": ["squat"],
+      "aliases": [
+        "squat"
+      ],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "adductors", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "hamstrings", "volume_factor": 0 },
-        { "muscle": "lower back", "volume_factor": 0 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0
+        }
       ]
     },
     {
@@ -36,23 +53,52 @@
       "aliases": [],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "adductors", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "upper back", "volume_factor": 0 },
-        { "muscle": "abs", "volume_factor": 0 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "upper back",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "abs",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Pause Back Squat",
       "equipment": "barbell",
-      "aliases": ["pause squat"],
+      "aliases": [
+        "pause squat"
+      ],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "adductors", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "lower back", "volume_factor": 0 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0
+        }
       ]
     },
     {
@@ -60,9 +106,18 @@
       "equipment": "dumbbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "adductors", "volume_factor": 0.5 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
@@ -70,29 +125,62 @@
       "equipment": "barbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 1.0 },
-        { "muscle": "adductors", "volume_factor": 0.5 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Bulgarian Split Squat",
       "equipment": "dumbbell",
-      "aliases": ["rfess", "rear foot elevated split squat"],
+      "aliases": [
+        "rfess",
+        "rear foot elevated split squat"
+      ],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 1.0 },
-        { "muscle": "adductors", "volume_factor": 0.5 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Walking Lunge",
       "equipment": "dumbbell",
-      "aliases": ["lunges", "lunge"],
+      "aliases": [
+        "lunges",
+        "lunge"
+      ],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 1.0 },
-        { "muscle": "adductors", "volume_factor": 0.5 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
@@ -100,53 +188,111 @@
       "equipment": "dumbbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 1.0 },
-        { "muscle": "adductors", "volume_factor": 0.5 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "adductors",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Step-Up",
       "equipment": "dumbbell",
-      "aliases": ["step ups"],
+      "aliases": [
+        "step ups"
+      ],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 1.0 }
+        {
+          "muscle": "quads",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Deadlift",
       "equipment": "barbell",
-      "aliases": ["conventional deadlift", "dl"],
+      "aliases": [
+        "conventional deadlift",
+        "dl"
+      ],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "glutes", "volume_factor": 1.0 },
-        { "muscle": "hamstrings", "volume_factor": 0.5 },
-        { "muscle": "lower back", "volume_factor": 0.5 },
-        { "muscle": "upper back", "volume_factor": 0 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "upper back",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Romanian Deadlift",
       "equipment": "barbell",
-      "aliases": ["rdl"],
+      "aliases": [
+        "rdl"
+      ],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "hamstrings", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "lower back", "volume_factor": 0.5 }
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Stiff-Leg Deadlift",
       "equipment": "barbell",
-      "aliases": ["sldl", "stiff leg deadlift"],
+      "aliases": [
+        "sldl",
+        "stiff leg deadlift"
+      ],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "hamstrings", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "lower back", "volume_factor": 0.5 }
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
@@ -155,9 +301,18 @@
       "aliases": [],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "hamstrings", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "lower back", "volume_factor": 0.5 }
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
@@ -165,9 +320,18 @@
       "equipment": "barbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "glutes", "volume_factor": 1.0 },
-        { "muscle": "hamstrings", "volume_factor": 0 },
-        { "muscle": "quads", "volume_factor": 0 }
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "quads",
+          "volume_factor": 0
+        }
       ]
     },
     {
@@ -175,7 +339,10 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "glutes", "volume_factor": 1.0 }
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
@@ -183,33 +350,58 @@
       "equipment": "barbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "glutes", "volume_factor": 1.0 }
+        {
+          "muscle": "glutes",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Nordic Hamstring Curl",
       "equipment": "bodyweight",
-      "aliases": ["nordic curl", "nordics"],
+      "aliases": [
+        "nordic curl",
+        "nordics"
+      ],
       "muscles": [
-        { "muscle": "hamstrings", "volume_factor": 1.0 }
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Back Extension",
       "equipment": "bodyweight",
-      "aliases": ["hyperextension"],
+      "aliases": [
+        "hyperextension"
+      ],
       "muscles": [
-        { "muscle": "lower back", "volume_factor": 1.0 },
-        { "muscle": "glutes", "volume_factor": 0.5 },
-        { "muscle": "hamstrings", "volume_factor": 0.5 }
+        {
+          "muscle": "lower back",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Standing Calf Raise",
       "equipment": "bodyweight",
-      "aliases": ["calf raise"],
+      "aliases": [
+        "calf raise"
+      ],
       "muscles": [
-        { "muscle": "calves", "volume_factor": 1.0 }
+        {
+          "muscle": "calves",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
@@ -217,57 +409,119 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "calves", "volume_factor": 1.0 }
+        {
+          "muscle": "calves",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Bench Press",
       "equipment": "barbell",
-      "aliases": ["bench", "bp"],
+      "aliases": [
+        "bench",
+        "bp"
+      ],
       "muscles": [
-        { "muscle": "chest", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 0.5 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "chest",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Incline Bench Press",
       "equipment": "barbell",
-      "aliases": ["incline bench", "incline press"],
+      "aliases": [
+        "incline bench",
+        "incline press"
+      ],
       "muscles": [
-        { "muscle": "chest", "volume_factor": 1.0 },
-        { "muscle": "shoulders", "volume_factor": 0.5 },
-        { "muscle": "triceps", "volume_factor": 0.5 }
+        {
+          "muscle": "chest",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Close-Grip Bench Press",
       "equipment": "barbell",
-      "aliases": ["cgbp", "close grip bench"],
+      "aliases": [
+        "cgbp",
+        "close grip bench"
+      ],
       "muscles": [
-        { "muscle": "triceps", "volume_factor": 1.0 },
-        { "muscle": "chest", "volume_factor": 0.5 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "triceps",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "chest",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Dumbbell Bench Press",
       "equipment": "dumbbell",
-      "aliases": ["db bench"],
+      "aliases": [
+        "db bench"
+      ],
       "muscles": [
-        { "muscle": "chest", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 0.5 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "chest",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Push-Up",
       "equipment": "bodyweight",
-      "aliases": ["pushup", "push ups"],
+      "aliases": [
+        "pushup",
+        "push ups"
+      ],
       "muscles": [
-        { "muscle": "chest", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 0.5 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "chest",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
@@ -275,38 +529,80 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "chest", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 0.5 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "chest",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Dip",
       "equipment": "bodyweight",
-      "aliases": ["dips"],
+      "aliases": [
+        "dips"
+      ],
       "muscles": [
-        { "muscle": "chest", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 1.0 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "chest",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Overhead Press",
       "equipment": "barbell",
-      "aliases": ["ohp", "military press", "barbell overhead press"],
+      "aliases": [
+        "ohp",
+        "military press",
+        "barbell overhead press"
+      ],
       "muscles": [
-        { "muscle": "shoulders", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 0.5 },
-        { "muscle": "abs", "volume_factor": 0 }
+        {
+          "muscle": "shoulders",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "abs",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Dumbbell Overhead Press",
       "equipment": "dumbbell",
-      "aliases": ["db ohp", "dumbbell shoulder press"],
+      "aliases": [
+        "db ohp",
+        "dumbbell shoulder press"
+      ],
       "muscles": [
-        { "muscle": "shoulders", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 0.5 }
+        {
+          "muscle": "shoulders",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
@@ -314,16 +610,28 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "shoulders", "volume_factor": 1.0 },
-        { "muscle": "triceps", "volume_factor": 0.5 }
+        {
+          "muscle": "shoulders",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "triceps",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Lateral Raise",
       "equipment": "dumbbell",
-      "aliases": ["side raise", "lateral raises"],
+      "aliases": [
+        "side raise",
+        "lateral raises"
+      ],
       "muscles": [
-        { "muscle": "shoulders", "volume_factor": 1.0 }
+        {
+          "muscle": "shoulders",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
@@ -331,29 +639,62 @@
       "equipment": "dumbbell",
       "aliases": [],
       "muscles": [
-        { "muscle": "shoulders", "volume_factor": 1.0 }
+        {
+          "muscle": "shoulders",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Pull-Up",
       "equipment": "bodyweight",
-      "aliases": ["pullup", "pull ups"],
+      "aliases": [
+        "pullup",
+        "pull ups"
+      ],
       "muscles": [
-        { "muscle": "lats", "volume_factor": 1.0 },
-        { "muscle": "upper back", "volume_factor": 0.5 },
-        { "muscle": "biceps", "volume_factor": 0.5 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "lats",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "upper back",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "biceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Chin-Up",
       "equipment": "bodyweight",
-      "aliases": ["chinup", "chin ups"],
+      "aliases": [
+        "chinup",
+        "chin ups"
+      ],
       "muscles": [
-        { "muscle": "lats", "volume_factor": 1.0 },
-        { "muscle": "biceps", "volume_factor": 1.0 },
-        { "muscle": "upper back", "volume_factor": 0.5 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "lats",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "biceps",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "upper back",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
@@ -361,22 +702,50 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "lats", "volume_factor": 1.0 },
-        { "muscle": "biceps", "volume_factor": 0.5 },
-        { "muscle": "upper back", "volume_factor": 0.5 }
+        {
+          "muscle": "lats",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "biceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "upper back",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Barbell Row",
       "equipment": "barbell",
-      "aliases": ["bent over row", "bb row", "barbell rows"],
+      "aliases": [
+        "bent over row",
+        "bb row",
+        "barbell rows"
+      ],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "lats", "volume_factor": 1.0 },
-        { "muscle": "upper back", "volume_factor": 1.0 },
-        { "muscle": "biceps", "volume_factor": 0.5 },
-        { "muscle": "lower back", "volume_factor": 0 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "lats",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "upper back",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "biceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
@@ -385,99 +754,198 @@
       "aliases": [],
       "systemic_fatigue": "high",
       "muscles": [
-        { "muscle": "upper back", "volume_factor": 1.0 },
-        { "muscle": "lats", "volume_factor": 1.0 },
-        { "muscle": "biceps", "volume_factor": 0.5 },
-        { "muscle": "lower back", "volume_factor": 0 }
+        {
+          "muscle": "upper back",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "lats",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "biceps",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "lower back",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "One-Arm Dumbbell Row",
       "equipment": "dumbbell",
-      "aliases": ["db row", "single arm row", "dumbbell row"],
+      "aliases": [
+        "db row",
+        "single arm row",
+        "dumbbell row"
+      ],
       "muscles": [
-        { "muscle": "lats", "volume_factor": 1.0 },
-        { "muscle": "upper back", "volume_factor": 0.5 },
-        { "muscle": "biceps", "volume_factor": 0.5 }
+        {
+          "muscle": "lats",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "upper back",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "biceps",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Inverted Row",
       "equipment": "bodyweight",
-      "aliases": ["bodyweight row"],
+      "aliases": [
+        "bodyweight row"
+      ],
       "muscles": [
-        { "muscle": "upper back", "volume_factor": 1.0 },
-        { "muscle": "lats", "volume_factor": 0.5 },
-        { "muscle": "biceps", "volume_factor": 0.5 }
+        {
+          "muscle": "upper back",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "lats",
+          "volume_factor": 0.5
+        },
+        {
+          "muscle": "biceps",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Barbell Shrug",
       "equipment": "barbell",
-      "aliases": ["shrug", "shrugs"],
+      "aliases": [
+        "shrug",
+        "shrugs"
+      ],
       "muscles": [
-        { "muscle": "upper back", "volume_factor": 1.0 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "upper back",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Band Face Pull",
       "equipment": "band",
-      "aliases": ["face pull", "face pulls"],
+      "aliases": [
+        "face pull",
+        "face pulls"
+      ],
       "muscles": [
-        { "muscle": "upper back", "volume_factor": 1.0 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "upper back",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Band Pull-Apart",
       "equipment": "band",
-      "aliases": ["pull apart", "pull aparts"],
+      "aliases": [
+        "pull apart",
+        "pull aparts"
+      ],
       "muscles": [
-        { "muscle": "upper back", "volume_factor": 1.0 },
-        { "muscle": "shoulders", "volume_factor": 0.5 }
+        {
+          "muscle": "upper back",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Barbell Curl",
       "equipment": "barbell",
-      "aliases": ["curl", "bb curl", "curls"],
+      "aliases": [
+        "curl",
+        "bb curl",
+        "curls"
+      ],
       "muscles": [
-        { "muscle": "biceps", "volume_factor": 1.0 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "biceps",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Dumbbell Curl",
       "equipment": "dumbbell",
-      "aliases": ["db curl"],
+      "aliases": [
+        "db curl"
+      ],
       "muscles": [
-        { "muscle": "biceps", "volume_factor": 1.0 }
+        {
+          "muscle": "biceps",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Hammer Curl",
       "equipment": "dumbbell",
-      "aliases": ["hammer curls"],
+      "aliases": [
+        "hammer curls"
+      ],
       "muscles": [
-        { "muscle": "biceps", "volume_factor": 1.0 },
-        { "muscle": "forearms", "volume_factor": 0.5 }
+        {
+          "muscle": "biceps",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0.5
+        }
       ]
     },
     {
       "name": "Skull Crusher",
       "equipment": "barbell",
-      "aliases": ["skullcrusher", "lying triceps extension", "skull crushers"],
+      "aliases": [
+        "skullcrusher",
+        "lying triceps extension",
+        "skull crushers"
+      ],
       "muscles": [
-        { "muscle": "triceps", "volume_factor": 1.0 }
+        {
+          "muscle": "triceps",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Overhead Triceps Extension",
       "equipment": "dumbbell",
-      "aliases": ["french press", "overhead extension"],
+      "aliases": [
+        "french press",
+        "overhead extension"
+      ],
       "muscles": [
-        { "muscle": "triceps", "volume_factor": 1.0 }
+        {
+          "muscle": "triceps",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
@@ -485,66 +953,188 @@
       "equipment": "bodyweight",
       "aliases": [],
       "muscles": [
-        { "muscle": "abs", "volume_factor": 1.0 }
+        {
+          "muscle": "abs",
+          "volume_factor": 1.0
+        }
       ]
     },
     {
       "name": "Ab Wheel Rollout",
       "equipment": "other",
-      "aliases": ["ab rollout", "ab wheel"],
+      "aliases": [
+        "ab rollout",
+        "ab wheel"
+      ],
       "muscles": [
-        { "muscle": "abs", "volume_factor": 1.0 },
-        { "muscle": "shoulders", "volume_factor": 0 }
+        {
+          "muscle": "abs",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "shoulders",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Hanging Knee Raise",
       "equipment": "bodyweight",
-      "aliases": ["knee raise", "knee raises"],
+      "aliases": [
+        "knee raise",
+        "knee raises"
+      ],
       "muscles": [
-        { "muscle": "abs", "volume_factor": 1.0 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "abs",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Hanging Leg Raise",
       "equipment": "bodyweight",
-      "aliases": ["leg raise", "leg raises"],
+      "aliases": [
+        "leg raise",
+        "leg raises"
+      ],
       "muscles": [
-        { "muscle": "abs", "volume_factor": 1.0 },
-        { "muscle": "forearms", "volume_factor": 0 }
+        {
+          "muscle": "abs",
+          "volume_factor": 1.0
+        },
+        {
+          "muscle": "forearms",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Box Jump",
       "equipment": "other",
       "stimulus_type": "power",
-      "aliases": ["box jumps"],
+      "measure": "reps",
+      "aliases": [
+        "box jumps"
+      ],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 0 },
-        { "muscle": "calves", "volume_factor": 0 }
+        {
+          "muscle": "quads",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "calves",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Broad Jump",
       "equipment": "bodyweight",
       "stimulus_type": "power",
-      "aliases": ["broad jumps"],
+      "measure": "distance",
+      "aliases": [
+        "broad jumps"
+      ],
       "muscles": [
-        { "muscle": "quads", "volume_factor": 0 },
-        { "muscle": "glutes", "volume_factor": 0 }
+        {
+          "muscle": "quads",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0
+        }
       ]
     },
     {
       "name": "Sprint",
       "equipment": "bodyweight",
       "stimulus_type": "conditioning",
-      "aliases": ["sprints"],
+      "measure": "distance_duration",
+      "aliases": [
+        "sprints"
+      ],
       "muscles": [
-        { "muscle": "hamstrings", "volume_factor": 0 },
-        { "muscle": "quads", "volume_factor": 0 },
-        { "muscle": "glutes", "volume_factor": 0 },
-        { "muscle": "calves", "volume_factor": 0 }
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "quads",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "calves",
+          "volume_factor": 0
+        }
+      ]
+    },
+    {
+      "name": "Easy Run",
+      "equipment": "bodyweight",
+      "stimulus_type": "conditioning",
+      "measure": "distance_duration",
+      "aliases": [
+        "easy runs",
+        "zone 2 run",
+        "corsa lenta"
+      ],
+      "notes": "Conversational pace. Logged as one set per bout: distance, time, or both.",
+      "muscles": [
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "quads",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "calves",
+          "volume_factor": 0
+        }
+      ]
+    },
+    {
+      "name": "Tempo Run",
+      "equipment": "bodyweight",
+      "stimulus_type": "conditioning",
+      "measure": "distance_duration",
+      "aliases": [
+        "tempo runs",
+        "threshold run"
+      ],
+      "notes": "Sustained hard-but-repeatable pace. One set per bout; intervals are one set per repeat.",
+      "muscles": [
+        {
+          "muscle": "hamstrings",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "quads",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "glutes",
+          "volume_factor": 0
+        },
+        {
+          "muscle": "calves",
+          "volume_factor": 0
+        }
       ]
     }
   ]

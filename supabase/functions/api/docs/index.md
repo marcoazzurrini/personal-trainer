@@ -11,10 +11,10 @@ Two reflexes replace memory:
 
 1. **Start any training conversation with `GET /training-state`, and any nutrition
    conversation with `GET /nutrition-state`.** Each is the complete current picture for
-   its half — plan, week, what's been done, staleness, user context; or today's intake,
-   adherence, bodyweight. They are deliberately separate: most conversations are one or
-   the other, and fetching both when only one is in play is waste. Past chats are not a
-   source.
+   its half — every active plan with its week, dose and what's been done, this week's
+   shape, staleness, user context; or today's intake, adherence, bodyweight. They are
+   deliberately separate: most conversations are one or the other, and fetching both
+   when only one is in play is waste. Past chats are not a source.
 2. **Before doing a task, fetch its documents** — the task document from the first
    table and, before any write, the reference document for the endpoint family it
    touches (task documents name the ones they need). What a document says overrides
@@ -34,7 +34,12 @@ Two reflexes replace memory:
   a name doesn't resolve, the error says what to do. Only add a genuinely new one —
   never a synonym of something that exists, which would split its history in two.
   Synonyms become aliases.
-- `current` works anywhere a mesocycle id goes.
+- **Training can run on more than one track at once** — hypertrophy, strength, speed,
+  endurance — each its own plan, its own week number, its own dose, its own method
+  document. `training-state` returns them all. Judge each against its own dose, and
+  never let a shortfall on one line be repaid by the other.
+- `current` works anywhere a mesocycle id goes **while one plan is active**. With more
+  than one it is refused rather than guessed at; say `current:<track>`.
 - Weeks run Monday–Sunday, Europe/Rome. Mesocycles start on a Monday and run whole
   weeks.
 - Weekly reads return finished weeks only; the current week is never blended in.
@@ -87,7 +92,13 @@ mesocycle's goal, so fetch that one alongside.
 | `GET /docs/method/hypertrophy` | Training for muscle size |
 | `GET /docs/method/nutrition`   | Eating: energy balance, protein, rate of change, and the behavioural doctrine that decides most outcomes |
 
-If the current mesocycle's goal has no method document here, you are coaching it from
-general knowledge. Say so plainly rather than implying an authority the documents
-don't give you.
+A training plan's **track** names its method document: `GET /docs/method/<track>`.
+Fetch one per active plan — two plans running means two method documents, and applying
+one line's method to the other is how a sprint session ends up programmed like a
+hypertrophy session.
+
+Where a track has no method document yet, `training-state` says so on that plan
+(`method_doc` is null and `method_note` explains). You are then coaching that line from
+general knowledge: say so plainly rather than implying an authority the documents don't
+give you.
 

@@ -21,11 +21,18 @@ Deno.test("session lifecycle", async (t) => {
   await api.post("/mesocycles", {
     block_id: block.body.block.id,
     name: "Meso",
+    track: "hypertrophy",
     intent: "testing",
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
-    exercises: [{ exercise: "squat", role: "main", priority: 1 }],
+    exercises: [{
+      exercise: "squat",
+      role: "main",
+      priority: 1,
+      weekly_dose: 9,
+      weekly_dose_unit: "sets",
+    }],
   });
 
   const requestId = uuid();

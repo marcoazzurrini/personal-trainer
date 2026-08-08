@@ -22,6 +22,7 @@ import { sessions } from "./routes/sessions.ts";
 import { sets } from "./routes/sets.ts";
 import { trainingState } from "./routes/training_state.ts";
 import { userContext } from "./routes/user_context.ts";
+import { weekSchedule } from "./routes/week_schedule.ts";
 import { weeklyExerciseSets, weeklyVolume } from "./routes/volume.ts";
 
 const app = new Hono().basePath("/api");
@@ -63,6 +64,7 @@ app.route("/mesocycles", mesocycles);
 app.route("/sessions", sessions);
 app.route("/sets", sets);
 app.route("/training-state", trainingState);
+app.route("/week-schedule", weekSchedule);
 app.route("/weekly-volume", weeklyVolume);
 app.route("/weekly-exercise-sets", weeklyExerciseSets);
 app.route("/foods", foods);

@@ -1,7 +1,12 @@
 import { Hono } from "@hono/hono";
 import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
-import { resolveExerciseId, resolveMesocycle } from "../lib/resolve.ts";
+import {
+  resolveExercise,
+  resolveExerciseId,
+  resolveMesocycle,
+} from "../lib/resolve.ts";
+import { assertDoseUnit, DOSE_UNITS, ROLES, TRACKS } from "../lib/training.ts";
 import {
   type Body,
   optionalDate,
@@ -9,15 +14,17 @@ import {
   readJson,
   requireDate,
   requireInt,
+  requireNumber,
   requireOneOf,
   requireString,
   requireUuid,
 } from "../lib/validate.ts";
 
-const ROLES = ["main", "accessory"] as const;
-
-// The plan's numbers — weekly doses, load goals, progression — live in the
-// mesocycle's intent, not in tables. The exercise list is the plan's nouns.
+// The plan's judgment — load goals, progression, deload rules, what would
+// force a rethink — lives in the mesocycle's intent, not in tables. The
+// exercise list is the plan's nouns, and the weekly dose is the one number
+// that is structured, because the server computes behind-and-ahead from it
+// at every session generation.
 
 // ---------------------------------------------------------------------------
 // Shared shapes
@@ -27,6 +34,8 @@ interface PlanExercise {
   exerciseId: number;
   role: string;
   priority: number;
+  weeklyDose: number;
+  weeklyDoseUnit: string;
   notes: string | null;
 }
 
@@ -37,16 +46,29 @@ async function parsePlanExercise(entry: unknown): Promise<PlanExercise> {
     throw new ApiError(422, 'Each entry in "exercises" must be an object.');
   }
   const e = entry as Body;
-  if ("weekly_sets" in e || "load_target" in e) {
+  if ("weekly_sets" in e) {
     throw new ApiError(
       422,
-      "Weekly sets and load targets are not stored in tables: the intent carries the plan's numbers (see tasks/programming). An exercise entry is {exercise, role, priority, notes?}.",
+      'The weekly dose is "weekly_dose" plus "weekly_dose_unit" (sets, minutes, or km), so that work in metres and minutes can be dosed too. An exercise entry is {exercise, role, priority, weekly_dose, weekly_dose_unit, notes?}.',
     );
   }
+  if ("load_target" in e) {
+    throw new ApiError(
+      422,
+      "Load targets are not stored in tables: the intent carries the plan's goals and its progression mechanism (see tasks/programming). Only the weekly dose is structured.",
+    );
+  }
+  const exercise = await resolveExercise(e.exercise);
+  const weeklyDoseUnit = requireOneOf(e, "weekly_dose_unit", DOSE_UNITS);
+  // Which units make sense depends on how the exercise is measured, which no
+  // CHECK on this table can see.
+  assertDoseUnit(exercise.measure, weeklyDoseUnit, exercise.name);
   return {
-    exerciseId: await resolveExerciseId(e.exercise),
+    exerciseId: exercise.id,
     role: requireOneOf(e, "role", ROLES),
     priority: requireInt(e, "priority", { min: 1 }),
+    weeklyDose: requireNumber(e, "weekly_dose"),
+    weeklyDoseUnit,
     notes: optionalString(e, "notes"),
   };
 }
@@ -58,21 +80,24 @@ async function insertPlanExercise(
 ) {
   await tx`
     insert into mesocycle_exercises
-      (mesocycle_id, exercise_id, role, priority, notes)
+      (mesocycle_id, exercise_id, role, priority, weekly_dose,
+       weekly_dose_unit, notes)
     values
-      (${mesocycleId}, ${p.exerciseId}, ${p.role}, ${p.priority}, ${p.notes})`;
+      (${mesocycleId}, ${p.exerciseId}, ${p.role}, ${p.priority},
+       ${p.weeklyDose}, ${p.weeklyDoseUnit}, ${p.notes})`;
 }
 
 // The plan, exactly: the mesocycle row (intent included — it is the plan's
 // numbers), the exercise list, and which week it is.
 async function mesocycleDetail(id: number) {
   const [m] = await sql`
-    select id, block_id, name, intent, planned_weeks, sessions_per_week,
-      started_on, ended_on,
+    select id, block_id, name, track, intent, planned_weeks,
+      sessions_per_week, started_on, ended_on,
       ((((now() at time zone 'Europe/Rome')::date - started_on) / 7) + 1)::int as week
     from mesocycles where id = ${id}`;
   const exercises = await sql`
-    select me.id, e.id as exercise_id, e.name as exercise, me.role, me.priority,
+    select me.id, e.id as exercise_id, e.name as exercise, e.measure,
+      me.role, me.priority, me.weekly_dose::float8, me.weekly_dose_unit,
       me.notes
     from mesocycle_exercises me
     join exercises e on e.id = me.exercise_id
@@ -106,6 +131,7 @@ mesocycles.post("/", async (c) => {
 
   const blockId = requireInt(body, "block_id");
   const name = requireString(body, "name");
+  const track = requireOneOf(body, "track", TRACKS);
   const intent = requireString(body, "intent");
   const plannedWeeks = requireInt(body, "planned_weeks", { min: 1 });
   const sessionsPerWeek = requireInt(body, "sessions_per_week", { min: 1 });
@@ -114,7 +140,7 @@ mesocycles.post("/", async (c) => {
   if (!Array.isArray(body.exercises) || body.exercises.length === 0) {
     throw new ApiError(
       422,
-      'A mesocycle arrives complete: "exercises" must be a non-empty array of {exercise, role, priority, notes?}. The doses and goals belong in "intent".',
+      'A mesocycle arrives complete: "exercises" must be a non-empty array of {exercise, role, priority, weekly_dose, weekly_dose_unit, notes?}. The load goals and the progression mechanism belong in "intent".',
     );
   }
   const plan: PlanExercise[] = [];
@@ -125,10 +151,11 @@ mesocycles.post("/", async (c) => {
   const id = await sql.begin(async (tx) => {
     const [m] = await tx`
       insert into mesocycles
-        (block_id, name, intent, planned_weeks, sessions_per_week, started_on, request_id)
+        (block_id, name, track, intent, planned_weeks, sessions_per_week,
+         started_on, request_id)
       values
-        (${blockId}, ${name}, ${intent}, ${plannedWeeks}, ${sessionsPerWeek},
-         ${startedOn}, ${requestId})
+        (${blockId}, ${name}, ${track}, ${intent}, ${plannedWeeks},
+         ${sessionsPerWeek}, ${startedOn}, ${requestId})
       returning id`;
     for (const p of plan) await insertPlanExercise(tx, m.id, p);
     return m.id as number;
@@ -181,10 +208,16 @@ mesocycles.post("/:id/revisions", async (c) => {
     }
   }
 
-  if ("weekly_sets" in body || "load_targets" in body) {
+  if ("weekly_sets" in body) {
     throw new ApiError(
       422,
-      'Weekly sets and load targets are not stored in tables: dose and goal changes are intent changes. Send "intent" with the full replacement text (see tasks/programming).',
+      'Dose changes are "redose": [{exercise, weekly_dose, weekly_dose_unit}], for exercises already in the plan.',
+    );
+  }
+  if ("load_targets" in body) {
+    throw new ApiError(
+      422,
+      'Load targets are not stored in tables: a change to a goal or to the progression mechanism is an intent change. Send "intent" with the full replacement text (see tasks/programming).',
     );
   }
 
@@ -201,16 +234,23 @@ mesocycles.post("/:id/revisions", async (c) => {
   const newIntent = optionalString(body, "intent");
   const removals = body.remove ?? [];
   const additions = body.add ?? [];
-  if (!Array.isArray(removals) || !Array.isArray(additions)) {
+  const redoses = body.redose ?? [];
+  if (
+    !Array.isArray(removals) || !Array.isArray(additions) ||
+    !Array.isArray(redoses)
+  ) {
     throw new ApiError(
       422,
-      '"remove" and "add" must be arrays when present.',
+      '"remove", "add" and "redose" must be arrays when present.',
     );
   }
-  if (removals.length + additions.length === 0 && newIntent === null) {
+  if (
+    removals.length + additions.length + redoses.length === 0 &&
+    newIntent === null
+  ) {
     throw new ApiError(
       422,
-      'The revision changes nothing. Send at least one of: "remove" (exercise refs), "add" (plan entries), "intent" (the full replacement text). A review outcome with no change ("hold") is recorded with POST /api/mesocycles/:id/decisions instead.',
+      'The revision changes nothing. Send at least one of: "remove" (exercise refs), "add" (plan entries), "redose" (new weekly doses for exercises already in the plan), "intent" (the full replacement text). A review outcome with no change ("hold") is recorded with POST /api/mesocycles/:id/decisions instead.',
     );
   }
 
@@ -220,6 +260,24 @@ mesocycles.post("/:id/revisions", async (c) => {
   const addPlans: PlanExercise[] = [];
   for (const entry of additions) {
     addPlans.push(await parsePlanExercise(entry));
+  }
+  const newDoses: { exerciseId: number; dose: number; unit: string }[] = [];
+  for (const entry of redoses) {
+    if (typeof entry !== "object" || entry === null) {
+      throw new ApiError(
+        422,
+        'Each entry in "redose" must be {exercise, weekly_dose, weekly_dose_unit}.',
+      );
+    }
+    const r = entry as Body;
+    const exercise = await resolveExercise(r.exercise);
+    const unit = requireOneOf(r, "weekly_dose_unit", DOSE_UNITS);
+    assertDoseUnit(exercise.measure, unit, exercise.name);
+    newDoses.push({
+      exerciseId: exercise.id,
+      dose: requireNumber(r, "weekly_dose"),
+      unit,
+    });
   }
 
   await sql.begin(async (tx) => {
@@ -238,6 +296,21 @@ mesocycles.post("/:id/revisions", async (c) => {
       await tx`delete from mesocycle_exercises where id = ${row.id}`;
     }
     for (const p of addPlans) await insertPlanExercise(tx, m.id, p);
+    for (const d of newDoses) {
+      const [row] = await tx`
+        update mesocycle_exercises
+        set weekly_dose = ${d.dose}, weekly_dose_unit = ${d.unit}
+        where mesocycle_id = ${m.id} and exercise_id = ${d.exerciseId}
+        returning id`;
+      if (!row) {
+        const [e] =
+          await tx`select name from exercises where id = ${d.exerciseId}`;
+        throw new ApiError(
+          422,
+          `"${e.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /api/mesocycles/${m.id} to see the plan.`,
+        );
+      }
+    }
     if (newIntent !== null) {
       await tx`update mesocycles set intent = ${newIntent} where id = ${m.id}`;
     }

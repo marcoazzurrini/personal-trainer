@@ -2,6 +2,7 @@ import { Hono } from "@hono/hono";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
 import { resolveExerciseId } from "../lib/resolve.ts";
+import { MEASURES } from "../lib/training.ts";
 import {
   optionalString,
   readJson,
@@ -17,7 +18,7 @@ function selectExercise(id?: number) {
   return sql`
     select
       e.id, e.name, e.equipment, e.pattern, e.stimulus_type,
-      e.systemic_fatigue, e.notes,
+      e.systemic_fatigue, e.measure, e.notes,
       coalesce(
         (select array_agg(a.alias order by a.alias)
          from exercise_aliases a where a.exercise_id = e.id),
@@ -63,6 +64,10 @@ exercises.post("/", async (c) => {
     SYSTEMIC_FATIGUE_LEVELS,
     "normal",
   );
+  // What a set of this exercise records. Defaults to the barbell case, which
+  // is what almost every exercise in the catalogue is; a run or a sprint has
+  // to say so, and saying so is what makes the log page ask for metres.
+  const measure = requireOneOf(body, "measure", MEASURES, "load_reps");
 
   const aliases = body.aliases === undefined ? [] : body.aliases;
   if (
@@ -114,10 +119,11 @@ exercises.post("/", async (c) => {
   const id = await sql.begin(async (sql) => {
     const [exercise] = await sql`
       insert into exercises
-        (name, equipment, pattern, stimulus_type, systemic_fatigue, notes)
+        (name, equipment, pattern, stimulus_type, systemic_fatigue, measure,
+         notes)
       values
         (${name}, ${equipment}, ${pattern}, ${stimulusType},
-         ${systemicFatigue}, ${notes})
+         ${systemicFatigue}, ${measure}, ${notes})
       returning id`;
 
     for (const alias of aliases as string[]) {
@@ -154,17 +160,22 @@ exercises.post("/", async (c) => {
 exercises.get("/:ref/history", async (c) => {
   const exerciseId = await resolveExerciseId(c.req.param("ref"));
   const [exercise] = await sql`
-    select id, name from exercises where id = ${exerciseId}`;
+    select id, name, measure from exercises where id = ${exerciseId}`;
+  // Every measure comes back, and which ones are populated is the exercise's
+  // measure. A sprint's history is metres and seconds; reading it for a rising
+  // weight would find nothing and conclude wrongly that nothing is happening.
   const rows = await sql`
-    select s.date, t.weight_kg::float8, t.reps, t.effort, t.session_id
+    select s.date, t.weight_kg::float8, t.reps,
+      t.distance_m::float8, t.duration_s::float8, t.effort, t.session_id
     from sets t
     join sessions s on s.id = t.session_id
     where t.exercise_id = ${exerciseId} and t.kind = 'working'
-      and t.reps is not null
+      and set_performed(t.reps, t.distance_m, t.duration_s)
     order by s.date, t.position`;
   return c.json({
     exercise: exercise.name,
     exercise_id: exercise.id,
+    measure: exercise.measure,
     sets: rows,
   });
 });

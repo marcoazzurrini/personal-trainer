@@ -1,5 +1,6 @@
 import { sql } from "../db.ts";
 import { ApiError } from "./errors.ts";
+import { TRACKS } from "./training.ts";
 
 // Exercises resolve by id, name, or alias, case-insensitively, server-side.
 export async function resolveExerciseId(ref: unknown): Promise<number> {
@@ -30,6 +31,25 @@ export async function resolveExerciseId(ref: unknown): Promise<number> {
     422,
     '"exercise" is required: an exercise id, canonical name, or alias.',
   );
+}
+
+// The whole exercise row, for the callers that need its name or its measure
+// to validate what is being written about it — and to say the name back in
+// the error when they reject it.
+export async function resolveExercise(
+  ref: unknown,
+): Promise<
+  { id: number; name: string; measure: string; stimulus_type: string }
+> {
+  const id = await resolveExerciseId(ref);
+  const [row] = await sql`
+    select id, name, measure, stimulus_type from exercises where id = ${id}`;
+  return row as {
+    id: number;
+    name: string;
+    measure: string;
+    stimulus_type: string;
+  };
 }
 
 // Foods and meals resolve the same way exercises do — id, name, or alias,
@@ -105,27 +125,101 @@ export function resolveMealId(ref: unknown): Promise<number> {
   }, ref);
 }
 
+// A mesocycle reference: a numeric id, "current", or "current:<track>".
+//
+// "current" was unambiguous while only one plan could be active. Now that a
+// hypertrophy plan and a speed plan run side by side, a bare "current" that
+// silently picked one would write today's sprints into the lifting plan and
+// no reader downstream could tell. So it resolves only while exactly one plan
+// is active — true for most of this system's life — and otherwise says which
+// tracks are running and how to name one.
 // deno-lint-ignore no-explicit-any
 export async function resolveMesocycle(idParam: string): Promise<any> {
-  if (idParam === "current") {
-    const [row] = await sql`
-      select * from mesocycles where ended_on is null`;
-    if (!row) {
+  if (idParam === "current" || idParam.startsWith("current:")) {
+    const active = await sql`
+      select * from mesocycles where ended_on is null order by track`;
+    const tracks = active.map((m) => m.track).join(", ");
+
+    if (idParam === "current") {
+      if (active.length === 1) return active[0];
+      if (active.length === 0) {
+        throw new ApiError(
+          404,
+          "No active mesocycle. Create one with POST /api/mesocycles, or pass an explicit id.",
+        );
+      }
       throw new ApiError(
-        404,
-        "No active mesocycle. Create one with POST /api/mesocycles, or pass an explicit id.",
+        422,
+        `"current" is ambiguous: ${active.length} plans are active (${tracks}). Name the one this call is about as "current:<track>" — e.g. "current:${
+          active[0].track
+        }".`,
       );
     }
-    return row;
+
+    const track = idParam.slice("current:".length);
+    const row = active.find((m) => m.track === track);
+    if (row) return row;
+    if (!TRACKS.includes(track as typeof TRACKS[number])) {
+      throw new ApiError(
+        422,
+        `"${track}" is not a track. Tracks are: ${TRACKS.join(", ")}.`,
+      );
+    }
+    throw new ApiError(
+      404,
+      `No active ${track} mesocycle. ${
+        active.length === 0
+          ? "No plan is active at all."
+          : `Active tracks: ${tracks}.`
+      }`,
+    );
   }
+
   if (!/^\d+$/.test(idParam)) {
     throw new ApiError(
       422,
-      `"${idParam}" is not a mesocycle reference. Use a numeric id or "current".`,
+      `"${idParam}" is not a mesocycle reference. Use a numeric id, "current" while one plan is active, or "current:<track>" — tracks are ${
+        TRACKS.join(", ")
+      }.`,
     );
   }
   const [row] = await sql`
     select * from mesocycles where id = ${Number(idParam)}`;
   if (!row) throw new ApiError(404, `No mesocycle with id ${idParam}.`);
   return row;
+}
+
+// Which plan a set serves. Resolved server-side on every write, so the log
+// page never has to know that plans exist and the coach only has to say
+// anything in the one case where the answer is genuinely unclear.
+//
+// The exercise decides it: a lift that appears in exactly one active plan's
+// exercise list belongs to that plan. An exercise in no active plan is
+// off-plan — a hike, a five-a-side game — recorded as fact and measured
+// against no dose. An exercise in two active plans is the only ambiguous
+// case, and the caller is asked rather than guessed at.
+export async function resolveSetMesocycleId(
+  exerciseId: number,
+  ref: unknown,
+): Promise<number | null> {
+  if (ref !== undefined && ref !== null) {
+    const m = await resolveMesocycle(
+      typeof ref === "number" ? String(ref) : String(ref),
+    );
+    return m.id as number;
+  }
+  const rows = await sql`
+    select m.id, m.track from mesocycles m
+    join mesocycle_exercises me on me.mesocycle_id = m.id
+    where m.ended_on is null and me.exercise_id = ${exerciseId}
+    order by m.track`;
+  if (rows.length === 0) return null;
+  if (rows.length === 1) return rows[0].id as number;
+  const [e] = await sql`select name from exercises where id = ${exerciseId}`;
+  throw new ApiError(
+    422,
+    `"${e.name}" is in more than one active plan (${
+      rows.map((r) => r.track).join(", ")
+    }), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`,
+  );
 }
