@@ -22,3 +22,11 @@ fi
 sed "s/{{API_TOKEN}}/$API_TOKEN/g" "$TEMPLATE" > "$OUTPUT"
 
 echo "Generated $OUTPUT"
+
+# Never run deno fmt over this folder. SKILL.md opens with a YAML block that
+# declares the skill's name, its description (what makes it trigger at all),
+# and allowed-tools: Bash. deno fmt indents the keys following the long
+# description line; YAML reads an indented line as a continuation of the
+# previous value, so allowed-tools disappears into the description string and
+# the skill loads without permission to run curl. skill/ is excluded in both
+# deno.json and lefthook.yml — keep it that way.
