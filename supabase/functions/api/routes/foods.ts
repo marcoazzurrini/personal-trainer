@@ -1,7 +1,7 @@
 import { Hono } from "@hono/hono";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
-import { checkEnergy } from "../lib/nutrition.ts";
+import { checkEnergy, checkMacroMass } from "../lib/nutrition.ts";
 import { resolveFoodId } from "../lib/resolve.ts";
 import {
   optionalNumber,
@@ -98,6 +98,7 @@ foods.post("/", async (c) => {
       '"energy_check" takes only the value "override", and only when the food carries energy its macros do not name.',
     );
   }
+  checkMacroMass(protein, carbs, fat);
   checkEnergy(
     kcal,
     protein,
@@ -182,6 +183,11 @@ foods.patch("/:ref", async (c) => {
   }
 
   const merged = { ...before, ...fields };
+  checkMacroMass(
+    Number(merged.protein_100g),
+    Number(merged.carbs_100g),
+    Number(merged.fat_100g),
+  );
   checkEnergy(
     Number(merged.kcal_100g),
     Number(merged.protein_100g),
@@ -191,9 +197,24 @@ foods.patch("/:ref", async (c) => {
     merged.source_note as string | null,
   );
 
-  const macrosChanged = ["kcal_100g", "protein_100g", "carbs_100g", "fat_100g"]
-    .concat("fiber_100g")
-    .some((k) => k in fields && String(fields[k]) !== String(before[k]));
+  // Compared as numbers, not as text. Postgres hands back numeric as a string
+  // carrying its scale ("130.0"), while the incoming field is a JS number
+  // (130) — so a string comparison called every resend a change, rewrote every
+  // entry logged against the food, and reported "Corrected 3 logged entries"
+  // when nothing had moved. On an API whose contract with the coach is that it
+  // never overstates what it did, that is the worst kind of wrong.
+  const MACRO_COLUMNS = [
+    "kcal_100g",
+    "protein_100g",
+    "carbs_100g",
+    "fat_100g",
+    "fiber_100g",
+  ];
+  const sameValue = (a: unknown, b: unknown) =>
+    a === null || b === null ? a === b : Number(a) === Number(b);
+  const macrosChanged = MACRO_COLUMNS.some(
+    (k) => k in fields && !sameValue(fields[k], before[k]),
+  );
 
   const rewritten: { day: string }[] = await sql.begin(async (tx) => {
     await tx`update foods set ${tx(fields)} where id = ${id}`;
@@ -291,7 +312,14 @@ foods.delete("/:ref", async (c) => {
       } — so deleting it would orphan the record. If its numbers are wrong, PATCH /api/foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
     );
   }
-  const [row] = await sql`delete from foods where id = ${id} returning name`;
-  await sql`delete from food_aliases where food_id = ${id}`;
-  return c.json({ deleted: row.name });
+  // Aliases first, and in one transaction. food_aliases references foods and
+  // nothing here cascades — deleting the food first meant a food carrying any
+  // alias could not be deleted at all, and the caller got a bare foreign-key
+  // message about a table it never named.
+  const name = await sql.begin(async (tx) => {
+    await tx`delete from food_aliases where food_id = ${id}`;
+    const [row] = await tx`delete from foods where id = ${id} returning name`;
+    return row.name as string;
+  });
+  return c.json({ deleted: name });
 });

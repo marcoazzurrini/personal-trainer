@@ -65,6 +65,7 @@ export function errorResponse(err: unknown, c: Context): Response {
     code?: string;
     constraint_name?: string;
     message?: string;
+    detail?: string;
   };
   if (pg.code === "23505") {
     const message = constraintMessages[pg.constraint_name ?? ""] ??
@@ -80,6 +81,19 @@ export function errorResponse(err: unknown, c: Context): Response {
     return c.json({
       error:
         `A referenced row does not exist (foreign key "${pg.constraint_name}").`,
+    }, 422);
+  }
+  // Numeric field overflow. Every measured column is a bounded numeric, so a
+  // decimal point in the wrong place lands here — and without this it lands as
+  // a 500, which tells the caller nothing it can act on. The same reasoning as
+  // requireIdParam: a malformed number deserves a prompt, not an internal
+  // error. Postgres carries no constraint name here, but its detail names the
+  // precision and scale, which is exactly what the caller needs.
+  if (pg.code === "22003") {
+    return c.json({
+      error: `A number is too large for the column it was written to.${
+        pg.detail ? ` ${pg.detail}` : ""
+      } Check for a misplaced decimal point, or per-serving values sent as per-100 g.`,
     }, 422);
   }
   console.error(err);

@@ -148,6 +148,48 @@ export function optionalDate(body: Body, field: string): string | null {
   return requireDate(body, field);
 }
 
+// Records describe what has already happened, so a future date is always a
+// typo — and the ones that matter are silent. latestBodyfat() and the head of
+// the trend series are both "the most recent row", so a year fat-fingered into
+// 2027 becomes the body composition and the bodyweight that every calorie and
+// protein target is computed from, and stays that way until someone notices.
+// Both are read through `order by ... desc limit 1`, which no amount of later
+// correct data can outrank.
+//
+// Callers pass Rome's today, read from Postgres — the API's calendar is
+// Europe/Rome everywhere, and a UTC clock is already tomorrow at 23:30 Rome.
+export function requireNotFuture(
+  day: string,
+  today: string,
+  field: string,
+): string {
+  if (day > today) { // ISO dates sort lexicographically
+    throw new ApiError(
+      422,
+      `"${field}" is ${day}, which is in the future — today is ${today} in Europe/Rome. A logged day records what was already eaten, weighed or measured. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`,
+    );
+  }
+  return day;
+}
+
+// The same rule for an instant rather than a calendar day. A few minutes of
+// tolerance because a phone clock running slightly fast is not a typo; a
+// slipped year, month or day is far outside it.
+const CLOCK_SKEW_MS = 5 * 60_000;
+
+export function requireNotFutureInstant(
+  iso: string,
+  field: string,
+): string {
+  if (Date.parse(iso) > Date.now() + CLOCK_SKEW_MS) {
+    throw new ApiError(
+      422,
+      `"${field}" is ${iso}, which is in the future. A measurement records something that has already been taken. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`,
+    );
+  }
+  return iso;
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

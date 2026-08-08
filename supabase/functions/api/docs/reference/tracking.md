@@ -37,3 +37,17 @@ rejected — ask which is right rather than picking one. A mistyped weigh-in is 
 with `DELETE /bodyweight/:id` and re-entered. That matters more than it used to: the
 trend built from these feeds the expenditure estimate, which sets the calorie target,
 so an 8 kg typo reads as a fortnight of catastrophic loss.
+
+Two guards catch the typo at the write instead of after it:
+
+- **Outside 25–300 kg is rejected.** The band is far wider than any real bodyweight
+  because it is not judging plausibility — it is catching a lost decimal point, which
+  is the error that actually happens (8.2 for 82.4). Send the number as it reads on
+  the scale, in kilograms.
+- **A future `measured_at` is rejected.** The trend's head is "the most recent row",
+  so a slipped year becomes the current weight for every target computed afterwards
+  and no amount of correct data outranks it. Check the year before the day.
+
+The same future-date rule applies to `POST /bodyfat`, `POST /intake` and
+`POST /days/:day/flags`. Sessions are exempt — a planned session is legitimately
+dated ahead.

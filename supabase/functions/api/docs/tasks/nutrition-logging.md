@@ -38,8 +38,9 @@ Database first, external second, and **never invent numbers**:
    unforgivable failure of this task.
 
 Sanity-check sourced values before saving: kcal ≈ 4·protein + 4·carbs + 9·fat
-(±15%); per-100g values that fail this are usually mis-transcribed or
-mis-scaled. The server enforces this in both directions and will reject the
+(±15% of what the macros imply, with a 20 kcal floor); and protein + carbs + fat
+must fit inside 100 g. Per-100g values that fail either are usually
+mis-transcribed or mis-scaled. The server enforces both and will reject the
 food — recheck the label before doing anything else.
 
 Two label types fail it legitimately, and only these two: anything alcoholic

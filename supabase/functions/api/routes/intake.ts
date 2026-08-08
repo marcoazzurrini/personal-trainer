@@ -14,6 +14,7 @@ import {
   optionalString,
   readJson,
   requireIdParam,
+  requireNotFuture,
   requireNumber,
   requireOneOf,
   requireUuid,
@@ -110,7 +111,12 @@ intake.get("/", async (c) => {
 intake.post("/", async (c) => {
   const body = await readJson(c);
   const requestId = requireUuid(body, "request_id");
-  const day = optionalDate(body, "day") ?? await romeToday();
+  const today = await romeToday();
+  const day = requireNotFuture(
+    optionalDate(body, "day") ?? today,
+    today,
+    "day",
+  );
   const note = optionalString(body, "note");
 
   if (requestId) {
@@ -291,7 +297,11 @@ const FLAGS = ["incomplete"] as const;
 export const days = new Hono();
 
 days.post("/:day/flags", async (c) => {
-  const day = requireDayParam(c.req.param("day"));
+  const day = requireNotFuture(
+    requireDayParam(c.req.param("day")),
+    await romeToday(),
+    "day",
+  );
   const body = await readJson(c);
   const flag = requireOneOf(body, "flag", FLAGS);
   await sql`

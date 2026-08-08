@@ -197,6 +197,39 @@ export function checkEnergy(
   }
 }
 
+// The other half of the sanity check, and the half the energy identity cannot
+// see. checkEnergy only asks whether the macros agree with the stated energy —
+// scale all four together and they agree perfectly while describing something
+// impossible. 90 g protein + 50 g carbs + 30 g fat implies 830 kcal, so a food
+// stating 830 passes the energy check at 170 g of macros per 100 g of food.
+//
+// Fibre is deliberately excluded from the sum. USDA counts it inside the
+// carbohydrate figure and EU declares it separately, and `source` spans both
+// (usda alongside crea and off), so adding it would double-count American
+// foods and reject high-fibre ones that are perfectly correct.
+//
+// The ceiling has rounding headroom rather than sitting at exactly 100: pure
+// fat is a real 100 g/100 g, and label rounding can nudge a legitimate food a
+// gram or two past it. Nothing real reaches 105, so there is no override —
+// unlike the energy check, no labelling convention makes this direction
+// legitimate.
+const MAX_MACRO_MASS_PER_100G = 105;
+
+export function checkMacroMass(
+  proteinG: number,
+  carbsG: number,
+  fatG: number,
+): void {
+  const mass = proteinG + carbsG + fatG;
+  if (mass <= MAX_MACRO_MASS_PER_100G) return;
+  throw new ApiError(
+    422,
+    `${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat come to ${
+      Math.round(mass * 10) / 10
+    } g of macros in 100 g of food, which cannot be true — 100 g of anything holds at most 100 g. The usual cause is per-serving macros entered as per-100 g. Rescale them: divide by the serving size in grams and multiply by 100.`,
+  );
+}
+
 // Grams eaten, from either an explicit weight or a count of pieces. Foods
 // bought and eaten in units ("1 egg", "2 slices") carry grams_per_unit so the
 // coach never has to guess a weight it was not told.

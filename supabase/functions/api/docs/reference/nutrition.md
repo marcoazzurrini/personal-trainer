@@ -56,9 +56,12 @@ lift's. Add synonyms with `POST /foods/:ref/aliases` (`{"alias": "..."}` or
 descriptive and nothing resolves on it, so two brands of the same product need distinct
 names.
 
-`DELETE /foods/:ref` removes a food **nothing has ever used** — a typo'd duplicate
-caught before it was logged. A food that is in the record cannot be deleted; if its
-numbers are wrong, PATCH fixes them and the history with them.
+`DELETE /foods/:ref` removes a food **nothing currently references** — a typo'd
+duplicate caught before it was logged. The test is present references, not history: a
+food whose only logged entry has since been deleted becomes deletable again. Any food
+still referenced by an intake entry or a meal item is refused, with the counts; if its
+numbers are wrong, PATCH fixes them and the history with them. Aliases are not a
+reference — they are removed with the food.
 
 ### Correcting a food — retroactive, and only ever a mistake
 
@@ -90,10 +93,20 @@ The energy check below runs on the corrected values too.
 ### The energy check
 
 The server checks stated energy against the macros (protein and carbs 4 kcal/g, fat 9)
-and rejects a food that disagrees by more than 15% **in either direction**, with a
-20 kcal/100 g floor so near-zero foods pass. Almost every rejection is a real
-transcription error — most often per-serving macros pasted against per-100 g energy.
-**Recheck the label first.**
+and rejects a food that disagrees by more than 15% **in either direction**. The 15% is
+measured against **the energy the macros imply**, not against the stated figure — so a
+food whose macros come to 400 kcal is allowed to state anything within ±60 of it. A
+20 kcal/100 g floor sits under that, so near-zero foods (black coffee, diet drinks)
+pass on the absolute allowance rather than on a percentage of almost nothing. Almost
+every rejection is a real transcription error — most often per-serving macros pasted
+against per-100 g energy. **Recheck the label first.**
+
+A second, separate guard rejects macros that outweigh the food: protein + carbs + fat
+above 105 g per 100 g cannot be true whatever the energy says, and scaling per-serving
+values keeps the energy identity intact while breaking this one. Fibre is not counted
+in that sum, because USDA folds it into the carbohydrate figure and EU declares it
+apart. This guard has no override — no labelling convention makes it legitimate. The
+fix is always the same: divide by the serving size in grams and multiply by 100.
 
 Both directions are overridable, because EU labelling makes both legitimately possible:
 
@@ -368,7 +381,7 @@ reconstruct which target applied to which week by date from an append-only histo
 | | |
 | --- | --- |
 | food and meal aliases | deletable — a pointer, not a fact. This is how a spoken name moves. |
-| foods | deletable only if never used; otherwise PATCH, which fixes the past too |
+| foods | deletable only if nothing currently references it; otherwise PATCH, which fixes the past too |
 | meals | never deleted — retire by removing aliases |
 | bodyweight, body fat | deletable — a mistyped measurement is a mistake, not history |
 | nutrition events | deletable — a claim about the world can be wrong |

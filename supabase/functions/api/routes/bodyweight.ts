@@ -6,10 +6,22 @@ import {
   optionalTimestamp,
   readJson,
   requireIdParam,
+  requireNotFutureInstant,
   requireNumber,
 } from "../lib/validate.ts";
 
 export const bodyweight = new Hono();
+
+// A weigh-in outside this band is not a weigh-in. The band is deliberately
+// far wider than any human Marco will ever be, because its job is not to
+// judge a plausible weight — it is to catch a decimal point or a digit that
+// went missing. 8.2 for 82.4 is the one that actually happens, and it is
+// invisible downstream: it reads as a real number, the EMA absorbs it, and a
+// single such row is enough to drag the trend by tens of kilos and hand back
+// a calorie target hundreds of kcal wrong. Caught here it costs one retry;
+// caught later it costs a fortnight of estimates.
+const MIN_PLAUSIBLE_KG = 25;
+const MAX_PLAUSIBLE_KG = 300;
 
 bodyweight.get("/", async (c) => {
   const rows = await sql`
@@ -23,9 +35,16 @@ bodyweight.get("/", async (c) => {
 bodyweight.post("/", async (c) => {
   const body = await readJson(c);
   const valueKg = requireNumber(body, "value_kg");
+  if (valueKg < MIN_PLAUSIBLE_KG || valueKg > MAX_PLAUSIBLE_KG) {
+    throw new ApiError(
+      422,
+      `${valueKg} kg is not a plausible bodyweight (expected ${MIN_PLAUSIBLE_KG}–${MAX_PLAUSIBLE_KG} kg). A missing or misplaced decimal point is the usual cause — 8.2 for 82.4. Send the weight as it was read off the scale, in kilograms.`,
+    );
+  }
   const source = optionalString(body, "source") ?? "manual";
   const measuredAt = optionalTimestamp(body, "measured_at") ??
     new Date().toISOString();
+  requireNotFutureInstant(measuredAt, "measured_at");
 
   const [row] = await sql`
     insert into bodyweight (value_kg, measured_at, source)

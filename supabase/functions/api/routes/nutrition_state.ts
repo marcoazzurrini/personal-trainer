@@ -40,8 +40,13 @@ nutritionState.get("/", async (c) => {
     where i.day = ${today}
     order by i.created_at, i.id`;
 
+  // d.day is cast back to date: generate_series with an interval step yields
+  // timestamp (oid 1114), which slips past db.ts's date parser (oid 1082) and
+  // serializes as "2026-07-26T00:00:00.000Z" while every other day field in
+  // the API is a bare "2026-07-26". A coach reading that as an instant and
+  // formatting it locally gets the wrong day either side of midnight.
   const recentDays = await sql`
-    select d.day,
+    select d.day::date as day,
       coalesce((select sum(i.kcal)::float8 from intake_entries i
                 where i.day = d.day), 0) as kcal,
       (select sum(i.protein_g)::float8 from intake_entries i

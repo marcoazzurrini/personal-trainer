@@ -6,6 +6,7 @@ import {
   optionalString,
   readJson,
   requireIdParam,
+  requireNotFuture,
   requireNumber,
   requireOneOf,
   requireUuid,
@@ -40,7 +41,11 @@ bodyfat.post("/", async (c) => {
   const note = optionalString(body, "note");
   const [clock] = await sql`
     select (now() at time zone 'Europe/Rome')::date as today`;
-  const day = optionalDate(body, "day") ?? clock.today;
+  const day = requireNotFuture(
+    optionalDate(body, "day") ?? clock.today,
+    clock.today,
+    "day",
+  );
 
   const [row] = await sql`
     insert into bodyfat_estimates (day, percent, method, note, request_id)
