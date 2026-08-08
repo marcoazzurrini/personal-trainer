@@ -8,6 +8,8 @@ pre-commit:
       exclude:
         - docs/**
         - supabase/functions/api/docs/**
+        # See deno.json fmt.comment: formatting SKILL.md frontmatter breaks it.
+        - skill/**
       run: deno fmt {staged_files}
       stage_fixed: true
     - name: lint

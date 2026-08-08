@@ -12,9 +12,15 @@
     "postgres": "npm:postgres@^3.4"
   },
   "fmt": {
+    // skill/ is excluded because SKILL.md's YAML frontmatter is an interface
+    // contract with the skill loader: fmt indents the keys that follow the long
+    // description, and YAML then folds them into the description string —
+    // silently dropping allowed-tools, which removes the skill's permission to
+    // run curl at all.
     "exclude": [
       "docs/",
-      "supabase/functions/api/docs/"
+      "supabase/functions/api/docs/",
+      "skill/"
     ]
   }
 }
