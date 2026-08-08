@@ -6,12 +6,12 @@ import {
   type Body,
   optionalDate,
   optionalString,
-  optionalUuid,
   readJson,
   requireDate,
   requireInt,
   requireOneOf,
   requireString,
+  requireUuid,
 } from "../lib/validate.ts";
 
 const ROLES = ["main", "accessory"] as const;
@@ -95,7 +95,7 @@ export const mesocycles = new Hono();
 // list. Retries with the same request_id return the original result.
 mesocycles.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
       select id from mesocycles where request_id = ${requestId}`;
@@ -172,8 +172,8 @@ mesocycles.post("/:id/revisions", async (c) => {
   const m = await resolveMesocycle(c.req.param("id"));
   const body = await readJson(c);
 
-  const requestId = optionalUuid(body, "request_id");
-  if (requestId) {
+  const requestId = requireUuid(body, "request_id");
+  {
     const [existing] = await sql`
       select id from mesocycle_decisions where request_id = ${requestId}`;
     if (existing) {
@@ -261,7 +261,7 @@ mesocycles.post("/:id/decisions", async (c) => {
   const [row] = await sql`
     insert into mesocycle_decisions (mesocycle_id, what_changed, why, request_id)
     values (${m.id}, ${requireString(body, "what_changed")},
-      ${requireString(body, "why")}, ${optionalUuid(body, "request_id")})
+      ${requireString(body, "why")}, ${requireUuid(body, "request_id")})
     returning id, mesocycle_id, made_at, what_changed, why`;
   return c.json({ decision: row }, 201);
 });

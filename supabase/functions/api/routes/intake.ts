@@ -12,10 +12,11 @@ import {
   optionalDate,
   optionalNumber,
   optionalString,
-  optionalUuid,
   readJson,
+  requireIdParam,
   requireNumber,
   requireOneOf,
+  requireUuid,
 } from "../lib/validate.ts";
 
 // What was actually eaten. Three ways in — a saved meal, a single food, or an
@@ -108,7 +109,7 @@ intake.get("/", async (c) => {
 
 intake.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   const day = optionalDate(body, "day") ?? await romeToday();
   const note = optionalString(body, "note");
 
@@ -220,10 +221,7 @@ intake.post("/", async (c) => {
 // as they are *now*. Sending macros directly overrides them outright, which is
 // what an ad-hoc correction needs.
 intake.patch("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  if (!Number.isInteger(id)) {
-    throw new ApiError(422, `"${c.req.param("id")}" is not an entry id.`);
-  }
+  const id = requireIdParam(c.req.param("id"), "intake entry");
   const [entry] = await sql`
     select * from intake_entries where id = ${id}`;
   if (!entry) {
@@ -272,7 +270,7 @@ intake.patch("/:id", async (c) => {
 // A mis-log ("I logged that twice") is removed, not zeroed: a zero-kcal row
 // would count as a logged entry and quietly inflate adherence.
 intake.delete("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const id = requireIdParam(c.req.param("id"), "intake entry");
   const [entry] = await sql`
     delete from intake_entries where id = ${id} returning day`;
   if (!entry) throw new ApiError(404, `No intake entry with id ${id}.`);

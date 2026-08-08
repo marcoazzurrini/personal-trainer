@@ -13,6 +13,7 @@ import {
   optionalNumber,
   optionalString,
   readJson,
+  requireIdParam,
   requireInt,
   requireOneOf,
 } from "../lib/validate.ts";
@@ -88,7 +89,7 @@ logPage.get("/:publicId", async (c) => {
 // Fill in a set as it happens. Idempotent: resending is safe.
 logPage.patch("/:publicId/sets/:setId", async (c) => {
   const session = await sessionByPublicId(c.req.param("publicId"));
-  const setId = Number(c.req.param("setId"));
+  const setId = requireIdParam(c.req.param("setId"), "set");
   const existing = await setInSession(setId, session.id);
 
   const body = await readJson(c);

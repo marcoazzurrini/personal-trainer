@@ -18,11 +18,11 @@ import {
 import {
   optionalDate,
   optionalInt,
-  optionalUuid,
   readJson,
   requireNumber,
   requireOneOf,
   requireString,
+  requireUuid,
 } from "../lib/validate.ts";
 
 // The goal, expressed as a rate of bodyweight change. Append-only: the latest
@@ -47,7 +47,7 @@ nutritionTargets.get("/", async (c) => {
 
 nutritionTargets.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
       select id from nutrition_targets where request_id = ${requestId}`;

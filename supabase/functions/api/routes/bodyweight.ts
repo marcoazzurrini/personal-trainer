@@ -5,6 +5,7 @@ import {
   optionalString,
   optionalTimestamp,
   readJson,
+  requireIdParam,
   requireNumber,
 } from "../lib/validate.ts";
 
@@ -44,4 +45,18 @@ bodyweight.post("/", async (c) => {
     409,
     `A different value (${existing.value_kg} kg) is already recorded for ${measuredAt} from source "${source}". If this new value is a correction, something has gone wrong upstream — a measurement is a fact and should not change.`,
   );
+});
+
+// A mistyped weigh-in used to be a cosmetic blemish on a chart. It now feeds
+// the trend, the trend feeds the expenditure estimate, and the estimate sets
+// the calorie target — an 8 kg typo would read as a fortnight of catastrophic
+// loss and hand back a target hundreds of calories wrong. A measurement that
+// was never taken is a mistake, and mistakes come out.
+bodyweight.delete("/:id", async (c) => {
+  const id = requireIdParam(c.req.param("id"), "bodyweight");
+  const [row] = await sql`
+    delete from bodyweight where id = ${id}
+    returning value_kg::float8, measured_at, source`;
+  if (!row) throw new ApiError(404, `No bodyweight measurement with id ${id}.`);
+  return c.json({ deleted: row });
 });

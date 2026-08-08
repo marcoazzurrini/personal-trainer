@@ -20,7 +20,8 @@ that has happened.
 
 ```json
 POST /blocks
-{ "name": "...", "goal": "...", "started_on": "YYYY-MM-DD", "ended_on": "<optional>" }
+{ "name": "...", "goal": "...", "started_on": "YYYY-MM-DD", "ended_on": "<optional>",
+  "request_id": "<fresh uuid>" }
 ```
 
 ## Creating a mesocycle

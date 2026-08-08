@@ -5,10 +5,10 @@ import { foodMacros, scaleFood, sumMacros } from "../lib/nutrition.ts";
 import { resolveFoodId, resolveMealId } from "../lib/resolve.ts";
 import {
   type Body,
-  optionalUuid,
   readJson,
   requireNumber,
   requireString,
+  requireUuid,
 } from "../lib/validate.ts";
 
 // Meals are routines, not history. "il mio solito yogurt" is a name, a list of
@@ -99,7 +99,7 @@ meals.get("/", async (c) => {
 // One call, one transaction: a meal arrives complete or not at all.
 meals.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
       select id from meals where request_id = ${requestId}`;
@@ -201,4 +201,24 @@ meals.patch("/:ref", async (c) => {
     note:
       "Future logs of this meal use the new items. Everything already logged is untouched — intake entries carry the numbers they were logged with.",
   });
+});
+
+// Meals are never deleted: a logged meal is what its intake rows point at, and
+// a routine abandoned is still a routine that was followed. Retiring one means
+// taking its aliases away — it keeps its name and its history, and stops
+// answering to the word Marco says out loud.
+meals.delete("/:ref/aliases/:alias", async (c) => {
+  const id = await resolveMealId(c.req.param("ref"));
+  const alias = decodeURIComponent(c.req.param("alias"));
+  const rows = await sql`
+    delete from meal_aliases
+    where meal_id = ${id} and lower(alias) = lower(${alias})
+    returning id`;
+  if (rows.length === 0) {
+    throw new ApiError(
+      404,
+      `"${alias}" is not an alias of that meal. GET /api/meals/${id} lists its aliases.`,
+    );
+  }
+  return c.json({ meal: await mealDetail(id) });
 });

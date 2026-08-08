@@ -22,9 +22,12 @@ Two reflexes replace memory:
 
 ## Conventions that apply to every call
 
-- Every creating POST takes a `request_id`: a fresh UUID per call. Retrying with the
-  same id can never duplicate, so a retry is always safe. Reuse an id only to retry
-  that same call.
+- Every creating POST **requires** a `request_id`: a fresh UUID per call. Resending the
+  same id returns the original result instead of writing a second row, so a retry is
+  always safe — that is the point, and it is why the field is not optional. Reuse an id
+  only to retry that same call. A handful of writes need no id because they cannot
+  duplicate: a bodyweight measurement is keyed by its instant, a day flag is idempotent,
+  and catalogue names collide.
 - **Errors are prompts.** A rejected call returns plain English stating what was
   wrong. Read it and fix the call instead of retrying blindly.
 - Exercises, foods and meals all resolve by id, name, or alias, case-insensitively. If

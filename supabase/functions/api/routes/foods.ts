@@ -6,11 +6,11 @@ import { resolveFoodId } from "../lib/resolve.ts";
 import {
   optionalNumber,
   optionalString,
-  optionalUuid,
   readJson,
   requireNumber,
   requireOneOf,
   requireString,
+  requireUuid,
 } from "../lib/validate.ts";
 
 // The registry the coach fills as it goes. A food is sourced once — from a
@@ -73,7 +73,7 @@ foods.get("/", async (c) => {
 
 foods.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
       select id from foods where request_id = ${requestId}`;
@@ -132,6 +132,102 @@ foods.get("/:ref", async (c) => {
   return c.json({ food: await foodById(id) });
 });
 
+// Correcting a food, retroactively.
+//
+// A food's numbers are a fact about the world, not a choice that evolves. If
+// white rice was recorded at 130 kcal and it is 350, every entry ever logged
+// against it was wrong at the moment it was written — that is an error, not
+// history, and fixing it fixes the past too. This is the opposite of a meal,
+// where a changed recipe means Marco genuinely started eating differently and
+// the old entries must stand.
+//
+// So: **editing a food only ever means fixing a mistake.** A different product
+// — another brand, a reformulated recipe — is a new food, never an edit. That
+// rule is what makes blanket retroactivity safe, and it is stated in the
+// reference and logging docs because the coach is the one who will be tempted
+// to "just update the yogurt".
+//
+// Nothing happens silently: the response says how many entries were rewritten
+// and over what dates.
+foods.patch("/:ref", async (c) => {
+  const id = await resolveFoodId(c.req.param("ref"));
+  const [before] = await sql`select * from foods where id = ${id}`;
+  const body = await readJson(c);
+
+  const fields: Record<string, unknown> = {};
+  for (
+    const [key, column] of [
+      ["kcal_100g", "kcal_100g"],
+      ["protein_100g", "protein_100g"],
+      ["carbs_100g", "carbs_100g"],
+      ["fat_100g", "fat_100g"],
+      ["fiber_100g", "fiber_100g"],
+      ["grams_per_unit", "grams_per_unit"],
+    ] as const
+  ) {
+    if (key in body) fields[column] = optionalNumber(body, key, { min: 0 });
+  }
+  if ("name" in body) fields.name = requireString(body, "name");
+  if ("brand" in body) fields.brand = optionalString(body, "brand");
+  if ("source" in body) fields.source = requireOneOf(body, "source", SOURCES);
+  if ("source_note" in body) {
+    fields.source_note = optionalString(body, "source_note");
+  }
+
+  if (Object.keys(fields).length === 0) {
+    throw new ApiError(
+      422,
+      "Send at least one of: name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note. A different product is not an edit — save it as a new food with POST /api/foods.",
+    );
+  }
+
+  const merged = { ...before, ...fields };
+  checkEnergy(
+    Number(merged.kcal_100g),
+    Number(merged.protein_100g),
+    Number(merged.carbs_100g),
+    Number(merged.fat_100g),
+    body.energy_check === "override",
+    merged.source_note as string | null,
+  );
+
+  const macrosChanged = ["kcal_100g", "protein_100g", "carbs_100g", "fat_100g"]
+    .concat("fiber_100g")
+    .some((k) => k in fields && String(fields[k]) !== String(before[k]));
+
+  const rewritten: { day: string }[] = await sql.begin(async (tx) => {
+    await tx`update foods set ${tx(fields)} where id = ${id}`;
+    if (!macrosChanged) return [];
+    // Recomputed in one statement from each entry's own grams, so a row that
+    // recorded 200 g still records 200 g — only what 200 g means changes.
+    return await tx`
+      update intake_entries i set
+        kcal = round(f.kcal_100g * i.grams / 100, 1),
+        protein_g = round(f.protein_100g * i.grams / 100, 1),
+        carbs_g = round(f.carbs_100g * i.grams / 100, 1),
+        fat_g = round(f.fat_100g * i.grams / 100, 1),
+        fiber_g = round(f.fiber_100g * i.grams / 100, 1)
+      from foods f
+      where f.id = i.food_id and i.food_id = ${id}
+      returning i.id, i.day` as unknown as { day: string }[];
+  });
+
+  const days = rewritten.map((r) => r.day).sort();
+  return c.json({
+    food: await foodById(id),
+    corrected_entries: {
+      count: rewritten.length,
+      from: days[0] ?? null,
+      to: days[days.length - 1] ?? null,
+    },
+    note: macrosChanged
+      ? `Corrected ${rewritten.length} logged ${
+        rewritten.length === 1 ? "entry" : "entries"
+      }: those numbers were wrong when they were written, so the record now says what was actually eaten. Meals containing this food update on their own — their totals are computed, never stored.`
+      : "No macros changed, so nothing logged was affected.",
+  });
+});
+
 // A synonym never becomes a second food row — that splits the food's history
 // exactly the way a duplicate exercise splits a lift's.
 foods.post("/:ref/aliases", async (c) => {
@@ -153,4 +249,49 @@ foods.post("/:ref/aliases", async (c) => {
     }
   });
   return c.json({ food: await foodById(id) }, 201);
+});
+
+// An alias is a pointer, not a fact — removing one loses nothing and is how a
+// spoken name gets moved to the food that should own it. Aliases are globally
+// unique, so without this a retired food would hold "il solito yogurt"
+// forever and no replacement could ever claim it.
+foods.delete("/:ref/aliases/:alias", async (c) => {
+  const id = await resolveFoodId(c.req.param("ref"));
+  const alias = decodeURIComponent(c.req.param("alias"));
+  const rows = await sql`
+    delete from food_aliases
+    where food_id = ${id} and lower(alias) = lower(${alias})
+    returning id`;
+  if (rows.length === 0) {
+    throw new ApiError(
+      404,
+      `"${alias}" is not an alias of that food. GET /api/foods/${id} lists its aliases.`,
+    );
+  }
+  return c.json({ food: await foodById(id) });
+});
+
+// Only a food nothing has ever used — a typo'd duplicate, a mis-sourced row
+// caught before it was logged. Once a food is in the record, deleting it would
+// orphan history, so the answer there is PATCH: fix the numbers and the past
+// fixes with them.
+foods.delete("/:ref", async (c) => {
+  const id = await resolveFoodId(c.req.param("ref"));
+  const [{ entries, items }] = await sql`
+    select
+      (select count(*)::int from intake_entries where food_id = ${id}) as entries,
+      (select count(*)::int from meal_items where food_id = ${id}) as items`;
+  if (entries > 0 || items > 0) {
+    throw new ApiError(
+      409,
+      `That food is in use — ${entries} logged ${
+        entries === 1 ? "entry" : "entries"
+      } and ${items} meal ${
+        items === 1 ? "item" : "items"
+      } — so deleting it would orphan the record. If its numbers are wrong, PATCH /api/foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
+    );
+  }
+  const [row] = await sql`delete from foods where id = ${id} returning name`;
+  await sql`delete from food_aliases where food_id = ${id}`;
+  return c.json({ deleted: row.name });
 });

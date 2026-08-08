@@ -7,6 +7,7 @@ import {
   optionalString,
   optionalTimestamp,
   readJson,
+  requireIdParam,
   requireOneOf,
 } from "../lib/validate.ts";
 
@@ -19,7 +20,7 @@ export const sets = new Hono();
 // resends after being offline. Targets are immutable: once written they are
 // the record of what was asked, so this endpoint never touches them.
 sets.patch("/:id", async (c) => {
-  const setId = Number(c.req.param("id"));
+  const setId = requireIdParam(c.req.param("id"), "set");
   const [existing] = await sql`
     select id, kind, performed_at from sets where id = ${setId}`;
   if (!existing) throw new ApiError(404, `No set with id ${setId}.`);

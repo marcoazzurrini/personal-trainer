@@ -31,10 +31,25 @@ async function request(
   return { status: res.status, body: await res.json() };
 }
 
+// Creating POSTs require a request_id, so api.post supplies one when the test
+// hasn't. Every real caller sends one; making 88 test bodies carry the
+// boilerplate would bury what each test is actually asserting. Tests that
+// pass an explicit id (to exercise a retry) keep theirs, and postRaw sends the
+// body untouched so the requirement itself can be tested.
+function withRequestId(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return body;
+  }
+  const b = body as Record<string, unknown>;
+  return "request_id" in b ? b : { ...b, request_id: uuid() };
+}
+
 export const api = {
   get: (path: string, token?: string | null) =>
     request("GET", path, undefined, token),
   post: (path: string, body: unknown, token?: string | null) =>
+    request("POST", path, withRequestId(body), token),
+  postRaw: (path: string, body: unknown, token?: string | null) =>
     request("POST", path, body, token),
   patch: (path: string, body: unknown, token?: string | null) =>
     request("PATCH", path, body, token),

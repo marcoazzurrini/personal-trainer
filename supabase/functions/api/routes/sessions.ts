@@ -8,11 +8,12 @@ import {
   optionalNumber,
   optionalString,
   optionalTimestamp,
-  optionalUuid,
   readJson,
   requireDate,
+  requireIdParam,
   requireOneOf,
   requireString,
+  requireUuid,
 } from "../lib/validate.ts";
 
 const KINDS = ["warmup", "working"] as const;
@@ -124,10 +125,7 @@ sessions.get("/", async (c) => {
 });
 
 sessions.get("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  if (!Number.isInteger(id)) {
-    throw new ApiError(422, "Session ids are numeric.");
-  }
+  const id = requireIdParam(c.req.param("id"), "session");
   return c.json({ session: await sessionDetail(id) });
 });
 
@@ -136,7 +134,7 @@ sessions.get("/:id", async (c) => {
 // logging fills them in rather than inserting.
 sessions.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
       select id from sessions where request_id = ${requestId}`;
@@ -186,11 +184,20 @@ sessions.post("/", async (c) => {
 // An unplanned set: actuals, null targets. Behind the log page's extra-row
 // and add-exercise actions, and available when logging in chat.
 sessions.post("/:id/sets", async (c) => {
-  const sessionId = Number(c.req.param("id"));
+  const sessionId = requireIdParam(c.req.param("id"), "session");
   const [session] = await sql`select id from sessions where id = ${sessionId}`;
   if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
 
   const body = await readJson(c);
+  // Appends at max(position)+1, so there is no natural key to collide on:
+  // without the id a lost response becomes a duplicate set.
+  const requestId = requireUuid(body, "request_id");
+  const [duplicate] = await sql`
+    select id, session_id, exercise_id, position, kind, weight_kg::float8,
+      reps, effort, performed_at, notes
+    from sets where request_id = ${requestId}`;
+  if (duplicate) return c.json({ set: duplicate });
+
   const s = await parseNewSet(body);
   if (s.targetReps !== null) {
     throw new ApiError(
@@ -207,12 +214,12 @@ sessions.post("/:id/sets", async (c) => {
   const [row] = await sql`
     insert into sets
       (session_id, exercise_id, position, kind, weight_kg, reps, effort,
-       performed_at, notes)
+       performed_at, notes, request_id)
     values
       (${sessionId}, ${s.exerciseId},
        (select coalesce(max(position), 0) + 1 from sets where session_id = ${sessionId}),
        ${s.kind}, ${s.weightKg}, ${s.reps}, ${s.effort},
-       ${s.performedAt ?? new Date().toISOString()}, ${s.notes})
+       ${s.performedAt ?? new Date().toISOString()}, ${s.notes}, ${requestId})
     returning id, session_id, exercise_id, position, kind,
       weight_kg::float8, reps, effort, performed_at, notes`;
   return c.json({ set: row }, 201);
@@ -221,7 +228,7 @@ sessions.post("/:id/sets", async (c) => {
 // Notes, how it felt, marking complete. Finishing a workout is a field
 // changing, not a separate action.
 sessions.patch("/:id", async (c) => {
-  const sessionId = Number(c.req.param("id"));
+  const sessionId = requireIdParam(c.req.param("id"), "session");
   const [session] = await sql`select id from sessions where id = ${sessionId}`;
   if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
 

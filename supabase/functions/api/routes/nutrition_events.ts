@@ -1,11 +1,13 @@
 import { Hono } from "@hono/hono";
 import { sql } from "../db.ts";
+import { ApiError } from "../lib/errors.ts";
 import {
   optionalDate,
   optionalString,
-  optionalUuid,
   readJson,
+  requireIdParam,
   requireOneOf,
+  requireUuid,
 } from "../lib/validate.ts";
 import { activeTransients, romeToday } from "../lib/nutrition_read.ts";
 
@@ -35,7 +37,7 @@ nutritionEvents.get("/", async (c) => {
 
 nutritionEvents.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
       select id, day, kind, note, created_at
@@ -52,4 +54,17 @@ nutritionEvents.post("/", async (c) => {
     values (${day}, ${kind}, ${note}, ${requestId})
     returning id, day, kind, note, created_at`;
   return c.json({ event: row }, 201);
+});
+
+// An event registered on the wrong day, or that turned out not to have
+// happened, actively distorts the estimate: it damps updates for two weeks
+// around a transient that never occurred. Registering one is a claim, and a
+// claim can be wrong.
+nutritionEvents.delete("/:id", async (c) => {
+  const id = requireIdParam(c.req.param("id"), "nutrition event");
+  const [row] = await sql`
+    delete from nutrition_events where id = ${id}
+    returning day, kind, note`;
+  if (!row) throw new ApiError(404, `No nutrition event with id ${id}.`);
+  return c.json({ deleted: row });
 });

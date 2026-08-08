@@ -211,9 +211,12 @@ Deno.test("nutrition tracking", async (t) => {
     );
   });
 
-  await t.step("editing a food never reaches what was logged", async () => {
-    // The whole point of the snapshot. Yogurt gets a corrected label; the
-    // breakfast already logged keeps the numbers it was logged with.
+  await t.step("a different product is a new food, not an edit", async () => {
+    // The rule that makes retroactive food correction safe. A reformulated or
+    // rebranded yogurt is a different thing, so it gets its own row and the
+    // breakfast already logged keeps the numbers it was logged with. Editing
+    // the original would have meant "these numbers were always wrong", which
+    // here they were not.
     const logged = await api.get("/intake");
     const before = logged.body.entries.find(
       (e: { food: string; meal_id: number | null }) =>
@@ -408,6 +411,152 @@ Deno.test("nutrition tracking", async (t) => {
       percent: 16,
     });
     assertEquals(conflicting.status, 409);
+  });
+
+  await t.step("a food correction reaches everything logged", async () => {
+    // The other half of the snapshot rule. A meal's recipe changing means
+    // Marco ate differently, so history stands. A food's numbers changing
+    // means they were always wrong — that is an error, not history.
+    const rice = await api.post("/foods", {
+      name: "White Rice",
+      kcal_100g: 130,
+      protein_100g: 2.7,
+      carbs_100g: 28,
+      fat_100g: 0.3,
+      source: "usda",
+    });
+    assertEquals(rice.status, 201);
+    await api.post("/intake", { food: "White Rice", grams: 200 });
+
+    const before = await api.get("/intake");
+    const cooked = before.body.entries.find((e: { food: string }) =>
+      e.food === "White Rice"
+    );
+    assertEquals(cooked.kcal, 260);
+
+    // Those were the cooked-rice numbers; the label is raw.
+    const fixed = await api.patch("/foods/White Rice", {
+      kcal_100g: 360,
+      protein_100g: 6.6,
+      carbs_100g: 80,
+      fat_100g: 0.6,
+      source_note: "raw, not cooked — the original numbers were wrong",
+    });
+    assertEquals(fixed.status, 200);
+    assertEquals(fixed.body.corrected_entries.count, 1);
+    assert(fixed.body.note.includes("Corrected 1 logged entry"));
+
+    const after = await api.get("/intake");
+    const corrected = after.body.entries.find((e: { food: string }) =>
+      e.food === "White Rice"
+    );
+    assertEquals(corrected.kcal, 720); // 360 * 2
+    assertEquals(corrected.grams, 200, "the amount eaten never changed");
+  });
+
+  await t.step("a correction still cannot break the energy check", async () => {
+    const { status, body } = await api.patch("/foods/White Rice", {
+      kcal_100g: 50,
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes("disagree"));
+  });
+
+  await t.step("an alias moves between foods", async () => {
+    await api.post("/foods/White Rice/aliases", { alias: "riso" });
+    const taken = await api.post("/foods/Honey/aliases", { alias: "riso" });
+    assertEquals(taken.status, 409);
+
+    const removed = await api.delete("/foods/White Rice/aliases/riso");
+    assertEquals(removed.status, 200);
+    assertEquals(removed.body.food.aliases.includes("riso"), false);
+
+    const moved = await api.post("/foods/Honey/aliases", { alias: "riso" });
+    assertEquals(moved.status, 201);
+  });
+
+  await t.step("a used food cannot be deleted, an unused one can", async () => {
+    const used = await api.delete("/foods/White Rice");
+    assertEquals(used.status, 409);
+    assert(used.body.error.includes("PATCH"));
+
+    await api.post("/foods", {
+      name: "Typo Foodd",
+      kcal_100g: 100,
+      protein_100g: 5,
+      carbs_100g: 10,
+      fat_100g: 3,
+      source: "estimate",
+    });
+    const unused = await api.delete("/foods/Typo Foodd");
+    assertEquals(unused.status, 200);
+    assertEquals((await api.get("/foods/Typo Foodd")).status, 422);
+  });
+
+  await t.step("a meal is retired by taking its aliases away", async () => {
+    // Meals are never deleted — the logged rows point at them. Retiring one
+    // frees the word Marco actually says so a replacement can claim it.
+    const freed = await api.delete(
+      "/meals/Colazione/aliases/la solita colazione",
+    );
+    assertEquals(freed.status, 200);
+    assertEquals(freed.body.meal.aliases.length, 0);
+    assertEquals((await api.delete("/meals/Colazione")).status, 404);
+
+    const reused = await api.post("/meals", {
+      name: "Colazione nuova",
+      aliases: ["la solita colazione"],
+      items: [{ food: "Honey", grams: 30 }],
+    });
+    assertEquals(reused.status, 201);
+  });
+
+  await t.step("a mistyped measurement can be removed", async () => {
+    const bad = await api.post("/bodyweight", {
+      value_kg: 128.4, // meant 82.4
+      measured_at: "2026-08-03T06:00:00Z",
+    });
+    assertEquals(bad.status, 201);
+    const gone = await api.delete(`/bodyweight/${bad.body.bodyweight.id}`);
+    assertEquals(gone.status, 200);
+    assertEquals(gone.body.deleted.value_kg, 128.4);
+    assertEquals((await api.get("/bodyweight")).body.bodyweight.length, 0);
+  });
+
+  await t.step("request_id is required, not merely accepted", async () => {
+    const without = await api.postRaw("/intake", { adhoc_kcal: 100 });
+    assertEquals(without.status, 422);
+    assert(without.body.error.includes("retry"));
+
+    // And it still does its job when sent.
+    const id = uuid();
+    const first = await api.postRaw("/intake", {
+      adhoc_kcal: 100,
+      request_id: id,
+    });
+    assertEquals(first.status, 201);
+    const count = first.body.entries.length;
+    const retry = await api.postRaw("/intake", {
+      adhoc_kcal: 100,
+      request_id: id,
+    });
+    assertEquals(retry.body.entries.length, count);
+  });
+
+  await t.step("a malformed id is a prompt, not a 500", async () => {
+    for (
+      const call of [
+        api.delete("/intake/notanid"),
+        api.patch("/intake/notanid", { kcal: 1 }),
+        api.delete("/bodyfat/notanid"),
+        api.delete("/nutrition-events/notanid"),
+        api.delete("/bodyweight/notanid"),
+      ]
+    ) {
+      const { status, body } = await call;
+      assertEquals(status, 422);
+      assert(body.error.includes("not a"), body.error);
+    }
   });
 
   await t.step("nutrition-state is honest with no history", async () => {

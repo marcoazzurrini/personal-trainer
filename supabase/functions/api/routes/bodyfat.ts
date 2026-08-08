@@ -4,10 +4,11 @@ import { ApiError } from "../lib/errors.ts";
 import {
   optionalDate,
   optionalString,
-  optionalUuid,
   readJson,
+  requireIdParam,
   requireNumber,
   requireOneOf,
+  requireUuid,
 } from "../lib/validate.ts";
 
 // Body fat exists here for one reason: the energy density of a weight change
@@ -33,7 +34,7 @@ bodyfat.get("/", async (c) => {
 // method is a conflict worth asking about rather than silently overwriting.
 bodyfat.post("/", async (c) => {
   const body = await readJson(c);
-  const requestId = optionalUuid(body, "request_id");
+  const requestId = requireUuid(body, "request_id");
   const percent = requireNumber(body, "percent");
   const method = requireOneOf(body, "method", METHODS);
   const note = optionalString(body, "note");
@@ -58,4 +59,17 @@ bodyfat.post("/", async (c) => {
     409,
     `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`,
   );
+});
+
+// A mistyped estimate is a mistake, not a measurement. 41% instead of 14%
+// changes fat mass by 22 kg, which changes the energy density of every kg of
+// weight change, which moves the calorie target — and the natural key means it
+// cannot simply be overwritten. Removing it is the way out.
+bodyfat.delete("/:id", async (c) => {
+  const id = requireIdParam(c.req.param("id"), "body-fat estimate");
+  const [row] = await sql`
+    delete from bodyfat_estimates where id = ${id}
+    returning day, percent::float8, method`;
+  if (!row) throw new ApiError(404, `No body-fat estimate with id ${id}.`);
+  return c.json({ deleted: row });
 });

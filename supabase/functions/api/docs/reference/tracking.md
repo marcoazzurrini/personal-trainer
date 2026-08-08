@@ -17,7 +17,7 @@ and bodyweight.
 
 ```json
 POST /user-context
-{ "topic": "...", "content": "..." }
+{ "topic": "...", "content": "...", "request_id": "<uuid>" }
 ```
 
 Rows are never edited. Correcting a fact means a new row on the same topic; the
@@ -33,4 +33,7 @@ POST /bodyweight
 ```
 
 Resending the same measurement is safe; a different value for the same instant is
-rejected — ask which is right rather than picking one.
+rejected — ask which is right rather than picking one. A mistyped weigh-in is removed
+with `DELETE /bodyweight/:id` and re-entered. That matters more than it used to: the
+trend built from these feeds the expenditure estimate, which sets the calorie target,
+so an 8 kg typo reads as a fortnight of catastrophic loss.

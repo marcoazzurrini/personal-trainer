@@ -40,7 +40,9 @@ sets carry actuals — `weight_kg`, `reps`, `effort` — and no targets.
 
 ## Additions and corrections
 
-- Extra sets performed but not logged → `POST /sessions/:id/sets` with actuals.
+- Extra sets performed but not logged → `POST /sessions/:id/sets` with actuals and a
+  `request_id`. This one appends at the next free position, so it has no natural key to
+  collide on — without the id a retried call is a second set.
 - Correcting an actual → `PATCH /sets/:id` with the corrected fields (set ids via
   `GET /sessions/:id`).
 - Session-level facts — notes, `overall_feel`, completion → `PATCH /sessions/:id`.

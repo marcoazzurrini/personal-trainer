@@ -2,9 +2,10 @@
 
 The food registry, what was eaten, and the current nutrition picture.
 
-House conventions apply: `request_id` (a fresh UUID) on every creating POST; errors
-are prompts — read and fix, don't retry blindly; foods and meals resolve by id, name,
-or alias, case-insensitively; days are Europe/Rome calendar dates.
+House conventions apply: `request_id` (a fresh UUID) is **required** on every creating
+POST and is what makes a retry safe; errors are prompts — read and fix, don't retry
+blindly; foods and meals resolve by id, name, or alias, case-insensitively; days are
+Europe/Rome calendar dates.
 
 ## Reads
 
@@ -51,8 +52,40 @@ for the lookup ladder.
 **One food, one row.** Names are case-insensitive and unique. A synonym never becomes
 a second food — that splits its history exactly the way a duplicate exercise splits a
 lift's. Add synonyms with `POST /foods/:ref/aliases` (`{"alias": "..."}` or
-`{"aliases": [...]}`). `brand` is descriptive and nothing resolves on it, so two brands
-of the same product need distinct names.
+`{"aliases": [...]}`), remove one with `DELETE /foods/:ref/aliases/:alias`. `brand` is
+descriptive and nothing resolves on it, so two brands of the same product need distinct
+names.
+
+`DELETE /foods/:ref` removes a food **nothing has ever used** — a typo'd duplicate
+caught before it was logged. A food that is in the record cannot be deleted; if its
+numbers are wrong, PATCH fixes them and the history with them.
+
+### Correcting a food — retroactive, and only ever a mistake
+
+```json
+PATCH /foods/:ref
+{ "kcal_100g": 360, "protein_100g": 6.6, ... , "source_note": "raw, not cooked" }
+```
+
+**Editing a food fixes every entry ever logged against it.** If white rice was saved at
+130 kcal and it is 360, those entries were wrong the moment they were written — that is
+an error, not history. The grams on each entry never change; only what those grams mean.
+The response says how many entries were rewritten and over what dates.
+
+This is the exact opposite of a meal, and the difference is the whole rule:
+
+| | What a change means | Past entries |
+| --- | --- | --- |
+| **Food** | the numbers were always wrong | corrected too |
+| **Meal** | Marco started eating differently | stand, untouched |
+
+**A different product is never an edit.** Another brand of Greek yogurt, a reformulated
+recipe, cooked versus raw — those are separate foods, saved with `POST /foods` under
+their own name. Editing the original would assert that its old numbers were a mistake,
+and they weren't. This rule is what makes blanket retroactivity safe; breaking it
+corrupts history silently.
+
+The energy check below runs on the corrected values too.
 
 ### The energy check
 
@@ -106,6 +139,12 @@ PATCH /meals/:ref
 ambiguous about what was meant to survive. The edit changes future logs only; nothing in
 it can reach anything already logged, by construction rather than by care.
 
+**Meals are never deleted.** The intake rows point at them, and a routine that was
+abandoned is still a routine that was followed. Retiring one means taking its aliases
+away — `DELETE /meals/:ref/aliases/:alias`. It keeps its name and its history and stops
+answering to the word Marco says out loud, so a replacement can claim that word. A meal
+created by mistake doesn't need deleting either: edit it into what you meant.
+
 ## Intake
 
 ```json
@@ -142,12 +181,13 @@ PATCH /intake/:id     { "kcal": 250, "protein_g": 12 }   // overrides outright
 DELETE /intake/:id                              // a duplicate log, removed not zeroed
 ```
 
-The snapshot is the default, not a prison. When a food turns out to have been wrong, or
-an amount was misheard, fix the affected rows explicitly — sending `grams` re-scales
-from the food's current numbers, which is exactly the "that yogurt was mislabelled, fix
-this week" case. An ad-hoc entry has no food to re-scale from, so correct it with `kcal`
-directly. Delete rather than zero a mis-log: a 0 kcal row still counts as a logged entry
-and would inflate adherence.
+These fix **one entry**, when that entry is what was wrong: the amount was misheard, or
+that day's portion was unusual. If the *food's* numbers are wrong, don't correct entries
+one by one — `PATCH /foods/:ref` fixes the food and every entry at once.
+
+Sending `grams` re-scales from the food; an ad-hoc entry has no food to re-scale from,
+so correct it with `kcal` directly. Delete rather than zero a mis-log: a 0 kcal row
+still counts as a logged entry and would inflate adherence.
 
 ### Reading totals: `unaccounted`
 
@@ -189,7 +229,9 @@ here — but it needs re-anchoring occasionally, which is why it is a series.
 
 Deduped on `(day, method)` like bodyweight on `(measured_at, source)`: resending is a
 no-op, and a different value for the same day and method is rejected rather than
-silently overwritten.
+silently overwritten. A typo is removed with `DELETE /bodyfat/:id` and re-entered — 41%
+instead of 14% moves fat mass by 22 kg, which moves the energy density and therefore the
+calorie target.
 
 ## The expenditure estimate
 
@@ -280,6 +322,21 @@ POST /nutrition-events
 
 Register anything that moves bodyweight for reasons that are not fat or muscle. For
 ~14 days afterwards the back-solve damps large jumps instead of reading them as
-metabolism. `logging_change` matters more than it looks: the estimate self-corrects for
+metabolism. `DELETE /nutrition-events/:id` removes one registered by mistake — a
+transient on the wrong day damps an estimate that had nothing to absorb. `logging_change` matters more than it looks: the estimate self-corrects for
 *stable* under-logging, so a change in logging habit is the one thing that genuinely
 breaks it.
+
+## What can be removed, and what cannot
+
+**Measurements, mistakes and pointers come out. Routines and decisions stay.**
+
+| | |
+| --- | --- |
+| food and meal aliases | deletable — a pointer, not a fact. This is how a spoken name moves. |
+| foods | deletable only if never used; otherwise PATCH, which fixes the past too |
+| meals | never deleted — retire by removing aliases |
+| bodyweight, body fat | deletable — a mistyped measurement is a mistake, not history |
+| nutrition events | deletable — a claim about the world can be wrong |
+| intake entries | deletable — a mis-log is not a meal |
+| targets | append-only, never deleted or edited: supersede with a new row |

@@ -49,6 +49,18 @@ figure but only carry ~2.4 kcal/g). For those, resend with
 for the override to make a number you are unsure about go through — that is the
 one use of it that turns a disclosed estimate into a confident invention.
 
+## When a saved food turns out to be wrong
+
+`PATCH /foods/:ref` corrects it, and **the correction reaches every entry ever logged
+against it** — those numbers were wrong when they were written, so fixing them fixes
+the record. Say what changed and how many days moved; the response tells you.
+
+The one rule that keeps this safe: **only ever edit a food to fix a mistake.** A
+different brand, a reformulated recipe, cooked instead of raw — those are different
+foods, saved separately. It will be tempting to "just update the yogurt" when Marco
+buys another brand; that would rewrite weeks of correct history into something he never
+ate.
+
 ## Vague or partial days
 
 "Ate out, pizza and a beer, call it 1200" is a first-class ad-hoc entry
