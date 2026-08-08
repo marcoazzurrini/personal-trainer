@@ -555,7 +555,7 @@ Deno.test("nutrition tracking", async (t) => {
     ) {
       const { status, body } = await call;
       assertEquals(status, 422);
-      assert(body.error.includes("not a"), body.error);
+      assert(body.error.includes("is not a valid"), body.error);
     }
   });
 

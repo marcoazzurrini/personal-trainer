@@ -159,7 +159,7 @@ export function requireIdParam(value: string, what: string): number {
   if (!Number.isInteger(id) || id < 1) {
     throw new ApiError(
       422,
-      `"${value}" is not a ${what} id. Ids are positive whole numbers.`,
+      `"${value}" is not a valid ${what} id. Ids are positive whole numbers.`,
     );
   }
   return id;
