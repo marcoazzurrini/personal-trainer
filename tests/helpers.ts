@@ -13,6 +13,35 @@ export interface ApiResponse {
   body: any;
 }
 
+// Every error this API returns is exactly { "error": "<a sentence>" } — no
+// stack trace, no HTML, no bare status, no extra fields. The client is a model
+// that has to decide what to do next from the body alone, so the envelope is
+// part of the contract rather than a formatting habit.
+//
+// Enforced here, on every call every test makes, instead of as a suite of its
+// own. A suite could only ever sample the endpoints someone thought to list;
+// this covers whichever path a test happens to walk down, including the ones
+// reached by accident.
+function assertErrorEnvelope(
+  status: number,
+  body: unknown,
+  method: string,
+  path: string,
+): void {
+  if (status < 400) return;
+  const error = (body as { error?: unknown } | null)?.error;
+  const keys = body !== null && typeof body === "object"
+    ? Object.keys(body)
+    : [];
+  if (typeof error !== "string" || error.trim() === "" || keys.length !== 1) {
+    throw new Error(
+      `${method} ${path} answered ${status} with ${
+        JSON.stringify(body)
+      } — every error must be exactly { "error": "<message>" }.`,
+    );
+  }
+}
+
 async function request(
   method: string,
   path: string,
@@ -28,7 +57,9 @@ async function request(
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: res.status, body: await res.json() };
+  const parsed = await res.json();
+  assertErrorEnvelope(res.status, parsed, method, path);
+  return { status: res.status, body: parsed };
 }
 
 // Creating POSTs require a request_id, so api.post supplies one when the test
@@ -136,6 +167,71 @@ export async function seedCut(seed: CutSeed) {
   }
 }
 
+// --- Seeding the expenditure window ----------------------------------------
+// seedCut above writes a whole coherent history in one call, which is what the
+// end-to-end tests want. These pieces are the same writes taken apart, so a
+// test can satisfy one requirement of the back-solve while starving another —
+// which is how a threshold gets tested from both sides.
+
+export const WINDOW_DAYS = 21; // DEFAULT_WINDOW_DAYS
+export const MIN_USABLE_DAYS = 14; // MIN_WINDOW_DAYS
+
+/** The window the estimate reads: N days ending at the last finished Sunday, oldest first. */
+export function expenditureWindow(count = WINDOW_DAYS): string[] {
+  const end = lastFinishedSunday();
+  return Array.from(
+    { length: count },
+    (_, i) => daysBefore(end, count - 1 - i),
+  );
+}
+
+/** 100 kcal/100 g, so grams and kcal are the same number and a seeded day says what it means. */
+export async function seedFood(name = "Window Food") {
+  await api.post("/foods", {
+    name,
+    kcal_100g: 100,
+    protein_100g: 5,
+    carbs_100g: 12,
+    fat_100g: 3,
+    source: "estimate",
+    source_note: "test fixture",
+    request_id: uuid(),
+  });
+}
+
+/** A morning weigh-in on each listed day, on a steady trajectory. */
+export async function seedWeighIns(
+  days: string[],
+  startKg = 82,
+  kgPerWeek = -0.5,
+) {
+  for (const [i, day] of days.entries()) {
+    await api.post("/bodyweight", {
+      value_kg: Math.round((startKg + kgPerWeek / 7 * i) * 100) / 100,
+      measured_at: `${day}T05:30:00Z`, // 07:30 Rome
+    });
+  }
+}
+
+export async function seedIntakeDays(
+  days: string[],
+  kcal: number,
+  food = "Window Food",
+) {
+  for (const day of days) {
+    await api.post("/intake", { day, food, grams: kcal, request_id: uuid() });
+  }
+}
+
+export async function seedBodyfat(percent = 14, day = lastFinishedSunday()) {
+  await api.post("/bodyfat", {
+    percent,
+    method: "bia",
+    day,
+    request_id: uuid(),
+  });
+}
+
 // Loads the catalogue if this database has never seen it (fresh CI stack).
 export async function ensureCatalogue() {
   const { body } = await api.get("/exercises");
@@ -144,10 +240,32 @@ export async function ensureCatalogue() {
 
 // --- Date helpers. All calendar logic is Europe/Rome, like the API. ---
 
+// Rome's today, read once from the clock the API itself uses.
+//
+// Computing it here with Intl instead looked equivalent and was not: the API
+// asks Postgres for `now() at time zone 'Europe/Rome'`, so two clocks had to
+// agree, and they disagree for the moments either side of midnight and
+// whenever the container's zone data differs. A suite that seeds relative to
+// "today" would then fail for reasons nothing to do with the code, rarely
+// enough to be dismissed as flakiness and often enough to erode trust in a
+// red run. One clock cannot disagree with itself.
+//
+// Read once at module load rather than per call, so every file in a run shares
+// the same "today" even if the run straddles midnight — a suite that changed
+// its mind halfway through would be worse than either answer.
+const ROME_TODAY: string = await (async () => {
+  const db = postgres(DB_URL);
+  try {
+    const [row] = await db`
+      select (now() at time zone 'Europe/Rome')::date::text as today`;
+    return row.today as string;
+  } finally {
+    await db.end();
+  }
+})();
+
 function romeToday(): Date {
-  const iso = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" })
-    .format(new Date()); // YYYY-MM-DD
-  return new Date(`${iso}T00:00:00Z`);
+  return new Date(`${ROME_TODAY}T00:00:00Z`);
 }
 
 function isoDate(d: Date): string {
@@ -158,6 +276,16 @@ function addDays(d: Date, days: number): Date {
   const copy = new Date(d);
   copy.setUTCDate(copy.getUTCDate() + days);
   return copy;
+}
+
+/** N days before a "YYYY-MM-DD", as another "YYYY-MM-DD". */
+export function daysBefore(day: string, n: number): string {
+  return isoDate(addDays(new Date(`${day}T00:00:00Z`), -n));
+}
+
+/** The Rome day N days back from today — the window suites count backwards. */
+export function daysAgo(n: number): string {
+  return daysBefore(today(), n);
 }
 
 /** Monday of the current Rome week. */
