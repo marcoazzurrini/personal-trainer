@@ -62,6 +62,25 @@ Deno.test("expenditure and targets", async (t) => {
       assert(week.implied_tdee_kcal > 2200);
     }
     assert(body.note.includes("noisy"));
+    // No target set yet at this point in the file.
+    assertEquals(
+      body.weeks.every((w: { target: null }) => w.target === null),
+      true,
+    );
+  });
+
+  await t.step("each week carries its own rate of change", async () => {
+    const { body } = await api.get("/nutrition/weekly?weeks=3");
+    const withRate = body.weeks.filter(
+      (w: { rate_pct_bw_week: number | null }) => w.rate_pct_bw_week !== null,
+    );
+    assert(withRate.length >= 2);
+    // Losing ~0.5 kg/week on ~82 kg is about -0.6%/week; the EMA lags, so the
+    // measured rate is shallower than the true one.
+    for (const w of withRate) {
+      assert(w.rate_pct_bw_week < 0, "a cut should read negative");
+      assert(w.rate_pct_bw_week > -1.5, "and not absurd");
+    }
   });
 
   let tdee = 0;
@@ -123,6 +142,28 @@ Deno.test("expenditure and targets", async (t) => {
     assertEquals(body.computation.rate_used, -0.7);
     assert(body.computation.implied_deficit_kcal < 500);
     assert(body.target.kcal_target > tdee - 500);
+  });
+
+  await t.step("weekly rows carry the target that governed them", async () => {
+    // A target only attaches to weeks it was actually in force for. The first
+    // one was dated today, so it governs no finished week; the clipped one was
+    // backdated to the last finished Sunday, so it governs that week. Without
+    // this join the caller would have to reconstruct which target applied to
+    // which week by date, from an append-only history.
+    const { body } = await api.get("/nutrition/weekly?weeks=3");
+    const older = body.weeks[0];
+    const latest = body.weeks[body.weeks.length - 1];
+    assertEquals(older.target, null, "predates any target");
+    assert(latest.target !== null, "the backdated target should attach");
+    assertEquals(latest.target.goal, "cut");
+    assert(latest.target.kcal < tdee, "a cut target sits below expenditure");
+    assert(latest.target.protein_g > 180);
+    assertEquals(
+      latest.target.rate_pct_bw_week,
+      -1.5,
+      "as requested, pre-clip",
+    );
+    assertEquals(typeof latest.target.changed_during_week, "boolean");
   });
 
   await t.step("a protein multiplier without body fat is refused", async () => {

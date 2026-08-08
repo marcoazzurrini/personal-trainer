@@ -55,11 +55,32 @@ nutritionWeekly.get("/", async (c) => {
                  'day', e.day, 'kind', e.kind, 'note', e.note) order by e.day)
                 from nutrition_events e
                 where e.day >= w.week_start and e.day <= w.week_start + 6),
-               '[]') as events
+               '[]') as events,
+      -- What the week was supposed to be, alongside what it was. Without this
+      -- the caller has to fetch the append-only target history and work out by
+      -- date which row governed each week — date arithmetic in the client, for
+      -- a comparison that is the entire point of the read.
+      tg.kcal_target, tg.protein_g_target, tg.goal as target_goal,
+      tg.rate_pct_bw_week::float8 as target_rate_pct_bw_week,
+      tg.effective_from as target_effective_from,
+      exists (select 1 from nutrition_targets t2
+              where t2.effective_from > w.week_start
+                and t2.effective_from <= w.week_start + 6) as target_changed
     from (
       select (${end}::date - 6 - (g * 7))::date as week_start
       from generate_series(0, ${weeks - 1}) g
     ) w
+    -- The target in force at the week's end: what Marco was eating to by the
+    -- time the week was over. target_changed flags the weeks where one
+    -- superseded another mid-week and the comparison is therefore muddy.
+    left join lateral (
+      select t.kcal_target, t.protein_g_target, t.goal, t.rate_pct_bw_week,
+        t.effective_from
+      from nutrition_targets t
+      where t.effective_from <= w.week_start + 6
+      order by t.effective_from desc, t.id desc
+      limit 1
+    ) tg on true
     order by w.week_start`;
 
   const byDay = new Map(trend.map((p) => [p.day, p]));
@@ -86,6 +107,13 @@ nutritionWeekly.get("/", async (c) => {
       );
     }
 
+    // The week's own rate of change, so "am I losing at the rate I chose" is
+    // one read rather than a subtraction the caller has to know to make.
+    const ratePctBwWeek = trendStart === null || trendEnd === null ||
+        trendStart === 0
+      ? null
+      : Math.round((trendEnd - trendStart) / trendStart * 10000) / 100;
+
     return {
       week_start: row.week_start,
       week_end: row.week_end,
@@ -101,7 +129,16 @@ nutritionWeekly.get("/", async (c) => {
       trend_delta_kg: trendStart === null || trendEnd === null
         ? null
         : Math.round((trendEnd - trendStart) * 100) / 100,
+      rate_pct_bw_week: ratePctBwWeek,
       implied_tdee_kcal: impliedTdee,
+      target: row.kcal_target === null ? null : {
+        kcal: row.kcal_target,
+        protein_g: row.protein_g_target,
+        goal: row.target_goal,
+        rate_pct_bw_week: row.target_rate_pct_bw_week,
+        effective_from: row.target_effective_from,
+        changed_during_week: row.target_changed,
+      },
       events: row.events,
     };
   });
@@ -109,6 +146,6 @@ nutritionWeekly.get("/", async (c) => {
   return c.json({
     weeks: enriched,
     note:
-      "Finished weeks only. A single week's implied_tdee_kcal is noisy — read the run, not the point, and never react to one week's movement inside the estimate's band.",
+      "Finished weeks only. Each week carries what was eaten and the target in force at its end, so intake, protein and rate of change can each be read against what was actually asked for. A single week's implied_tdee_kcal is noisy — read the run, not the point, and never react to one week's movement inside the estimate's band. Where days_logged is low, mean_kcal is an average over few days and not a description of the week.",
   });
 });

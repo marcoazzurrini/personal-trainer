@@ -1,5 +1,6 @@
 import { Hono } from "@hono/hono";
 import { sql } from "../db.ts";
+import { ApiError } from "../lib/errors.ts";
 import { resolveMesocycle } from "../lib/resolve.ts";
 
 // Both endpoints read the views, which already enforce the rules: working
@@ -28,10 +29,25 @@ weeklyVolume.get("/", async (c) => {
 
 export const weeklyExerciseSets = new Hono();
 
-// Rows of week × exercise: the direct comparison partner of the planned
-// weekly sets in GET /mesocycles/:id. Reviewing = the two side by side.
+// Rows of week × exercise: what was actually delivered, to be read against the
+// weekly dose the mesocycle's intent states in prose. The plan's numbers left
+// the tables when intent became the single source of them, so there is no
+// planned-sets row to join here — the comparison happens in the coach's head,
+// against GET /mesocycles/:id's intent text.
 weeklyExerciseSets.get("/", async (c) => {
-  const m = await resolveMesocycle(c.req.query("mesocycle") ?? "current");
+  const param = c.req.query("mesocycle") ?? "current";
+  // Unlike /weekly-volume, which accepts it. Not an oversight: volume is sets
+  // per muscle per calendar week and comparable across years, while week
+  // numbers here are relative to a mesocycle's start — week 3 of one plan and
+  // week 3 of another are different weeks judged against different doses, and
+  // stacking them would put numbers with no shared meaning on one axis.
+  if (param === "all") {
+    throw new ApiError(
+      422,
+      '"all" works on GET /api/weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, or "current".',
+    );
+  }
+  const m = await resolveMesocycle(param);
   const rows = await sql`
     select v.week, e.name as exercise, v.exercise_id, v.sets_done
     from weekly_exercise_sets_done v

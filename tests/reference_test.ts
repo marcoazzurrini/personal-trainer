@@ -86,6 +86,17 @@ Deno.test("reference data", async (t) => {
     assertEquals(history.body.history.length, 2);
   });
 
+  await t.step('"all" is refused where weeks are plan-relative', async () => {
+    // It works on /weekly-volume, so the coach will try it here; the refusal
+    // has to say why rather than implying the parameter never exists.
+    const { status, body } = await api.get(
+      "/weekly-exercise-sets?mesocycle=all",
+    );
+    assertEquals(status, 422);
+    assert(body.error.includes("weekly-volume"));
+    assert(body.error.includes("different doses"));
+  });
+
   await t.step("bodyweight dedupes on its natural key", async () => {
     const measurement = {
       value_kg: 82.5,

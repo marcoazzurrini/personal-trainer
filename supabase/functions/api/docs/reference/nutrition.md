@@ -12,7 +12,7 @@ Europe/Rome calendar dates.
 | Endpoint | Returns |
 | --- | --- |
 | `GET /nutrition-state` | The complete current picture: today's entries and totals against the active target, trend weight and its 7/21-day slope, the expenditure estimate with band and status, active target, active transients, the last 13 finished days, logging and weigh-in adherence. The start of every nutrition conversation. |
-| `GET /nutrition/weekly` | Finished weeks: mean kcal and protein, days logged and flagged, weigh-ins, trend start/end/delta, implied expenditure, events. `?weeks=N` (default 8). |
+| `GET /nutrition/weekly` | Finished weeks: mean kcal and protein, days logged and flagged, weigh-ins, trend start/end/delta, the week's own `rate_pct_bw_week`, implied expenditure, events, and **the target that governed that week**. `?weeks=N` (default 8). |
 | `GET /nutrition-targets` | Every target ever set, plus the active one. |
 | `GET /nutrition-events` | Registered transients, plus those still inside the damping window. |
 | `GET /intake` | Today's entries, totals, and flags. `?day=YYYY-MM-DD` for another day. |
@@ -342,6 +342,24 @@ metabolism. `DELETE /nutrition-events/:id` removes one registered by mistake —
 transient on the wrong day damps an estimate that had nothing to absorb. `logging_change` matters more than it looks: the estimate self-corrects for
 *stable* under-logging, so a change in logging habit is the one thing that genuinely
 breaks it.
+
+## Reading a week against its target
+
+Each row in `GET /nutrition/weekly` carries a `target` object — the one in force at the
+week's end — alongside what actually happened. That join exists so nobody has to
+reconstruct which target applied to which week by date from an append-only history.
+
+- `target` is **null for weeks that predate any target**. A target set today governs
+  nothing that already finished, and pretending otherwise would score Marco against a
+  rule that did not exist.
+- `target.changed_during_week` is true when one target superseded another mid-week. The
+  comparison is muddy there; say so rather than drawing a clean bar against the later one.
+- `rate_pct_bw_week` on the row is what the week's trend actually did; `target.rate_pct_bw_week`
+  is what was asked for. Those two together are the answer to "is this working" — see
+  `tasks/charts` view 6.
+- `mean_kcal` is an average over `days_logged`, not over seven days. A week averaging
+  2,100 kcal across three logged days is not a 2,100 kcal week, and reading it as one is
+  the most likely way this endpoint misleads.
 
 ## What can be removed, and what cannot
 

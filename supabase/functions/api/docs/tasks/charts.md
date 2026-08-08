@@ -6,7 +6,7 @@ between conversations can't be compared with the last one, which is most of what
 is for.
 
 Training and nutrition share this document deliberately. The trigger is one phrase and
-usually ambiguous, and the view that matters most during a cut spans both halves (view 9).
+usually ambiguous, and the view that matters most during a cut spans both halves (view 10).
 Build what was asked about; read the whole list before deciding what that was.
 
 ## Training
@@ -23,9 +23,15 @@ lower than published figures for the same training.
 
 **3. Dose against delivered** — the weekly dose per exercise from the current intent
 (and the decision log's adjustments for backed-off lifts or declared light weeks),
-delivered from `GET /weekly-exercise-sets`. Paired bars per exercise per week. This is the adherence
-picture and it belongs in every review, because it decides whether any other chart can be
-interpreted.
+delivered from `GET /weekly-exercise-sets`. Paired bars per exercise per week. This is the
+adherence picture and it belongs in every review, because it decides whether any other
+chart can be interpreted.
+
+Note what this one costs: the planned dose lives in the intent as prose, not in a table,
+so it is the only chart whose planned side you read rather than query. Quote the intent's
+numbers as written and don't round them into something tidier. `?mesocycle=all` is not
+available here the way it is on view 2 — these week numbers count from the mesocycle's
+start, so weeks from different plans cannot share an axis.
 
 **4. How hard it's felt** — `GET /sessions?limit=30`: `overall_feel` over time, and the
 effort mix per session from its sets when more detail helps. Two patterns are worth naming
@@ -44,26 +50,45 @@ day); do not compute your own.
 
 ## Nutrition
 
-**6. Intake against target** — `GET /nutrition/weekly` for the weekly means, or
-`GET /nutrition-state` `recent_days` for the daily view. Bars for logged kcal, a
-horizontal line at the active target. Show `days_logged` alongside — a week averaging
-2,100 kcal over three logged days is not a 2,100 kcal week, and presenting it as one is
-the most likely way this chart lies.
+**6. Rate of change against the rate he chose** — `GET /nutrition/weekly`:
+`rate_pct_bw_week` per week against `target.rate_pct_bw_week`. Two lines, one axis.
 
-**7. Expenditure over time** — `GET /nutrition/weekly` `implied_tdee_kcal` per week, with
+This is the chart that answers whether the cut is working, and it is the first one to
+build when a target is active. Everything else is diagnosis; this is the result. A gap
+that persists across two finished weeks and sits outside ~0.15%/week is the signal the
+check-in acts on — inside that, it is noise and reacting to it is how the loop gets
+made worse. Weeks where the trend is missing a bookend weigh-in come back null and stay
+empty; never join across a gap.
+
+**7. Intake and protein against target** — `GET /nutrition/weekly` carries both what was
+eaten (`mean_kcal`, `mean_protein_g`) and the target in force that week (`target.kcal`,
+`target.protein_g`), so no reconstruction is needed. Bars for intake, a step line for the
+target — a step, not a flat line, because the target changes between phases and drawing
+it flat would hide exactly the moment worth looking at.
+
+Two things this chart must show or it will lie. **`days_logged`**: a week averaging
+2,100 kcal over three logged days is not a 2,100 kcal week. And
+**`target.changed_during_week`**: where it is true, two targets governed the week and the
+comparison is muddy — say so rather than drawing a clean bar against the later one.
+
+Protein deserves its own panel rather than a second series on the calorie axis. It is
+the one macro with a hard target, and it is the number that decides whether a deficit
+costs muscle.
+
+**8. Expenditure over time** — `GET /nutrition/weekly` `implied_tdee_kcal` per week, with
 the current estimate's band from `GET /nutrition-state` drawn **as a band, not a line**.
 The band is the finding. A reader who sees a crisp line will chase week-to-week movement
 that is noise by construction, which is exactly what the method document forbids. Weeks
 where it is null stay empty — never interpolate across them.
 
-**8. Logging adherence** — days logged per week from `GET /nutrition/weekly`, weigh-ins
+**9. Logging adherence** — days logged per week from `GET /nutrition/weekly`, weigh-ins
 beside them. The nutrition twin of view 3, and read first for the same reason: it decides
 whether any other nutrition chart can be interpreted at all. A visible decline by week 2–3
 is the signal the method document says to act on.
 
 ## Both halves at once
 
-**9. Is the cut costing muscle?** — trend weight (view 5) against top-set strength on the
+**10. Is the cut costing muscle?** — trend weight (view 5) against top-set strength on the
 main lifts (view 1) and weekly volume (view 2), over the same weeks. This is the question
 the nutrition system exists to keep from being answered wrong, and no single-domain chart
 answers it: weight falling with strength holding is the cut working, weight falling with

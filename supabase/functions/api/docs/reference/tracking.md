@@ -9,7 +9,7 @@ and bodyweight.
 | --- | --- |
 | `GET /training-state` | The complete current picture: active mesocycle and intent, exercise list with priorities and notes, sets delivered so far this week, days since each exercise was trained, recent sessions with rationales, recent decisions, user context. The start of every training conversation. |
 | `GET /weekly-volume` | Sets per muscle per week: each working set adds its `volume_factor` (1.0 direct, 0.5 indirect) to every muscle it trains, so values are fractional sums and may be non-integers (glutes 13.5). `strength`-stimulus exercises only — power and conditioning work is invisible here. `?mesocycle=all` for the long view. |
-| `GET /weekly-exercise-sets` | Delivered sets per exercise per week — the number the intent's weekly dose is judged against. |
+| `GET /weekly-exercise-sets` | Delivered sets per exercise per week — the number the intent's weekly dose is judged against. Weeks are numbered from the mesocycle's start, so `?mesocycle=all` is refused here even though `/weekly-volume` accepts it: weeks from different plans share no axis. |
 | `GET /user-context` | Current truth: the latest row per topic. `?history=true` for every row ever written. |
 | `GET /bodyweight` | Bodyweight measurements. |
 
