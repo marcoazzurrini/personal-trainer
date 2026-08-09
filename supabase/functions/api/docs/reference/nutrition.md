@@ -295,6 +295,12 @@ Trend weight is an EMA (α = 0.10) over the earliest weigh-in of each Rome day. 
 missing day is interpolated; longer gaps are **not** filled, because inventing a flat
 stretch would drag the slope toward zero and read as a stalled diet.
 
+`earliest_scale_kg` in `/nutrition-state` is that chosen reading, not the most recent
+one. On a day Marco stepped on the scale several times, `GET /bodyweight` will show
+later and higher numbers, and they are not being ignored by mistake — the earliest is
+the most fasted and so the one comparable across days. If he asks why the trend used a
+number lower than what the scale said this afternoon, that is the answer.
+
 ## Targets
 
 ```json

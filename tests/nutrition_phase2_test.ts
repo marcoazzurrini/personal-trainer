@@ -45,7 +45,7 @@ Deno.test("expenditure and targets", async (t) => {
     assert(body.trend_weight.trend_kg > 0);
     assert(body.trend_weight.slope_21d.pct_bw_week < 0);
     // The trend lags a falling series, so it sits above the latest reading.
-    assert(body.trend_weight.trend_kg > body.trend_weight.latest_scale_kg);
+    assert(body.trend_weight.trend_kg > body.trend_weight.earliest_scale_kg);
   });
 
   await t.step("weekly reads finished weeks with implied TDEE", async () => {

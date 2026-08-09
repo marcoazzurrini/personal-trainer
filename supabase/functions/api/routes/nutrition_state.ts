@@ -114,7 +114,21 @@ nutritionState.get("/", async (c) => {
       ? {
         day: latest.day,
         trend_kg: latest.trend_kg,
-        latest_scale_kg: latest.weight_kg,
+        // Earliest of that day, not the most recent reading — which is what
+        // this was called until the scale started reporting itself and days
+        // began arriving with eight readings instead of one. The name mattered
+        // immediately: a coach read "latest", saw a fresher number in the
+        // bodyweight list, and reported the trend as picking the wrong row.
+        //
+        // Earliest is deliberate (daily_bodyweight): it is the most fasted
+        // reading available, so it is the one most comparable to other days.
+        // Its known edge is a weigh-in just after midnight, which is the
+        // *least* fasted reading of the night but the first of the calendar
+        // day. Moving the day boundary to the small hours would fix that case
+        // and break its mirror image — a 03:30 start before a flight would be
+        // filed under yesterday. A rare error the EMA absorbs beats a rule
+        // Marco has to hold in his head, so the calendar day stands.
+        earliest_scale_kg: latest.weight_kg,
         interpolated: latest.interpolated,
         slope_7d: slopePctBwWeek(trend, 7),
         slope_21d: slopePctBwWeek(trend, 21),
