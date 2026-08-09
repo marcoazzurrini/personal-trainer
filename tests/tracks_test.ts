@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  daysBefore,
   ensureCatalogue,
   lastMonday,
   lastTuesday,
@@ -252,6 +253,23 @@ Deno.test("two plans running side by side", async (t) => {
       });
       assertEquals(first.status, 201);
       assertEquals(first.body.week_schedule.week_start, thisMonday());
+      // The resolved week is echoed in full: on a weekend, "this Monday" is
+      // six days in the past and the write lands on the week now ending — the
+      // echo (and, on Sat/Sun, an explicit note) is what lets a coach catch a
+      // schedule filed under the wrong week in the same breath as writing it.
+      assertEquals(
+        first.body.week_schedule.week_end,
+        daysBefore(thisMonday(), -6),
+      );
+      const dow = new Date(`${today()}T00:00:00Z`).getUTCDay();
+      if (dow === 0 || dow === 6) {
+        assert(
+          first.body.note.includes("week now ending"),
+          `a weekend default deserves a warning: ${JSON.stringify(first.body)}`,
+        );
+      } else {
+        assertEquals(first.body.note ?? null, null);
+      }
 
       const second = await api.post("/week-schedule", {
         schedule: "Mon lift, Tue sprint, Thu lift, Sat sprint + easy run",
