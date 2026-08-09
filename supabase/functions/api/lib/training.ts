@@ -129,7 +129,7 @@ export function assertSetMeasures(
         shape(measure as Measure, side)
       } — not ${
         column(field, side)
-      }. If that is wrong, the exercise's measure is what needs changing, not the set.`,
+      }. If that is wrong, fix the exercise rather than the set: PATCH /exercises/:ref changes the measure while nothing has been logged against it; once sets exist, the fix is a new exercise with the right measure, taking the old one's aliases.`,
     );
   }
 
