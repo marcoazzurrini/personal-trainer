@@ -54,18 +54,26 @@ try {
     );
     Deno.exit(1);
   }
-  // Always refresh, and persist what comes back. The alternative — reusing a
-  // stored token that may have minutes left — would make this script fail
-  // intermittently for a reason that has nothing to do with subscribing.
-  const tokens = await refreshTokens(cfg, row.refresh_token);
-  await db`
-    update withings_auth
-    set access_token = ${tokens.accessToken},
-        refresh_token = ${tokens.refreshToken},
-        access_token_expires_at = ${tokens.expiresAt},
-        updated_at = now()
-    where id = 1`;
-  accessToken = tokens.accessToken;
+  // Refresh only when the stored token is close to spent, mirroring the
+  // server's own rule. Refreshing unconditionally looks safer and is not:
+  // Withings answers status 601, "Same arguments in less than 10 seconds", to a
+  // repeated refresh, so this script run straight after seed_withings.ts — the
+  // documented order, and the order anyone setting this up will use — would
+  // fail on a rate limit that has nothing to do with subscribing.
+  const spent = row.access_token_expires_at.getTime() - Date.now() < 300_000;
+  if (!spent) {
+    accessToken = row.access_token;
+  } else {
+    const tokens = await refreshTokens(cfg, row.refresh_token);
+    await db`
+      update withings_auth
+      set access_token = ${tokens.accessToken},
+          refresh_token = ${tokens.refreshToken},
+          access_token_expires_at = ${tokens.expiresAt},
+          updated_at = now()
+      where id = 1`;
+    accessToken = tokens.accessToken;
+  }
 } finally {
   await db.end();
 }
