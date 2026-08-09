@@ -585,7 +585,7 @@ Deno.test("nutrition tracking", async (t) => {
       ),
     );
     assert(
-      body.expenditure.blockers.some((b: string) => b.includes("weigh-ins")),
+      body.expenditure.blockers.some((b: string) => b.includes("weigh-in day")),
     );
     assert(
       body.expenditure.blockers.some((b: string) => b.includes("21")),

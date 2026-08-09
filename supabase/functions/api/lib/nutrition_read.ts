@@ -127,7 +127,31 @@ export async function currentExpenditure(
   const to = await lastFinishedDay();
   const bodyfat = await latestBodyfat();
 
-  const current = await solveWindow(to, trend, bodyfat);
+  let current = await solveWindow(to, trend, bodyfat);
+
+  // Weigh-ins made after the window closed are real but invisible to the
+  // back-solve until their week finishes. Say so in the blocker itself, or
+  // "0 weigh-in days" lands on the very morning the scale synced and the
+  // coach relays a contradiction — the pure function cannot know what
+  // happened after its window, so the acknowledgment is stitched in here.
+  if (current.status !== "ok") {
+    const sinceClose = trend.filter((p) =>
+      !p.interpolated && daysBetween(to, p.day) > 0
+    ).length;
+    if (
+      sinceClose > 0 &&
+      current.blockers.some((b) => b.includes("weigh-in day"))
+    ) {
+      const blockers = current.blockers.map((b) =>
+        b.includes("weigh-in day")
+          ? `${b} ${sinceClose} weigh-in day${
+            sinceClose === 1 ? "" : "s"
+          } since the window closed — counted when the current week finishes.`
+          : b
+      );
+      current = { ...current, blockers, reason: blockers.join(" ") };
+    }
+  }
 
   if (current.status === "ok") {
     // Compare against the window one week back; a step no metabolism makes,

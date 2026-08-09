@@ -190,6 +190,12 @@ Deno.test("expenditure back-solve", async (t) => {
     assert(result.blockers.some((b) => b.includes("logged intake")));
     assert(result.blockers.some((b) => b.includes("body-fat")));
     assertEquals(result.reason, result.blockers.join(" "));
+    // The window survives the refusal. The blockers describe it, and a reader
+    // reconciling "0 weigh-in days" with this morning's weigh-in needs its
+    // dates — stripping them exactly when the estimate fails was how a
+    // working sync got reported as broken.
+    assertEquals(result.window!.from, days[0]);
+    assertEquals(result.window!.to, days[days.length - 1]);
   });
 
   await t.step("no body-fat estimate blocks the estimate", () => {
@@ -220,7 +226,11 @@ Deno.test("expenditure back-solve", async (t) => {
       bodyfatPercent: 14,
     });
     assertEquals(result.status, "insufficient_data");
-    assert(result.reason.includes("weigh-ins"));
+    // The unit is days, and the window is named by its dates. A count with
+    // no window beside a rolling count with another is how three correct
+    // numbers read as a contradiction.
+    assert(result.reason.includes("weigh-in day"), result.reason);
+    assert(result.reason.includes("2026-07-13 – 2026-08-02"), result.reason);
   });
 });
 

@@ -131,12 +131,44 @@ Deno.test("weigh-in frequency is enforced against the window's weeks", async () 
   const e = await expenditure();
   assertEquals(e.status, "insufficient_data");
   assert(
-    e.blockers.some((b: string) => b.includes("weigh-ins")),
+    e.blockers.some((b: string) => b.includes("weigh-in day")),
     JSON.stringify(e.blockers),
   );
   assert(
     !e.blockers.some((b: string) => b.includes("logged intake")),
     "logging was perfect; only the weigh-in blocker should fire",
+  );
+  // The refusal still says which window it judged. from/to are the dates the
+  // blocker's count belongs to; without them "0 weigh-in days" beside a
+  // rolling adherence count reads as the API contradicting itself.
+  assertEquals(e.window.from, days[0]);
+  assertEquals(e.window.to, days[days.length - 1]);
+});
+
+Deno.test("a weigh-in after the window closes is acknowledged, not denied", async () => {
+  await resetNutrition();
+  const days = windowDays();
+  await seedFood();
+  await seedBodyfat();
+  await seedIntake(days, 2200);
+  // No weigh-ins inside the window at all — but one right now, after the
+  // last finished Sunday. This is the exact state a Withings sync produces:
+  // the blocker once said "0 weigh-ins" while the scale had synced hours
+  // earlier, and the coach reported the sync as broken. measured_at is left
+  // to the server's clock so the instant is always today and never future.
+  await api.post("/bodyweight", { value_kg: 80 });
+
+  const e = await expenditure();
+  assertEquals(e.status, "insufficient_data");
+  const blocker = e.blockers.find((b: string) => b.includes("weigh-in day"));
+  assert(blocker, JSON.stringify(e.blockers));
+  assert(
+    blocker.includes("since the window closed"),
+    `the morning's weigh-in must be acknowledged: ${blocker}`,
+  );
+  assert(
+    blocker.includes("counted when the current week finishes"),
+    blocker,
   );
 });
 

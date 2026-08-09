@@ -157,6 +157,10 @@ export interface Expenditure {
   blockers: string[];
   tdee_kcal: number | null;
   band_kcal: number | null;
+  // Populated under insufficient_data too. The blockers describe this window,
+  // and stripping its dates exactly when the reader needs to reconcile "0
+  // weigh-in days" with this morning's weigh-in is how a working sync gets
+  // reported as broken. Null only when there was no window to speak of.
   window: {
     from: string;
     to: string;
@@ -174,14 +178,17 @@ export interface Expenditure {
   } | null;
 }
 
-function insufficient(blockers: string[]): Expenditure {
+function insufficient(
+  blockers: string[],
+  window: Expenditure["window"],
+): Expenditure {
   return {
     status: "insufficient_data",
     reason: blockers.join(" "),
     blockers,
     tdee_kcal: null,
     band_kcal: null,
-    window: null,
+    window,
     inputs: null,
   };
 }
@@ -211,6 +218,13 @@ export function backSolve(input: WindowInput): Expenditure {
   const weighInDays = inWindow.filter((p) => !p.interpolated).length;
   const usable = days.filter((d) => !excludedDays.has(d) && intakeByDay.has(d));
   const weeks = Math.max(1, Math.round(days.length / 7));
+  const windowInfo = {
+    from,
+    to,
+    days: days.length,
+    usable_days: usable.length,
+    weigh_in_days: weighInDays,
+  };
 
   // Collected, not short-circuited: the caller gets the whole list of what is
   // missing so it can say "two more weeks of logging and a body-fat number"
@@ -228,10 +242,14 @@ export function backSolve(input: WindowInput): Expenditure {
     );
   }
   if (weighInDays < MIN_WEIGH_INS_PER_WEEK * weeks) {
+    // Days, dates, and unit all spelled out. This once said "0 weigh-ins
+    // across 3 weeks" while the adherence block beside it counted a rolling
+    // week that included today — three true numbers with unlabeled windows
+    // read as a contradiction, and the coach relayed the contradiction.
     blockers.push(
-      `${weighInDays} weigh-ins across ${weeks} ${
-        weeks === 1 ? "week" : "weeks"
-      }; the trend needs at least ${MIN_WEIGH_INS_PER_WEEK} a week to carry a slope worth back-solving. Daily weighing is the one habit that keeps this working through a logging lapse.`,
+      `${weighInDays} weigh-in day${
+        weighInDays === 1 ? "" : "s"
+      } in the estimate's window (${from} – ${to}); the trend needs at least ${MIN_WEIGH_INS_PER_WEEK} a week to carry a slope worth back-solving. Daily weighing is the one habit that keeps this working through a logging lapse.`,
     );
   }
   if (bodyfatPercent === null) {
@@ -243,20 +261,20 @@ export function backSolve(input: WindowInput): Expenditure {
   // it is spelled out so the compiler can narrow the type for the arithmetic
   // further down, which is cheaper than asserting non-null at the use site.
   if (blockers.length > 0 || bodyfatPercent === null) {
-    return insufficient(blockers);
+    return insufficient(blockers, windowInfo);
   }
 
   if (inWindow.length < 2) {
     return insufficient([
       "Not enough trend points in the window to measure a slope.",
-    ]);
+    ], windowInfo);
   }
 
   const trendFrom = inWindow[0];
   const trendTo = inWindow[inWindow.length - 1];
   const span = daysBetween(trendFrom.day, trendTo.day);
   if (span <= 0) {
-    return insufficient(["The trend does not span the window."]);
+    return insufficient(["The trend does not span the window."], windowInfo);
   }
 
   const meanIntake = usable.reduce((sum, d) => sum + intakeByDay.get(d)!, 0) /
@@ -282,13 +300,7 @@ export function backSolve(input: WindowInput): Expenditure {
     blockers: [],
     tdee_kcal: Math.round(tdee),
     band_kcal: bandFor(coverage),
-    window: {
-      from,
-      to,
-      days: days.length,
-      usable_days: usable.length,
-      weigh_in_days: weighInDays,
-    },
+    window: windowInfo,
     inputs: {
       mean_intake_kcal: Math.round(meanIntake),
       trend_from_kg: trendFrom.trend_kg,
