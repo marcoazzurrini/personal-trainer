@@ -246,6 +246,41 @@ Deno.test("two plans running side by side", async (t) => {
   });
 
   await t.step(
+    "off-plan lifting never bleeds into a plan's volume",
+    async () => {
+      // Benching with a friend, in no plan, in the same finished week as the
+      // hypertrophy plan's squats. The read once filtered by date range, so
+      // this session's chest sets would have landed in the hypertrophy
+      // numbers — attributed rows are the fix, and this is the bleed test.
+      await api.post("/sessions", {
+        date: lastTuesday(),
+        rationale: "gym with a friend, off-plan bench",
+        sets: [
+          { exercise: "bench press", weight_kg: 80, reps: 8, effort: "hard" },
+        ],
+      });
+
+      const hyp = await api.get("/weekly-volume?mesocycle=current:hypertrophy");
+      const muscles = hyp.body.weekly_volume.map(
+        (r: { muscle: string }) => r.muscle,
+      );
+      assert(
+        !muscles.includes("chest"),
+        `the off-plan bench leaked into the plan: ${muscles}`,
+      );
+
+      // The long view still counts it: a muscle does not care which plan
+      // loaded it, and ?all is about the muscle.
+      const all = await api.get("/weekly-volume?mesocycle=all");
+      const chest = all.body.weekly_volume.find(
+        (r: { muscle: string }) => r.muscle === "chest",
+      );
+      assert(chest, "off-plan work belongs in the long view");
+      assertEquals(chest.working_sets, 1);
+    },
+  );
+
+  await t.step(
     "the week's shape is a row, and rewriting replaces it",
     async () => {
       const first = await api.post("/week-schedule", {

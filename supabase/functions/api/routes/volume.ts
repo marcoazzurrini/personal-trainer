@@ -11,20 +11,26 @@ import { deliveredInDoseUnit } from "../lib/training.ts";
 export const weeklyVolume = new Hono();
 
 // Rows of week × muscle. One row per muscle, never a total. Defaults to the
-// current mesocycle's date range; ?mesocycle=all for everything.
+// current mesocycle's own sets; ?mesocycle=all for everything ever lifted.
 weeklyVolume.get("/", async (c) => {
   const param = c.req.query("mesocycle") ?? "current";
   if (param === "all") {
+    // Re-summed across plans, off-plan work included: a muscle does not care
+    // which plan loaded it, and the long view is about the muscle.
     const rows = await sql`
-      select week_start, muscle, working_sets from weekly_volume
+      select week_start, muscle, sum(working_sets)::float8 as working_sets
+      from weekly_volume
+      group by week_start, muscle
       order by week_start, muscle`;
     return c.json({ weekly_volume: rows });
   }
+  // Attribution, not calendar. A date-range filter here once swept another
+  // overlapping plan's sets — and any off-plan lifting — into this plan's
+  // numbers, while the response echoed a mesocycle_id it wasn't honouring.
   const m = await resolveMesocycle(param);
   const rows = await sql`
     select week_start, muscle, working_sets from weekly_volume
-    where week_start >= ${m.started_on}
-      and week_start <= coalesce(${m.ended_on}, (now() at time zone 'Europe/Rome')::date)
+    where mesocycle_id = ${m.id}
     order by week_start, muscle`;
   return c.json({ mesocycle_id: m.id, weekly_volume: rows });
 });
