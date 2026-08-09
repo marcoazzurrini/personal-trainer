@@ -47,8 +47,12 @@ nutritionState.get("/", async (c) => {
   // formatting it locally gets the wrong day either side of midnight.
   const recentDays = await sql`
     select d.day::date as day,
-      coalesce((select sum(i.kcal)::float8 from intake_entries i
-                where i.day = d.day), 0) as kcal,
+      -- No coalesce: a day with no entries reports null, not 0. Unknown is
+      -- not zero — a floor of zeros under a hasty average reads as fasting.
+      -- entries: 0 already marks the day unlogged; kcal agrees with protein_g
+      -- instead of contradicting it in the same row.
+      (select sum(i.kcal)::float8 from intake_entries i
+       where i.day = d.day) as kcal,
       (select sum(i.protein_g)::float8 from intake_entries i
        where i.day = d.day) as protein_g,
       (select count(*)::int from intake_entries i where i.day = d.day)

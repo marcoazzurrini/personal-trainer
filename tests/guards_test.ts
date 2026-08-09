@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { api, resetNutrition, today, uuid } from "./helpers.ts";
+import { api, daysAgo, resetNutrition, today, uuid } from "./helpers.ts";
 
 // The guards that stop a typo becoming a fact.
 //
@@ -335,4 +335,48 @@ Deno.test("every day field is a bare Rome date", async () => {
 
   const intake = await api.get("/intake");
   assert(ISO_DAY.test(intake.body.day), intake.body.day);
+});
+
+Deno.test("an unlogged day reads null, not zero", async () => {
+  await resetNutrition();
+  // recent_days once coalesced kcal to 0 on days that were never logged —
+  // beside a protein_g that stayed null in the same row. Two conventions in
+  // one object, and the zero is the dangerous one: a floor of zeros under a
+  // hasty average reads as fasting. Unknown is not zero; entries: 0 says
+  // unlogged, and kcal must agree with it.
+  const empty = await api.get("/nutrition-state");
+  for (const row of empty.body.recent_days) {
+    assertEquals(row.entries, 0);
+    assertEquals(row.kcal, null, `${row.day} floored to ${row.kcal}`);
+    assertEquals(row.protein_g, null);
+  }
+
+  // One logged day turns into numbers; its neighbours stay unknown.
+  await api.post("/foods", {
+    name: "Null Test Food",
+    kcal_100g: 100,
+    protein_100g: 5,
+    carbs_100g: 12,
+    fat_100g: 3,
+    source: "estimate",
+    source_note: "test fixture",
+  });
+  const logged = daysAgo(3);
+  await api.post("/intake", {
+    day: logged,
+    food: "Null Test Food",
+    grams: 250,
+  });
+
+  const { body } = await api.get("/nutrition-state");
+  const byDay = new Map(
+    body.recent_days.map((r: { day: string }) => [r.day, r]),
+  );
+  // deno-lint-ignore no-explicit-any
+  const loggedRow = byDay.get(logged) as any;
+  // deno-lint-ignore no-explicit-any
+  const unloggedRow = byDay.get(daysAgo(4)) as any;
+  assertEquals(loggedRow.kcal, 250);
+  assertEquals(loggedRow.entries, 1);
+  assertEquals(unloggedRow.kcal, null);
 });
