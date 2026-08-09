@@ -67,6 +67,39 @@ Deno.test("one weight per Rome day", async (t) => {
     },
   );
 
+  await t.step(
+    "two sources at the same instant: first recorded wins, every time",
+    async () => {
+      // The unique key is (measured_at, source), so the same instant from two
+      // sources is two legal rows — and until the view's tiebreak reached the
+      // id, which one seeded the day was the planner's whim. A nondeterministic
+      // value at the bottom of the trend is a calorie target that changes
+      // between reads of an unchanged record.
+      const day = daysAgo(6);
+      const instant = `${day}T05:45:00Z`;
+      await api.post("/bodyweight", {
+        value_kg: 80.0,
+        measured_at: instant,
+        source: "manual",
+      });
+      await api.post("/bodyweight", {
+        value_kg: 90.0,
+        measured_at: instant,
+        source: "withings",
+      });
+
+      assertEquals(await weightOn(day), 80.0);
+
+      // Both rows survive; the view chooses, deterministically.
+      const series = await api.get("/bodyweight");
+      const atInstant = series.body.bodyweight.filter(
+        (r: { measured_at: string }) =>
+          r.measured_at.startsWith(`${day}T05:45`),
+      );
+      assertEquals(atInstant.length, 2);
+    },
+  );
+
   await t.step("the trend reads the collapsed series", async () => {
     // The wiring assertion: loadTrend runs off daily_bodyweight, so the
     // earliest-wins choice above has to be what the EMA actually sees. An
