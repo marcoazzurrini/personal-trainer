@@ -69,11 +69,24 @@ nutritionState.get("/", async (c) => {
       (select count(distinct i.day)::int from intake_entries i
        where i.day >= ${today}::date - 21 and i.day < ${today}::date)
         as days_logged_last_21,
+      -- Both windows are seven and twenty-one days, and the weigh-in ones end
+      -- today while the intake ones end yesterday. The asymmetry is the point.
+      --
+      -- A day of eating is only whole once the day is over; counting it at
+      -- three in the afternoon would report half a day's food as a full one and
+      -- make Marco's logging look worse every afternoon of his life. A weigh-in
+      -- has no such partial state — he stood on the scale or he did not, and it
+      -- is finished the moment he steps off.
+      --
+      -- Excluding today here bought nothing and cost a contradiction: the count
+      -- said nought weigh-ins in the last seven days while last_weigh_in, which
+      -- has never had an upper bound, said today. A coach read the pair, could
+      -- not reconcile them, and reported the sync as broken when it was working.
       (select count(*)::int from daily_bodyweight w
-       where w.day >= ${today}::date - 7 and w.day < ${today}::date)
+       where w.day >= ${today}::date - 6 and w.day <= ${today}::date)
         as weigh_ins_last_7,
       (select count(*)::int from daily_bodyweight w
-       where w.day >= ${today}::date - 21 and w.day < ${today}::date)
+       where w.day >= ${today}::date - 20 and w.day <= ${today}::date)
         as weigh_ins_last_21,
       (select max(i.day) from intake_entries i where i.day < ${today}::date)
         as last_logged_day,

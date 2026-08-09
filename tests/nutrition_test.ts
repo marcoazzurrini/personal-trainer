@@ -595,4 +595,23 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(typeof body.adherence.days_logged_last_7, "number");
     assertEquals(typeof body.adherence.weigh_ins_last_7, "number");
   });
+
+  // The two adherence numbers about weighing must be able to agree. They could
+  // not: the count stopped before today and last_weigh_in did not, so a scale
+  // that reported this morning produced "no weigh-ins in the last seven days,
+  // most recently today". A coach hit exactly that pair and reported the sync
+  // as broken.
+  await t.step("a weigh-in today counts as one, and says so", async () => {
+    await resetNutrition();
+    const { status } = await api.post("/bodyweight", {
+      value_kg: 72.66,
+      measured_at: new Date().toISOString(),
+    });
+    assertEquals(status, 201);
+
+    const { body } = await api.get("/nutrition-state");
+    assertEquals(body.adherence.weigh_ins_last_7, 1);
+    assertEquals(body.adherence.weigh_ins_last_21, 1);
+    assertEquals(body.adherence.last_weigh_in, body.today);
+  });
 });
