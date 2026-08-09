@@ -31,15 +31,17 @@ target and rate ranges there are binding.
    like (with the band — present it as a range, never a point), what the new
    target is and what it changes in practice (which meal absorbs the change).
    Keep the guards visible: a cut is clipped at −0.7%/week or a 500 kcal/day
-   deficit, whichever binds first. The server clips and says which in
-   `clipped_reason`; you explain why Marco got a different number than he
-   asked for.
+   deficit, a gain at +0.5%/week or a 350 kcal/day surplus, a recomp at a
+   200 kcal/day deficit — whichever binds first. The server clips and says
+   which in `clipped_reason`; you explain why Marco got a different number
+   than he asked for.
 
 ## Setting up a new goal phase
 
 - Translate the goal into a rate per the method doc (cut −0.5%/wk default,
-  gain +0.25–0.5%/wk ceiling, recomp ≈ maintenance) and set protein for the
-  phase (deficit → 2.3–3.1 g/kg FFM).
+  gain +0.25–0.5%/wk ceiling, recomp maintenance to a 200 kcal/day deficit —
+  all three enforced by the server's clips) and set protein for the phase
+  (deficit → 2.3–3.1 g/kg FFM).
 - Register the phase switch as a nutrition event so expenditure updates damp
   through the water/glycogen step; tell Marco the scale will jump and that it
   is glycogen, before it happens, not after.

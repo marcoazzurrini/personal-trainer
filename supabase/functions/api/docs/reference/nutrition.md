@@ -17,6 +17,7 @@ Europe/Rome calendar dates.
 | `GET /nutrition-events` | Registered transients, plus those still inside the damping window. |
 | `GET /intake` | Today's entries, totals, and flags. `?day=YYYY-MM-DD` for another day. |
 | `GET /days/:day` | The same view for one day. |
+| `GET /bodyweight` | Two series in one call: `bodyweight` (raw instants) and `trend` (one point per day, the EMA the estimate runs on). The bodyweight chart's single read. |
 | `GET /foods?q=<search>` | Foods matching a substring of name, brand, or alias. No `q` returns the whole registry. |
 | `GET /foods/:idOrName` | One food, with its aliases. Resolves by id, name, or alias. |
 | `GET /meals` | Saved meals with their aliases and item counts. |
@@ -267,17 +268,23 @@ water to roughly ±150–250 kcal/day for an individual. **The band is not decor
 A week-over-week move inside it is noise by construction, and reacting to one is the
 single most common way to make this system worse.
 
-**The window is the last 21 days**, whole-week aligned so weekend eating cancels out.
-A day inside it is *usable* if it has logged intake; days flagged `incomplete` are
-excluded rather than counted as zero. So the requirement is 14 usable days out of 21 —
-roughly two days logged in every three. That ratio is what lets you answer the question
-Marco will actually ask: how many more days until there's a number.
+**The window is the last three finished Monday–Sunday weeks** — 21 days ending on the
+most recent finished Sunday, never the running week — whole-week aligned so weekend
+eating cancels out. Anything logged or weighed this week is real but outside it until
+the week finishes; the blockers name the window's dates and acknowledge weigh-ins made
+since it closed, so relay those rather than "you have no weigh-ins". A day inside the
+window is *usable* if it has logged intake; days flagged `incomplete` are excluded
+rather than counted as zero. So the requirement is 14 usable days out of 21 — roughly
+two days logged in every three. That ratio is what lets you answer the question Marco
+will actually ask: how many more days until there's a number.
 
 Three things the server refuses to fudge, all reported as `insufficient_data` rather
 than a guess:
 
 - fewer than **14 usable days out of the 21**;
-- fewer than **3 weigh-ins a week** — the trend cannot carry a slope worth solving;
+- fewer than **3 weigh-in days a week** — days, not scale readings: a morning that
+  syncs eight readings is one weigh-in day. Under this, the trend cannot carry a slope
+  worth solving;
 - **no body-fat estimate on record.** The energy density of a weight change is
   composition-weighted (Forbes: `p = 10.4/(10.4+FM)`, blending 1,020 kcal/kg for
   fat-free mass and 9,440 for fat). A flat 7,700 would bias the estimate upward
@@ -332,13 +339,18 @@ not multiplication to do in your head.
 Calories — omit `kcal_target` and the server computes it from the current estimate and
 the rate. Sending an explicit `kcal_target` bypasses the arithmetic and should be rare.
 
-- The goal is a **rate**, signed: negative cuts, positive gains, ~0 maintains. A sign
-  that contradicts the goal is rejected — that mistake turns a cut into a bulk.
-- Two guards clip a cut, and `clipped_reason` says which fired: `rate` (past
-  −0.7%/week) or `deficit` (past 500 kcal/day). They are not the same guard — a
-  percentage and an absolute number diverge as bodyweight changes — and `clipped: true`
-  comes back so you explain the difference rather than quietly delivering something
-  other than what was asked for.
+- The goal is a **rate**, signed: negative cuts, positive gains, ~0 maintains. A
+  recomp holds or drops slowly — accepted from −0.7 to +0.15, with the real bound
+  enforced in kcal below. A sign that contradicts a cut or a gain is rejected — that
+  mistake turns a cut into a bulk.
+- Both directions clip, and `clipped_reason` says which guard fired. A cut: `rate`
+  (past −0.7%/week) or `deficit` (past 500 kcal/day). A gain: `rate` (past +0.5%/week)
+  or `surplus` (past 350 kcal/day). A recomp: `recomp_deficit` (past 200 kcal/day —
+  its doctrine is a kcal band, so it is enforced in kcal at any bodyweight, and a
+  doctrine-compliant recomp never needs relabelling as a cut). A percentage and an
+  absolute number diverge as bodyweight changes, which is why each direction carries
+  both kinds — and `clipped: true` comes back so you explain the difference rather
+  than quietly delivering something other than what was asked for.
 - `decision` is required, like a mesocycle revision's. Nothing changes what Marco eats
   without a written reason.
 - Append-only. The latest row by `effective_from` (then id) is active; two targets can

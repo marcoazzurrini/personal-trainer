@@ -17,36 +17,39 @@ question people actually mean: is the bar moving.
 
 **2. Weekly volume by muscle** — `GET /weekly-volume` (`?mesocycle=all` for the long
 view). One series per muscle, week by week. Never sum muscles into a total: one set can
-count for two muscles, so the total means nothing. Worth stating once when showing it that
-these are direct working sets only — indirect work isn't counted and the numbers read
-lower than published figures for the same training.
+count for two muscles, so the total means nothing. Worth stating once when showing it
+that sets are weighted by `volume_factor` — direct work counts 1.0, indirect 0.5 — so
+the numbers read lower than published set counts for the same training. A per-plan read
+is that plan's sets only; `?mesocycle=all` counts everything, off-plan lifting included.
 
-**3. Dose against delivered** — the weekly dose per exercise from the current intent
-(and the decision log's adjustments for backed-off lifts or declared light weeks),
-delivered from `GET /weekly-exercise-sets`. Paired bars per exercise per week. This is the
-adherence picture and it belongs in every review, because it decides whether any other
-chart can be interpreted.
+**3. Dose against delivered** — `GET /weekly-exercise-sets`: every row carries the
+delivered work and, beside it, the `dose`/`dose_unit` **in force during that week**, so
+a mid-mesocycle redose shows each week against the number it was actually judged by.
+Paired bars per exercise per week. This is the adherence picture and it belongs in
+every review, because it decides whether any other chart can be interpreted.
 
-Note what this one costs: the planned dose lives in the intent as prose, not in a table,
-so it is the only chart whose planned side you read rather than query. Quote the intent's
-numbers as written and don't round them into something tidier. `?mesocycle=all` is not
-available here the way it is on view 2 — these week numbers count from the mesocycle's
-start, so weeks from different plans cannot share an axis.
+The decision log still matters here, but for the *why*, not the numbers: a backed-off
+lift or a declared light week is a chosen reduction, and the decision row is what says
+so. `?mesocycle=all` is not available here the way it is on view 2 — these week numbers
+count from the mesocycle's start, so weeks from different plans cannot share an axis.
 
-**4. How hard it's felt** — `GET /sessions?limit=30`: `overall_feel` over time, and the
-effort mix per session from its sets when more detail helps. Two patterns are worth naming
-when you see them: drift toward `failure` at flat weights is fatigue showing up before the
-numbers stall, and a wall of `easy` means the loads are too light no matter what the other
-charts show.
+**4. How hard it's felt** — `GET /sessions?limit=30`: the effort mix per session from
+its sets (`easy` / `hard` / `failure` — the plottable series), with `overall_feel`
+quoted as annotations where it says something. It is free text by design and has no
+axis to sit on; the chips are what goes on the chart. Two patterns are worth naming
+when you see them: drift toward `failure` at flat weights is fatigue showing up before
+the numbers stall, and a wall of `easy` means the loads are too light no matter what
+the other charts show.
 
 ## Bodyweight — the number both halves read
 
-**5. Bodyweight and its trend** — `GET /nutrition-state` for `trend_weight`, with the raw
-series from `GET /bodyweight`. Plot **both**: raw as faint points, trend as the line that
-carries the eye. Never the raw series alone — that is the number Marco misreads on a
-Monday morning, and the whole point of the trend is that a 1.5 kg water swing is not
-information. The trend is computed by the API (an EMA over the earliest weigh-in of each
-day); do not compute your own.
+**5. Bodyweight and its trend** — `GET /bodyweight`, one call, two series: `bodyweight`
+(the raw instants) and `trend` (one point per day; `interpolated` marks bridged one-day
+gaps). Plot **both**: raw as faint points, trend as the line that carries the eye.
+Never the raw series alone — that is the number Marco misreads on a Monday morning,
+and the whole point of the trend is that a 1.5 kg water swing is not information. The
+trend is computed by the API (an EMA over the earliest weigh-in of each day); do not
+compute your own.
 
 ## Nutrition
 

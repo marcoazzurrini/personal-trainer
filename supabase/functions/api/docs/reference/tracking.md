@@ -8,10 +8,10 @@ append-only records: user context and bodyweight.
 | Endpoint | Returns |
 | --- | --- |
 | `GET /training-state` | The complete current picture: **every active plan**, each with its track, its own week number, intent, exercise list with roles and doses, delivered so far this week, and days since each exercise was trained — plus this week's schedule, recent sessions with rationales, and user context. The start of every training conversation. |
-| `GET /weekly-volume` | Sets per muscle per week: each working set adds its `volume_factor` (1.0 direct, 0.5 indirect) to every muscle it trains, so values are fractional sums and may be non-integers (glutes 13.5). `strength`-stimulus exercises only, so sprint and endurance work is invisible here by design. `?mesocycle=all` for the long view. |
-| `GET /weekly-exercise-sets` | Delivered work per exercise per week beside the dose it is judged against, both in the dose's own unit — plus the raw sets, metres and seconds. Every stimulus counts here, unlike `/weekly-volume`. Weeks are numbered from the mesocycle's start, so `?mesocycle=all` is refused: weeks from different plans share no axis. |
+| `GET /weekly-volume` | Sets per muscle per week: each working set adds its `volume_factor` (1.0 direct, 0.5 indirect) to every muscle it trains, so values are fractional sums and may be non-integers (glutes 13.5). `strength`-stimulus exercises only, so sprint and endurance work is invisible here by design. A per-plan read counts **that plan's sets only** — attribution follows the set, not the calendar, so overlapping plans never bleed into each other. `?mesocycle=all` is the long view and counts everything, off-plan lifting included: a muscle doesn't care which plan loaded it. |
+| `GET /weekly-exercise-sets` | Delivered work per exercise per week beside **the dose that was in force during that week**, both in the dose's own unit — plus the raw sets, metres and seconds. A mid-mesocycle redose changes later weeks' dose, never earlier ones'. Every stimulus counts here, unlike `/weekly-volume`. Weeks are numbered from the mesocycle's start, so `?mesocycle=all` is refused: weeks from different plans share no axis. |
 | `GET /user-context` | Current truth: the latest row per topic. `?history=true` for every row ever written. |
-| `GET /bodyweight` | Bodyweight measurements. |
+| `GET /bodyweight` | Two series in one call: `bodyweight` (the raw instants, every source) and `trend` (one point per Rome day — `day`, `weight_kg`, `trend_kg`, `interpolated`). The trend is the API's EMA, the one the estimate runs on; never compute your own. |
 
 ## Reading `training-state` with more than one plan
 
@@ -40,8 +40,14 @@ append-only records: user context and bodyweight.
 ```json
 POST /week-schedule
 { "schedule": "Mon lift, Tue sprint, Thu lift, Sat sprint + easy run",
-  "week_start": "<optional, defaults to this Monday>" }
+  "week_start": "<optional, defaults to the Monday of the current Mon–Sun week>" }
 ```
+
+The default is the week **containing today** — on a Sunday that Monday is six
+days in the past, never tomorrow. Writing next week's schedule on a weekend
+therefore needs an explicit `week_start`, or the upsert lands on the week now
+ending; the response echoes the resolved `week_start`/`week_end` and, on a
+weekend default, says so in a note — read it back.
 
 One row per week, prose, replaced by writing again. No `request_id`: it upserts
 on the week, so a retry cannot duplicate — and a second call with different text
@@ -70,8 +76,10 @@ POST /bodyweight
   "source": "<optional, defaults to \"manual\">" }
 ```
 
-Resending the same measurement is safe; a different value for the same instant is
-rejected — ask which is right rather than picking one. A mistyped weigh-in is
+Resending the same measurement is safe: the row is keyed by
+`(measured_at, source)`, so a retry is a no-op. A different value for the same
+instant **and source** is rejected — the error names both numbers and which one
+is on record; ask which is right rather than picking one. A mistyped weigh-in is
 removed with `DELETE /bodyweight/:id` and re-entered. That matters more than it
 used to: the trend built from these feeds the expenditure estimate, which sets the
 calorie target, so an 8 kg typo reads as a fortnight of catastrophic loss.

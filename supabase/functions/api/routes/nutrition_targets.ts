@@ -7,6 +7,8 @@ import {
   GOALS,
   MAX_LOSS_RATE_PCT_BW_WEEK,
   MAX_RECOMP_DEFICIT_KCAL,
+  PROTEIN_G_PER_KG_BW_RANGE,
+  PROTEIN_G_PER_KG_FFM_RANGE,
   type ProteinBasis,
   proteinFromMultiplier,
   targetFromRate,
@@ -78,7 +80,11 @@ nutritionTargets.post("/", async (c) => {
     throw new ApiError(
       422,
       proteinInputs.length === 0
-        ? 'Send exactly one protein input: "protein_g_per_kg_ffm" (the deficit basis — 2.3 to 3.1; muscle retention scales with the mass being retained, not the fat being lost), "protein_g_per_kg_bw" (maintenance or surplus — 1.6 to 2.2), or "protein_g_target" as a finished number when neither basis fits.'
+        ? `Send exactly one protein input: "protein_g_per_kg_ffm" (the deficit basis — ${
+          PROTEIN_G_PER_KG_FFM_RANGE.join(" to ")
+        }; muscle retention scales with the mass being retained, not the fat being lost), "protein_g_per_kg_bw" (maintenance or surplus — ${
+          PROTEIN_G_PER_KG_BW_RANGE.join(" to ")
+        }), or "protein_g_target" as a finished number when neither basis fits.`
         : `Send exactly one protein input — got ${
           proteinInputs.join(" and ")
         }.`,
@@ -153,7 +159,11 @@ nutritionTargets.post("/", async (c) => {
     if (multiplier <= 0 || multiplier > 5) {
       throw new ApiError(
         422,
-        `A protein multiplier of ${multiplier} g/kg is outside anything defensible. Deficit: 2.3–3.1 g/kg fat-free mass. Maintenance or surplus: 1.6–2.2 g/kg bodyweight.`,
+        `A protein multiplier of ${multiplier} g/kg is outside anything defensible. Deficit: ${
+          PROTEIN_G_PER_KG_FFM_RANGE.join("–")
+        } g/kg fat-free mass. Maintenance or surplus: ${
+          PROTEIN_G_PER_KG_BW_RANGE.join("–")
+        } g/kg bodyweight.`,
       );
     }
     if (basis === "ffm" && bodyfat === null) {

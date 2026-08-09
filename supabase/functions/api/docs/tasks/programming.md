@@ -152,8 +152,11 @@ diagnosis `evaluation` has actually reached. Do not revise because you thought o
 something better — swapping an exercise mid-mesocycle discards its progression record, and
 that record is most of what you have to reason with.
 
-Wholesale change belongs between mesocycles. So does reclassifying `exercise_muscles`,
-which silently rewrites every past volume number and should never happen mid-plan.
+Wholesale change belongs between mesocycles. So does reclassifying an exercise's
+muscles — `PUT /exercises/:ref/muscles`, the complete replacement list — which rewrites
+every past volume number by design and is therefore **refused while any active plan
+holds the exercise**. The rule is enforced, not just stated: mid-plan it 409s, at the
+review it goes through and the response says how many finished weeks it rewrote.
 
 ## Backing off: local and systemic
 

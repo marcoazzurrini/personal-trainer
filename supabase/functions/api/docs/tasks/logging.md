@@ -11,9 +11,11 @@ context, bodyweight).
 session happened, and `sets` carrying actuals.
 
 **Never invent targets for a retro session.** A target means "what was asked before the
-work"; a forgotten session had no ask. The API rejects a set carrying both targets and
-actuals, and the rejection is protecting the distinction — without it you could no longer
-tell a session that went to plan from one that didn't.
+work"; a forgotten session had no ask. The API rejects a **new** set written with both
+targets and actuals, and the rejection is protecting the distinction — a planned set
+acquires its actuals later through `PATCH /sets/:id` or the log page, but a target
+authored after the work would always match what was done, and you could no longer tell
+a session that went to plan from one that didn't.
 
 ## What a set records
 

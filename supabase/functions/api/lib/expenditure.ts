@@ -447,8 +447,12 @@ export function targetFromRate(
 }
 
 // Protein, computed rather than handed in. The multiplier is the coach's
-// judgment (2.3–3.1 g/kg FFM in a deficit, 1.6–2.2 g/kg bodyweight otherwise);
-// turning it into grams is arithmetic, and arithmetic is the server's.
+// judgment; turning it into grams is arithmetic, and arithmetic is the
+// server's. The judgment bands are constants so the error messages and the
+// docs cite one source instead of four hand-copied literals.
+export const PROTEIN_G_PER_KG_FFM_RANGE = [2.3, 3.1] as const; // in a deficit
+export const PROTEIN_G_PER_KG_BW_RANGE = [1.6, 2.2] as const; // otherwise
+
 export type ProteinBasis = "ffm" | "bodyweight";
 
 export interface ProteinComputation {

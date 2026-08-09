@@ -35,6 +35,31 @@ POST /exercises
 Muscles are referenced by name and must already exist — an unknown name is rejected
 and the error lists the known ones (`POST /muscles` with `{ "name": "..." }` adds one).
 
+## Correcting an exercise
+
+The surface is tiered by how much history a change rewrites:
+
+- **Freely** — `PATCH /exercises/:ref` with any of `name`, `equipment`, `pattern`,
+  `notes`, `systemic_fatigue`. Labels and prose; nothing computes with them, and
+  history is keyed by id, so a rename fixes a typo without touching the record.
+- **Aliases** — `POST /exercises/:ref/aliases` (`{"alias": "..."}` or
+  `{"aliases": [...]}`) adds; `DELETE /exercises/:ref/aliases/:alias` removes. An
+  alias is a pointer, not a fact: moving one to the exercise that should own it is
+  how a duplicate is retired without splitting history.
+- **Only while nothing is logged** — `measure` and `stimulus_type` are PATCHable
+  until the exercise's first set, then frozen: every logged set was validated and
+  counted under them. After that, the fix is a new exercise with the right value,
+  taking over the old one's aliases.
+- **Only between plans** — `PUT /exercises/:ref/muscles` replaces the whole
+  classification (every row, not just the ones changing; a partial list is ambiguous
+  about the rows it omits). Refused with a 409 while any active plan holds the
+  exercise, because a reclassification rewrites every past volume number — which is
+  the point, like a food PATCH: a wrong classification was wrong when written. The
+  response says how many finished weeks it rewrote.
+- `DELETE /exercises/:ref` — only an exercise nothing references: no sets, no plan
+  entries, no dose history. Past that, deleting would orphan the record; correct the
+  fixable fields or move the aliases instead.
+
 Getting `volume_factor` wrong here silently corrupts every future volume number, so
 the classification rule matters. Each set of the exercise adds `volume_factor` sets
 to that muscle's weekly volume:
@@ -66,7 +91,9 @@ disagree, classify by measured growth. When unsure, ask rather than guess.
   per-set choice: a back squat is never measured in metres. It decides which
   fields a set may carry (`reference/sessions`), which units its weekly dose may
   be stated in (`reference/planning`), and which inputs the log page renders.
-  Getting it wrong makes the exercise unloggable, which is at least loud.
+  Getting it wrong makes the exercise unloggable, which is at least loud — and
+  recoverable exactly until the first set is logged (`PATCH /exercises/:ref`); after
+  that, a new exercise takes over the old one's aliases.
 - `stimulus_type` (exercise) — `strength` | `power` | `conditioning`. Only `strength`
   exercises count in `GET /weekly-volume` — see `reference/tracking`. It is
   independent of `measure`: a sled push is measured in metres and is still a

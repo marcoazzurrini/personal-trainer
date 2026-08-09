@@ -18,10 +18,10 @@ about the pair, and it belongs in both decision logs.
 delivered against it side by side, in the dose's own unit, finished weeks only. The diff
 is the answer; the read has already done the conversion. Before calling a shortfall
 non-adherence, read the decision log: a backed-off lift or a declared light week is a
-chosen reduction, and the dose it was judged against is the one the decision set. Note
-that the dose shown is the plan's *current* dose — where one was changed mid-mesocycle,
-the earlier one is in the decision log, and comparing an early week against today's dose
-would manufacture a shortfall that never happened.
+chosen reduction, and the dose it was judged against is the one the decision set. The
+dose shown is the dose **in force during that week** — a mid-mesocycle redose
+changes later weeks' number, never earlier ones', so an early week is never compared
+against today's dose.
 
 **2. Was the work hard enough?** Effort chips on the working sets, from
 `GET /sessions?limit=30` or the exercise's history. Sets delivered at the wrong effort are

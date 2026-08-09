@@ -25,15 +25,18 @@ Two reflexes replace memory:
 - Every creating POST **requires** a `request_id`: a fresh UUID per call. Resending the
   same id returns the original result instead of writing a second row, so a retry is
   always safe — that is the point, and it is why the field is not optional. Reuse an id
-  only to retry that same call. A handful of writes need no id because they cannot
-  duplicate: a bodyweight measurement is keyed by its instant, a day flag is idempotent,
-  and catalogue names collide.
+  only to retry that same call. A write is exempt only where a unique natural key
+  already makes a retry collide: exercise and muscle names are unique, a bodyweight
+  measurement is keyed by `(measured_at, source)`, a day flag upserts. Food names are
+  deliberately **not** unique — brands and reformulations share a name — which is why
+  `POST /foods` is not exempt despite being a catalogue write.
 - **Errors are prompts.** A rejected call returns plain English stating what was
   wrong. Read it and fix the call instead of retrying blindly.
 - Exercises, foods and meals all resolve by id, name, or alias, case-insensitively. If
   a name doesn't resolve, the error says what to do. Only add a genuinely new one —
   never a synonym of something that exists, which would split its history in two.
-  Synonyms become aliases.
+  Synonyms become aliases, at creation or after it (`POST /exercises/:ref/aliases`,
+  `POST /foods/:ref/aliases`).
 - **Training can run on more than one track at once** — hypertrophy, strength, speed,
   endurance — each its own plan, its own week number, its own dose, its own method
   document. `training-state` returns them all. Judge each against its own dose, and

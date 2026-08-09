@@ -4,9 +4,12 @@ Payload shapes and schema rules for sessions and their sets. The procedure lives
 in `tasks/session-generation` (writing today's session) and `tasks/logging`
 (recording what already happened).
 
-A set carries **targets or actuals, never both**. Targets mean "what was asked
-before the work"; actuals mean what happened. Targets are frozen once created and
-can never be edited.
+A set is **written with targets or actuals, never both** in one write. Targets
+mean "what was asked before the work"; actuals mean what happened. Targets are
+frozen once created and can never be edited; actuals attach later — through
+`PATCH /sets/:id` or the log page — so a mature planned set carries both, the
+frozen ask beside what actually happened. The rule guards the write, not the
+row: a target authored after the work would always match what was done.
 
 A session is a training bout on a date, and nothing more. It is not owned by a
 plan: **each set says which plan it serves**, so one afternoon of sprints and then
