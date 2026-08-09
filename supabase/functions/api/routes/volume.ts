@@ -43,10 +43,10 @@ export const weeklyExerciseSets = new Hono();
 // and the raw sets, metres and seconds come too, because a dose in km says
 // nothing about how many efforts it took to cover.
 //
-// The dose is the plan's current dose, not the dose in force during an
-// earlier week: mesocycle_exercises holds one flat number, and a dose that
-// changed mid-mesocycle changed by revision, so the decision log is where
-// the earlier one is recorded.
+// The dose is the dose that was in force during that week, from the history
+// table — not the plan's current dose. Before the history existed a redose
+// silently rewrote what every past week was judged against, and the only
+// recovery was reading prose out of the decision log.
 weeklyExerciseSets.get("/", async (c) => {
   const param = c.req.query("mesocycle") ?? "current";
   // Unlike /weekly-volume, which accepts it. Not an oversight: volume is sets
@@ -64,13 +64,23 @@ weeklyExerciseSets.get("/", async (c) => {
   const rows = await sql`
     select v.week, e.name as exercise, v.exercise_id, e.measure,
       v.sets_done, v.distance_m, v.duration_s,
-      me.weekly_dose::float8 as dose, me.weekly_dose_unit as dose_unit
+      d.weekly_dose::float8 as dose, d.weekly_dose_unit as dose_unit
     from weekly_exercise_sets_done v
     join exercises e on e.id = v.exercise_id
-    -- Left, not inner: an exercise revised out of the plan keeps the work it
-    -- delivered while it was in it. Its dose is gone, which is the truth.
-    left join mesocycle_exercises me
-      on me.mesocycle_id = v.mesocycle_id and me.exercise_id = v.exercise_id
+    -- The dose in force at the week's end: a redose decided mid-week is what
+    -- that week's delivery was steered at, so the week's Sunday is the
+    -- honest as-of point. Left, not inner: an exercise revised out of the
+    -- plan keeps the work it delivered while it was in it, judged against
+    -- the dose it was actually asked for at the time.
+    left join lateral (
+      select weekly_dose, weekly_dose_unit
+      from mesocycle_exercise_doses d
+      where d.mesocycle_id = v.mesocycle_id
+        and d.exercise_id = v.exercise_id
+        and d.effective_from <= ${m.started_on}::date + v.week * 7 - 1
+      order by d.effective_from desc, d.id desc
+      limit 1
+    ) d on true
     where v.mesocycle_id = ${m.id}
     order by v.week, e.name`;
 

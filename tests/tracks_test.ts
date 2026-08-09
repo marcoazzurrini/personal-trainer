@@ -280,6 +280,36 @@ Deno.test("two plans running side by side", async (t) => {
     },
   );
 
+  await t.step("a redose does not rewrite past weeks", async () => {
+    // Week 1 delivered its squat against a dose of 9. The redose is the
+    // plan's current truth from today — but a dose history row is written
+    // with it, and the delivery read joins the dose in force at each week's
+    // end. Before the history existed this read showed 12 against every
+    // week, and the only record of the 9 was prose in the decision log.
+    const revision = await api.post(`/mesocycles/${hypId}/revisions`, {
+      decision: { what_changed: "squat 9 -> 12 sets", why: "recovering well" },
+      redose: [
+        { exercise: "squat", weekly_dose: 12, weekly_dose_unit: "sets" },
+      ],
+    });
+    assertEquals(revision.status, 200);
+
+    const { body } = await api.get(`/weekly-exercise-sets?mesocycle=${hypId}`);
+    const week1 = body.weekly_exercise_sets.find(
+      (r: { exercise: string; week: number }) =>
+        r.exercise === "Back Squat" && r.week === 1,
+    );
+    assertEquals(week1.dose, 9, "the dose week 1 was actually judged against");
+
+    // The plan itself carries the new current dose — the history changes
+    // what past weeks report, never what the plan asks for now.
+    const plan = await api.get(`/mesocycles/${hypId}`);
+    const squat = plan.body.mesocycle.exercises.find(
+      (e: { exercise: string }) => e.exercise === "Back Squat",
+    );
+    assertEquals(squat.weekly_dose, 12);
+  });
+
   await t.step(
     "the week's shape is a row, and rewriting replaces it",
     async () => {

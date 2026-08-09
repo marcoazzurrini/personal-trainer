@@ -95,8 +95,8 @@ export async function resetTraining() {
   try {
     await db`
       truncate table sets, sessions, mesocycle_decisions,
-        mesocycle_exercises, mesocycles, blocks, user_context, bodyweight,
-        week_schedules
+        mesocycle_exercise_doses, mesocycle_exercises, mesocycles, blocks,
+        user_context, bodyweight, week_schedules
       restart identity`;
   } finally {
     await db.end();

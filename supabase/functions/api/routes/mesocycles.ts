@@ -73,10 +73,13 @@ async function parsePlanExercise(entry: unknown): Promise<PlanExercise> {
   };
 }
 
+// effectiveFrom is the first day the dose is in force: the plan's start when
+// the plan is being created, today when an exercise joins by revision.
 async function insertPlanExercise(
   tx: Tx,
   mesocycleId: number,
   p: PlanExercise,
+  effectiveFrom: string | null,
 ) {
   await tx`
     insert into mesocycle_exercises
@@ -85,6 +88,13 @@ async function insertPlanExercise(
     values
       (${mesocycleId}, ${p.exerciseId}, ${p.role}, ${p.priority},
        ${p.weeklyDose}, ${p.weeklyDoseUnit}, ${p.notes})`;
+  await tx`
+    insert into mesocycle_exercise_doses
+      (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit,
+       effective_from)
+    values
+      (${mesocycleId}, ${p.exerciseId}, ${p.weeklyDose}, ${p.weeklyDoseUnit},
+       ${effectiveFrom ?? sql`(now() at time zone 'Europe/Rome')::date`})`;
 }
 
 // The plan, exactly: the mesocycle row (intent included — it is the plan's
@@ -157,7 +167,7 @@ mesocycles.post("/", async (c) => {
         (${blockId}, ${name}, ${track}, ${intent}, ${plannedWeeks},
          ${sessionsPerWeek}, ${startedOn}, ${requestId})
       returning id`;
-    for (const p of plan) await insertPlanExercise(tx, m.id, p);
+    for (const p of plan) await insertPlanExercise(tx, m.id, p, startedOn);
     return m.id as number;
   });
 
@@ -295,7 +305,7 @@ mesocycles.post("/:id/revisions", async (c) => {
       }
       await tx`delete from mesocycle_exercises where id = ${row.id}`;
     }
-    for (const p of addPlans) await insertPlanExercise(tx, m.id, p);
+    for (const p of addPlans) await insertPlanExercise(tx, m.id, p, null);
     for (const d of newDoses) {
       const [row] = await tx`
         update mesocycle_exercises
@@ -310,6 +320,14 @@ mesocycles.post("/:id/revisions", async (c) => {
           `"${e.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /mesocycles/${m.id} to see the plan.`,
         );
       }
+      // The update above is the current truth; this row is why past weeks
+      // stay judged against the dose that was actually in force.
+      await tx`
+        insert into mesocycle_exercise_doses
+          (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit,
+           effective_from)
+        values (${m.id}, ${d.exerciseId}, ${d.dose}, ${d.unit},
+          (now() at time zone 'Europe/Rome')::date)`;
     }
     if (newIntent !== null) {
       await tx`update mesocycles set intent = ${newIntent} where id = ${m.id}`;
