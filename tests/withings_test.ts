@@ -393,6 +393,14 @@ Deno.test("a withings weigh-in is written once, however often it arrives", async
       });
       assertEquals(status, 409);
       assert(body.error.includes("should not change"));
+      // Both numbers, each labelled. The message once quoted only the stored
+      // value, in parentheses — a caller who had just sent 73.1 read "(72.66
+      // kg)" and could not tell which number was whose. An error naming two
+      // values must say which is the record and which is the request.
+      assert(body.error.includes("sent 73.1"), body.error);
+      assert(body.error.includes("72.66 kg is already recorded"), body.error);
+      // And the way out must be a path that exists, id included.
+      assert(body.error.includes(`DELETE /bodyweight/${id}`), body.error);
     },
   );
 

@@ -74,6 +74,6 @@ export async function recordBodyweight(input: {
   }
   throw new ApiError(
     409,
-    `A different value (${existing.value_kg} kg) is already recorded for ${measuredAt} from source "${source}". If this new value is a correction, something has gone wrong upstream — a measurement is a fact and should not change.`,
+    `You sent ${valueKg} kg for ${measuredAt} (source "${source}"), but ${existing.value_kg} kg is already recorded for that instant. A measurement is a fact and should not change — if the recorded value is the mistake, DELETE /bodyweight/${existing.id} and re-enter.`,
   );
 }
