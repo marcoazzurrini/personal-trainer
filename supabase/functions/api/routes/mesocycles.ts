@@ -179,13 +179,13 @@ mesocycles.patch("/:id", async (c) => {
   if ("intent" in body) {
     throw new ApiError(
       422,
-      "The intent is the plan; changing it is a revision. POST /api/mesocycles/:id/revisions with the full replacement intent and a decision.",
+      "The intent is the plan; changing it is a revision. POST /mesocycles/:id/revisions with the full replacement intent and a decision.",
     );
   }
   if (Object.keys(fields).length === 0) {
     throw new ApiError(
       422,
-      'Send at least one of "name", "ended_on". Structural changes (exercises, intent) go through POST /api/mesocycles/:id/revisions.',
+      'Send at least one of "name", "ended_on". Structural changes (exercises, intent) go through POST /mesocycles/:id/revisions.',
     );
   }
   await sql`update mesocycles set ${sql(fields)} where id = ${m.id}`;
@@ -250,7 +250,7 @@ mesocycles.post("/:id/revisions", async (c) => {
   ) {
     throw new ApiError(
       422,
-      'The revision changes nothing. Send at least one of: "remove" (exercise refs), "add" (plan entries), "redose" (new weekly doses for exercises already in the plan), "intent" (the full replacement text). A review outcome with no change ("hold") is recorded with POST /api/mesocycles/:id/decisions instead.',
+      'The revision changes nothing. Send at least one of: "remove" (exercise refs), "add" (plan entries), "redose" (new weekly doses for exercises already in the plan), "intent" (the full replacement text). A review outcome with no change ("hold") is recorded with POST /mesocycles/:id/decisions instead.',
     );
   }
 
@@ -290,7 +290,7 @@ mesocycles.post("/:id/revisions", async (c) => {
           await tx`select name from exercises where id = ${exerciseId}`;
         throw new ApiError(
           422,
-          `"${e.name}" is not in this mesocycle's plan, so it cannot be removed. GET /api/mesocycles/${m.id} shows the plan.`,
+          `"${e.name}" is not in this mesocycle's plan, so it cannot be removed. GET /mesocycles/${m.id} shows the plan.`,
         );
       }
       await tx`delete from mesocycle_exercises where id = ${row.id}`;
@@ -307,7 +307,7 @@ mesocycles.post("/:id/revisions", async (c) => {
           await tx`select name from exercises where id = ${d.exerciseId}`;
         throw new ApiError(
           422,
-          `"${e.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /api/mesocycles/${m.id} to see the plan.`,
+          `"${e.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /mesocycles/${m.id} to see the plan.`,
         );
       }
     }

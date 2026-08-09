@@ -37,8 +37,8 @@ trainingState.get("/", async (c) => {
   if (active.length === 0) {
     // The cold start routes to onboarding; a known person routes to planning.
     const note = userContext.length === 0
-      ? "No active mesocycle and no user context: this is a first conversation. Start with GET /api/docs/tasks/onboarding — do not program anything yet."
-      : "No active mesocycle. Fetch GET /api/docs/tasks/programming, then create one with POST /api/mesocycles (blocks via POST /api/blocks).";
+      ? "No active mesocycle and no user context: this is a first conversation. Start with GET /docs/tasks/onboarding — do not program anything yet."
+      : "No active mesocycle. Fetch GET /docs/tasks/programming, then create one with POST /mesocycles (blocks via POST /blocks).";
     return c.json({
       today: clock.today,
       mesocycles: [],
@@ -132,7 +132,7 @@ trainingState.get("/", async (c) => {
       week,
       planned_weeks: meso.planned_weeks,
       started_on: meso.started_on,
-      method_doc: hasMethodDoc ? `GET /api/docs/${methodDoc}` : null,
+      method_doc: hasMethodDoc ? `GET /docs/${methodDoc}` : null,
       method_note: hasMethodDoc
         ? null
         : `There is no method document for the ${meso.track} track yet, so this plan is coached from general knowledge. Say so plainly rather than implying an authority the documents do not give you.`,

@@ -159,7 +159,7 @@ Deno.test("counting rules", async (t) => {
     assertEquals(meso.track, "hypertrophy");
     // The hypertrophy method document exists, so the API names it rather than
     // leaving the coach to find out there isn't one.
-    assertEquals(meso.method_doc, "GET /api/docs/method/hypertrophy");
+    assertEquals(meso.method_doc, "GET /docs/method/hypertrophy");
     assertEquals(meso.method_note, null);
 
     const squat = meso.exercises.find(

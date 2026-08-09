@@ -217,7 +217,7 @@ meals.delete("/:ref/aliases/:alias", async (c) => {
   if (rows.length === 0) {
     throw new ApiError(
       404,
-      `"${alias}" is not an alias of that meal. GET /api/meals/${id} lists its aliases.`,
+      `"${alias}" is not an alias of that meal. GET /meals/${id} lists its aliases.`,
     );
   }
   return c.json({ meal: await mealDetail(id) });

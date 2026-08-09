@@ -21,7 +21,7 @@ docs.get("/*", async (c) => {
   if (!isDocName(name)) {
     throw new ApiError(
       404,
-      `"${name}" is not a document name (lowercase words, hyphens, slashes). GET /api/docs/index lists the documents.`,
+      `"${name}" is not a document name (lowercase words, hyphens, slashes). GET /docs/index lists the documents.`,
     );
   }
   try {
@@ -30,7 +30,7 @@ docs.get("/*", async (c) => {
   } catch {
     throw new ApiError(
       404,
-      `No document "${name}". GET /api/docs/index lists the documents.`,
+      `No document "${name}". GET /docs/index lists the documents.`,
     );
   }
 });

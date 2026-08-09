@@ -233,7 +233,7 @@ intake.patch("/:id", async (c) => {
   if (!entry) {
     throw new ApiError(
       404,
-      `No intake entry with id ${id}. GET /api/intake?day=YYYY-MM-DD lists a day's entries with their ids.`,
+      `No intake entry with id ${id}. GET /intake?day=YYYY-MM-DD lists a day's entries with their ids.`,
     );
   }
 

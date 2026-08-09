@@ -96,10 +96,33 @@ app.route("/docs-proposals", docsProposals);
 // side of the middleware.
 app.route("/withings", withingsAdmin);
 
-app.notFound((c) =>
-  c.json({ error: `No route for ${c.req.method} ${c.req.path}.` }, 404)
-);
+app.notFound((c) => {
+  // Backstop for the normalization below: unreachable while the wrapper runs,
+  // but a route this function cannot serve must still explain itself if a
+  // refactor ever drops the wrapper. Errors are prompts, including this one.
+  const doubled = c.req.path.startsWith("/api/api/") ||
+    c.req.path === "/api/api";
+  const hint = doubled
+    ? " The base URL already ends in /api — write paths without it, as the docs do."
+    : "";
+  return c.json(
+    { error: `No route for ${c.req.method} ${c.req.path}.${hint}` },
+    404,
+  );
+});
 
 app.onError((err, c) => errorResponse(err, c));
 
-Deno.serve(app.fetch);
+// The docs write paths relative to BASE, which already ends in /api — the
+// function's own name. A caller that read an /api-prefixed path somewhere and
+// concatenated it onto BASE arrives at /api/api/…, which no route matches.
+// That mistake is one string-concatenation away for every client, so it is
+// forgiven here instead of 404ing: collapse any run of leading /api segments
+// down to the one the router mounts on.
+Deno.serve((req) => {
+  const url = new URL(req.url);
+  const collapsed = url.pathname.replace(/^(\/api)+(?=\/|$)/, "/api");
+  if (collapsed === url.pathname) return app.fetch(req);
+  url.pathname = collapsed;
+  return app.fetch(new Request(url, req));
+});

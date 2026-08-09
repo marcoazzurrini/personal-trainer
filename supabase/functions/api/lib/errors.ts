@@ -15,14 +15,14 @@ export class ApiError extends Error {
 // quotes the constraint name.
 const constraintMessages: Record<string, string> = {
   exercises_name_key:
-    "An exercise with that name already exists (names are case-insensitive). Fetch GET /api/exercises to see it.",
+    "An exercise with that name already exists (names are case-insensitive). Fetch GET /exercises to see it.",
   exercise_aliases_alias_key:
-    "That alias already points at an exercise (aliases are case-insensitive). Fetch GET /api/exercises to see which.",
+    "That alias already points at an exercise (aliases are case-insensitive). Fetch GET /exercises to see which.",
   muscles_name_key: "That muscle already exists.",
   mesocycles_one_active_per_track:
-    'A mesocycle is already active on that track. End it first (PATCH /api/mesocycles/current:<track> with {"ended_on": "YYYY-MM-DD"}) or revise it instead of creating a new one. Plans on other tracks run alongside it and are not in the way.',
+    'A mesocycle is already active on that track. End it first (PATCH /mesocycles/current:<track> with {"ended_on": "YYYY-MM-DD"}) or revise it instead of creating a new one. Plans on other tracks run alongside it and are not in the way.',
   mesocycles_track_check:
-    'track must be one of: hypertrophy, strength, speed, endurance. It also names the method document the coach reads (GET /api/docs/method/<track>). Rehab is not a track — it is a role an exercise plays inside a plan, so send "role": "rehab" on the exercise instead.',
+    'track must be one of: hypertrophy, strength, speed, endurance. It also names the method document the coach reads (GET /docs/method/<track>). Rehab is not a track — it is a role an exercise plays inside a plan, so send "role": "rehab" on the exercise instead.',
   mesocycles_starts_on_monday:
     '"started_on" must be a Monday: mesocycles run whole weeks, Monday to Sunday.',
   mesocycle_exercises_mesocycle_exercise_key:
@@ -46,13 +46,13 @@ const constraintMessages: Record<string, string> = {
   week_schedules_week_start_key:
     "That week already has a schedule. Writing again replaces it — this collision means the write was not sent as a replacement.",
   foods_name_key:
-    "A food with that name already exists (names are case-insensitive). Fetch GET /api/foods?q=<part of the name> to see it — a second row for the same food splits its history the way a duplicate exercise splits a lift's. A synonym belongs in POST /api/foods/:ref/aliases.",
+    "A food with that name already exists (names are case-insensitive). Fetch GET /foods?q=<part of the name> to see it — a second row for the same food splits its history the way a duplicate exercise splits a lift's. A synonym belongs in POST /foods/:ref/aliases.",
   food_aliases_alias_key:
-    "That alias already points at a food (aliases are case-insensitive). GET /api/foods?q=<the alias> shows which.",
+    "That alias already points at a food (aliases are case-insensitive). GET /foods?q=<the alias> shows which.",
   meals_name_key:
-    "A meal with that name already exists (names are case-insensitive). GET /api/meals lists them.",
+    "A meal with that name already exists (names are case-insensitive). GET /meals lists them.",
   meal_aliases_alias_key:
-    "That alias already points at a meal (aliases are case-insensitive). GET /api/meals shows which.",
+    "That alias already points at a meal (aliases are case-insensitive). GET /meals shows which.",
   meal_items_meal_food_key:
     "That food is already in the meal. A second helping is more grams on the existing item, not a second row.",
   intake_entries_food_grams_pair:

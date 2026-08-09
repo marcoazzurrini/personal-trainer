@@ -178,7 +178,7 @@ foods.patch("/:ref", async (c) => {
   if (Object.keys(fields).length === 0) {
     throw new ApiError(
       422,
-      "Send at least one of: name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note. A different product is not an edit — save it as a new food with POST /api/foods.",
+      "Send at least one of: name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note. A different product is not an edit — save it as a new food with POST /foods.",
     );
   }
 
@@ -286,7 +286,7 @@ foods.delete("/:ref/aliases/:alias", async (c) => {
   if (rows.length === 0) {
     throw new ApiError(
       404,
-      `"${alias}" is not an alias of that food. GET /api/foods/${id} lists its aliases.`,
+      `"${alias}" is not an alias of that food. GET /foods/${id} lists its aliases.`,
     );
   }
   return c.json({ food: await foodById(id) });
@@ -309,7 +309,7 @@ foods.delete("/:ref", async (c) => {
         entries === 1 ? "entry" : "entries"
       } and ${items} meal ${
         items === 1 ? "item" : "items"
-      } — so deleting it would orphan the record. If its numbers are wrong, PATCH /api/foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
+      } — so deleting it would orphan the record. If its numbers are wrong, PATCH /foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
     );
   }
   // Aliases first, and in one transaction. food_aliases references foods and

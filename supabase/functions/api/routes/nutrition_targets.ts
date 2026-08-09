@@ -146,7 +146,7 @@ nutritionTargets.post("/", async (c) => {
     if (basis === "ffm" && bodyfat === null) {
       throw new ApiError(
         422,
-        'Fat-free mass needs a body-fat estimate and there is none on record. POST /api/bodyfat with a rough figure (BIA, DXA, or an honest visual guess), or send "protein_g_per_kg_bw" to use bodyweight as the basis instead.',
+        'Fat-free mass needs a body-fat estimate and there is none on record. POST /bodyfat with a rough figure (BIA, DXA, or an honest visual guess), or send "protein_g_per_kg_bw" to use bodyweight as the basis instead.',
       );
     }
     proteinComputation = proteinFromMultiplier(

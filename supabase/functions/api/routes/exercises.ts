@@ -92,7 +92,7 @@ exercises.post("/", async (c) => {
     if (m.counts !== undefined) {
       throw new ApiError(
         422,
-        '"counts" was replaced by "volume_factor": 1.0 (direct — primary force generator), 0.5 (indirect — meaningfully trained, not primary), 0 (considered and deliberately excluded). See GET /api/docs/reference/exercises.',
+        '"counts" was replaced by "volume_factor": 1.0 (direct — primary force generator), 0.5 (indirect — meaningfully trained, not primary), 0 (considered and deliberately excluded). See GET /docs/reference/exercises.',
       );
     }
     if (m.fatigue !== undefined) {
@@ -141,7 +141,7 @@ exercises.post("/", async (c) => {
           from muscles`;
         throw new ApiError(
           422,
-          `Unknown muscle "${muscle}". Known muscles: ${names}. Add it first with POST /api/muscles.`,
+          `Unknown muscle "${muscle}". Known muscles: ${names}. Add it first with POST /muscles.`,
         );
       }
       await sql`

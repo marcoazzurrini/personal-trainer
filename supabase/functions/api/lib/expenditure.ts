@@ -236,7 +236,7 @@ export function backSolve(input: WindowInput): Expenditure {
   }
   if (bodyfatPercent === null) {
     blockers.push(
-      "No body-fat estimate on record. The energy density of a weight change depends on body composition — without it the back-solve would have to assume a flat 7,700 kcal/kg, which is biased for a lean trainee. POST /api/bodyfat with a rough figure (BIA, DXA, or an honest visual guess); precision is not critical, presence is.",
+      "No body-fat estimate on record. The energy density of a weight change depends on body composition — without it the back-solve would have to assume a flat 7,700 kcal/kg, which is biased for a lean trainee. POST /bodyfat with a rough figure (BIA, DXA, or an honest visual guess); precision is not critical, presence is.",
     );
   }
   // The bodyfatPercent half is redundant with the blocker pushed just above;

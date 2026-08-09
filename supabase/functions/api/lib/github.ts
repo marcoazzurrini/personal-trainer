@@ -127,7 +127,7 @@ export async function openDocsProposal(
     head: branch,
     base: "main",
     body: `${opts.rationale}\n\n---\n` +
-      "Proposed by the coach via POST /api/docs-proposals.",
+      "Proposed by the coach via POST /docs-proposals.",
   }) as { html_url: string };
 
   return { prUrl: pr.html_url, branch };

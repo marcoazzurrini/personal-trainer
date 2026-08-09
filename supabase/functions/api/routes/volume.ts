@@ -51,7 +51,7 @@ weeklyExerciseSets.get("/", async (c) => {
   if (param === "all") {
     throw new ApiError(
       422,
-      '"all" works on GET /api/weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".',
+      '"all" works on GET /weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".',
     );
   }
   const m = await resolveMesocycle(param);

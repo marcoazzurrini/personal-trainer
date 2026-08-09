@@ -9,7 +9,7 @@ export async function resolveExerciseId(ref: unknown): Promise<number> {
     if (row) return row.id;
     throw new ApiError(
       422,
-      `No exercise with id ${ref}. GET /api/exercises lists the catalogue.`,
+      `No exercise with id ${ref}. GET /exercises lists the catalogue.`,
     );
   }
   if (typeof ref === "string" && ref.trim() !== "") {
@@ -24,7 +24,7 @@ export async function resolveExerciseId(ref: unknown): Promise<number> {
     if (/^\d+$/.test(name)) return resolveExerciseId(Number(name));
     throw new ApiError(
       422,
-      `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /api/exercises lists them. A genuinely new exercise is added with POST /api/exercises.`,
+      `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`,
     );
   }
   throw new ApiError(
@@ -107,9 +107,9 @@ export function resolveFoodId(ref: unknown): Promise<number> {
     aliasTable: "food_aliases",
     foreignKey: "food_id",
     label: "food",
-    listPath: "GET /api/foods?q=<search>",
+    listPath: "GET /foods?q=<search>",
     createHint:
-      "A food that genuinely does not exist yet is sourced (label, CREA, USDA, Open Food Facts) and saved with POST /api/foods — never invented. A synonym of a food that exists gets an alias instead: POST /api/foods/:ref/aliases.",
+      "A food that genuinely does not exist yet is sourced (label, CREA, USDA, Open Food Facts) and saved with POST /foods — never invented. A synonym of a food that exists gets an alias instead: POST /foods/:ref/aliases.",
   }, ref);
 }
 
@@ -119,9 +119,9 @@ export function resolveMealId(ref: unknown): Promise<number> {
     aliasTable: "meal_aliases",
     foreignKey: "meal_id",
     label: "meal",
-    listPath: "GET /api/meals",
+    listPath: "GET /meals",
     createHint:
-      "A meal that has become a routine is saved with POST /api/meals. A one-off variation on a saved meal is not a new meal — log the meal and log the difference as a separate entry.",
+      "A meal that has become a routine is saved with POST /meals. A one-off variation on a saved meal is not a new meal — log the meal and log the difference as a separate entry.",
   }, ref);
 }
 
@@ -145,7 +145,7 @@ export async function resolveMesocycle(idParam: string): Promise<any> {
       if (active.length === 0) {
         throw new ApiError(
           404,
-          "No active mesocycle. Create one with POST /api/mesocycles, or pass an explicit id.",
+          "No active mesocycle. Create one with POST /mesocycles, or pass an explicit id.",
         );
       }
       throw new ApiError(
