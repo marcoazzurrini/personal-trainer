@@ -357,7 +357,30 @@ export function damp(
 export const MAX_DEFICIT_KCAL = 500;
 export const MAX_LOSS_RATE_PCT_BW_WEEK = 0.7;
 
-export type ClipReason = "rate" | "deficit" | null;
+// The gain side mirrors the cut's pair. Past +0.5%/week or ~350 kcal/day of
+// surplus the extra is mostly fat in a trained lifter — the method doc has
+// always said so, but for a long while only the cut had guards, so a +3%/week
+// "bulk" was accepted, stored unclipped, and steered at in earnest. A ceiling
+// that lives only in prose is not a ceiling.
+export const MAX_SURPLUS_KCAL = 350;
+export const MAX_GAIN_RATE_PCT_BW_WEEK = 0.5;
+
+// Recomp's doctrine is written in kcal, not in %BW/week: maintenance to a
+// 200 kcal/day deficit. It cannot be expressed as a rate band — the rate a
+// given deficit implies moves with bodyweight, which is how the old ±0.15
+// band quietly capped recomp at about half the doctrine's floor and pushed
+// doctrine-compliant requests into relabelling themselves as cuts.
+export const MAX_RECOMP_DEFICIT_KCAL = 200;
+
+export const GOALS = ["cut", "maintain", "gain", "recomp"] as const;
+export type Goal = (typeof GOALS)[number];
+
+export type ClipReason =
+  | "rate"
+  | "deficit"
+  | "recomp_deficit"
+  | "surplus"
+  | null;
 
 export interface TargetComputation {
   kcal_target: number;
@@ -374,14 +397,21 @@ export function targetFromRate(
   ratePctBwWeek: number,
   trendWeightKg: number,
   energyDensityKcalPerKg: number,
+  goal: Goal,
 ): TargetComputation {
-  // The rate ceiling binds first: it is a statement about what the body will
-  // tolerate, so it should shape the target rather than be discovered after
-  // the calories are already computed.
+  // The rate ceilings bind first: they are statements about what the body
+  // will tolerate, so they should shape the target rather than be discovered
+  // after the calories are already computed. Both directions have one — the
+  // loss ceiling was code from the start, the gain ceiling was prose until it
+  // let a +3%/week bulk through untouched.
   let reason: ClipReason = null;
   let rate = ratePctBwWeek;
   if (rate < -MAX_LOSS_RATE_PCT_BW_WEEK) {
     rate = -MAX_LOSS_RATE_PCT_BW_WEEK;
+    reason = "rate";
+  }
+  if (rate > MAX_GAIN_RATE_PCT_BW_WEEK) {
+    rate = MAX_GAIN_RATE_PCT_BW_WEEK;
     reason = "rate";
   }
 
@@ -391,6 +421,18 @@ export function targetFromRate(
   if (tdee - kcal > MAX_DEFICIT_KCAL) {
     kcal = tdee - MAX_DEFICIT_KCAL;
     reason = "deficit";
+  }
+  // Tighter than the cut's 500 and checked after it, so on a recomp the
+  // stricter bound wins and the reason names the doctrine that bound it.
+  // This is the clip that makes "maintenance to −200 kcal/day" true at any
+  // bodyweight, instead of a rate band pretending to be a kcal rule.
+  if (goal === "recomp" && tdee - kcal > MAX_RECOMP_DEFICIT_KCAL) {
+    kcal = tdee - MAX_RECOMP_DEFICIT_KCAL;
+    reason = "recomp_deficit";
+  }
+  if (kcal - tdee > MAX_SURPLUS_KCAL) {
+    kcal = tdee + MAX_SURPLUS_KCAL;
+    reason = "surplus";
   }
 
   return {

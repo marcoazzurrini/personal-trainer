@@ -6,6 +6,7 @@ import {
   energyDensity,
   fatFreeMassKg,
   fatMassKg,
+  GOALS,
   proteinFromMultiplier,
   targetFromRate,
   type TrendPoint,
@@ -274,7 +275,7 @@ Deno.test("target from rate", async (t) => {
   const density = energyDensity(fatMassKg(82, 14));
 
   await t.step("a default cut lands below expenditure", () => {
-    const t1 = targetFromRate(2600, -0.5, 82, density);
+    const t1 = targetFromRate(2600, -0.5, 82, density, "cut");
     assert(t1.kcal_target < 2600);
     assertEquals(t1.clipped, false);
     // -0.5%/wk of 82 kg = -0.41 kg/wk = -0.0586 kg/day * 5437 = -319 kcal
@@ -282,20 +283,20 @@ Deno.test("target from rate", async (t) => {
   });
 
   await t.step("a gain target lands above expenditure", () => {
-    const t2 = targetFromRate(2600, 0.25, 82, density);
+    const t2 = targetFromRate(2600, 0.25, 82, density, "gain");
     assert(t2.kcal_target > 2600);
     assertEquals(t2.clipped, false);
   });
 
   await t.step("maintenance is expenditure", () => {
-    const t3 = targetFromRate(2600, 0, 82, density);
+    const t3 = targetFromRate(2600, 0, 82, density, "maintain");
     assertEquals(t3.kcal_target, 2600);
   });
 
   await t.step("an aggressive cut is clipped to 0.7%/week", () => {
     // The rate ceiling binds first at this bodyweight: -0.7% of 82 kg is a
     // ~446 kcal deficit, inside the 500 cap.
-    const t4 = targetFromRate(2600, -1.5, 82, density);
+    const t4 = targetFromRate(2600, -1.5, 82, density, "cut");
     assertEquals(t4.clipped, true);
     assertEquals(t4.clipped_reason, "rate");
     assertEquals(t4.rate_requested, -1.5);
@@ -308,7 +309,7 @@ Deno.test("target from rate", async (t) => {
     // a legal -0.7%/week implies more than 500 kcal/day, so the second guard
     // is the one that catches it. This is why both exist.
     const heavyDensity = energyDensity(fatMassKg(120, 30));
-    const t5 = targetFromRate(3000, -0.7, 120, heavyDensity);
+    const t5 = targetFromRate(3000, -0.7, 120, heavyDensity, "cut");
     assertEquals(t5.clipped, true);
     assertEquals(t5.clipped_reason, "deficit");
     assertEquals(t5.implied_deficit_kcal, 500);
@@ -316,10 +317,62 @@ Deno.test("target from rate", async (t) => {
   });
 
   await t.step("a legal rate is untouched", () => {
-    const t6 = targetFromRate(2600, -0.5, 82, density);
+    const t6 = targetFromRate(2600, -0.5, 82, density, "cut");
     assertEquals(t6.clipped, false);
     assertEquals(t6.clipped_reason, null);
     assertEquals(t6.rate_used, -0.5);
+  });
+
+  await t.step("an aggressive gain is clipped to +0.5%/week", () => {
+    // The mirror of the cut's rate guard. This passed through untouched for a
+    // long while — clipped: false, a +3%/week "bulk" stored as legitimate —
+    // because only the cut had guards and the gain ceiling lived in prose.
+    const g = targetFromRate(2600, 3.0, 82, density, "gain");
+    assertEquals(g.clipped, true);
+    assertEquals(g.clipped_reason, "rate");
+    assertEquals(g.rate_requested, 3.0);
+    assertEquals(g.rate_used, 0.5);
+  });
+
+  await t.step("the surplus cap binds where the gain rate does not", () => {
+    // Same divergence as the cut pair: at 120 kg a legal +0.5%/week implies
+    // more surplus than 350 kcal/day, so the absolute guard is the one that
+    // catches it.
+    const heavyDensity = energyDensity(fatMassKg(120, 30));
+    const s = targetFromRate(3000, 0.5, 120, heavyDensity, "gain");
+    assertEquals(s.clipped, true);
+    assertEquals(s.clipped_reason, "surplus");
+    assertEquals(s.kcal_target, 3350);
+  });
+
+  await t.step("a recomp deficit is clipped at the doctrine's floor", () => {
+    // "Maintenance to −200 kcal/day" is a kcal rule, so it is enforced in
+    // kcal. A −0.5%/week request at 82 kg implies ~319 kcal/day — legal for a
+    // cut, past the floor for a recomp — and the reason names the doctrine.
+    const r = targetFromRate(2600, -0.5, 82, density, "recomp");
+    assertEquals(r.clipped, true);
+    assertEquals(r.clipped_reason, "recomp_deficit");
+    assertEquals(r.kcal_target, 2400);
+    assertEquals(r.implied_deficit_kcal, 200);
+  });
+
+  await t.step("a gentle recomp is untouched", () => {
+    // −0.15%/week at 82 kg is ~96 kcal/day, inside the doctrine's band.
+    const r = targetFromRate(2600, -0.15, 82, density, "recomp");
+    assertEquals(r.clipped, false);
+    assertEquals(r.clipped_reason, null);
+  });
+
+  await t.step("every goal has a lane through the arithmetic", () => {
+    // Coverage by enumeration: recomp had zero tests once, and nobody noticed
+    // until an outside reviewer asked what a recomp rate even meant. Each
+    // goal value must pass through targetFromRate in this suite, so a new
+    // goal cannot ship untested.
+    for (const goal of GOALS) {
+      const result = targetFromRate(2600, 0, 82, density, goal);
+      assertEquals(result.kcal_target, 2600);
+      assertEquals(result.clipped, false);
+    }
   });
 });
 

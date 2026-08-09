@@ -4,6 +4,9 @@ import { ApiError } from "../lib/errors.ts";
 import {
   energyDensity,
   fatMassKg,
+  GOALS,
+  MAX_LOSS_RATE_PCT_BW_WEEK,
+  MAX_RECOMP_DEFICIT_KCAL,
   type ProteinBasis,
   proteinFromMultiplier,
   targetFromRate,
@@ -28,8 +31,6 @@ import {
 // The goal, expressed as a rate of bodyweight change. Append-only: the latest
 // effective_from is active and the history is the record of the phase
 // structure. A target is never edited — a changed mind is a new row saying why.
-
-const GOALS = ["cut", "maintain", "gain", "recomp"] as const;
 
 export const nutritionTargets = new Hono();
 
@@ -105,10 +106,22 @@ nutritionTargets.post("/", async (c) => {
       `A gain needs a positive rate_pct_bw_week (got ${rate}). +0.25 to +0.5 for a trained lifter; past that is mostly fat.`,
     );
   }
-  if ((goal === "maintain" || goal === "recomp") && Math.abs(rate) > 0.15) {
+  if (goal === "maintain" && Math.abs(rate) > 0.15) {
     throw new ApiError(
       422,
       `A ${goal} target holds bodyweight roughly flat — rate_pct_bw_week should be near 0 (got ${rate}). If a real rate of change is intended, the goal is a cut or a gain.`,
+    );
+  }
+  // Recomp's real bound is in kcal — maintenance to a 200 kcal/day deficit —
+  // and the rate a deficit implies moves with bodyweight, so the rate gate
+  // here is only a sanity check against absurdity. A ±0.15 band once lived
+  // here; it capped recomp at roughly half the doctrine's floor and told
+  // doctrine-compliant requests to relabel themselves as cuts, which then
+  // registered a phase switch that never happened.
+  if (goal === "recomp" && (rate > 0.15 || rate < -MAX_LOSS_RATE_PCT_BW_WEEK)) {
+    throw new ApiError(
+      422,
+      `A recomp holds bodyweight or drops it slowly — rate_pct_bw_week between -${MAX_LOSS_RATE_PCT_BW_WEEK} and +0.15 (got ${rate}). The kcal target is clipped to a ${MAX_RECOMP_DEFICIT_KCAL} kcal/day deficit whatever the rate implies, so a doctrine recomp needs no relabelling as a cut.`,
     );
   }
 
@@ -181,6 +194,7 @@ nutritionTargets.post("/", async (c) => {
       rate,
       trendNow,
       density,
+      goal,
     );
     kcalTarget = computed.kcal_target;
     clipped = computed.clipped;

@@ -62,20 +62,22 @@ export function optionalTimestamp(body: Body, field: string): string | null {
   return new Date(v).toISOString();
 }
 
-export function requireOneOf(
+export function requireOneOf<T extends string>(
   body: Body,
   field: string,
-  choices: readonly string[],
-  fallback?: string,
-): string {
+  choices: readonly T[],
+  fallback?: T,
+): T {
   const v = body[field] ?? fallback;
-  if (typeof v !== "string" || !choices.includes(v)) {
+  if (
+    typeof v !== "string" || !(choices as readonly string[]).includes(v)
+  ) {
     throw new ApiError(
       422,
       `"${field}" must be one of: ${choices.join(", ")}.`,
     );
   }
-  return v;
+  return v as T;
 }
 
 export function requireInt(

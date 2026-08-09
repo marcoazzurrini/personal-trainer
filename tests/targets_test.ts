@@ -120,6 +120,110 @@ Deno.test("the deficit cap binds where the rate cap does not", async (t) => {
   );
 });
 
+Deno.test("recomp and gain are guarded like cuts", async (t) => {
+  await resetNutrition();
+  // A steady 82 kg with a full window, so every clip is measured against a
+  // real estimate rather than a handed-in number. recomp had zero coverage
+  // once — the enum value existed, the doctrine existed, and no test had ever
+  // sent one — and the gap held two real bugs: a doctrine-compliant recomp
+  // was 422'd into relabelling itself as a cut (registering a phase switch
+  // that never happened), and any gain passed through unclipped.
+  const days = expenditureWindow();
+  await seedFood();
+  await seedWeighIns(days, 82, -0.2);
+  await seedIntakeDays(days, 2400);
+  await seedBodyfat(14);
+
+  await t.step(
+    "a doctrine recomp is accepted and clipped in kcal",
+    async () => {
+      const { status, body } = await api.post("/nutrition-targets", {
+        goal: "recomp",
+        rate_pct_bw_week: -0.5, // legal for a cut; past recomp's kcal floor
+        protein_g_per_kg_ffm: 2.7,
+        decision: "Recomp: high protein, slight deficit, judged by strength.",
+        request_id: uuid(),
+      });
+      assertEquals(status, 201, body.error);
+      assertEquals(body.target.goal, "recomp");
+      assertEquals(body.target.clipped, true);
+      assertEquals(body.target.clipped_reason, "recomp_deficit");
+      assertEquals(
+        body.target.kcal_target,
+        body.target.tdee_at_creation - 200,
+        "maintenance to -200 kcal/day, enforced in kcal at any bodyweight",
+      );
+    },
+  );
+
+  await t.step("a clipped recomp is not a phase switch", async () => {
+    // The old misfire chain: recomp rejected -> coach relabels it a cut ->
+    // a phase_switch event registers -> the estimate damps against water
+    // that never moved. The chain must be dead at its first link.
+    const { status, body } = await api.post("/nutrition-targets", {
+      goal: "recomp",
+      rate_pct_bw_week: -0.3,
+      protein_g_per_kg_ffm: 2.7,
+      decision: "Same phase, slightly gentler.",
+      request_id: uuid(),
+    });
+    assertEquals(status, 201);
+    assertEquals(body.phase_switch_registered, false);
+  });
+
+  await t.step("an absurd recomp rate is still refused", async () => {
+    const { status, body } = await api.post("/nutrition-targets", {
+      goal: "recomp",
+      rate_pct_bw_week: -1.0,
+      protein_g_per_kg_ffm: 2.7,
+      decision: "nope",
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes("recomp"), body.error);
+    assert(body.error.includes("-0.7"), body.error);
+  });
+
+  await t.step("a gaining recomp is refused too", async () => {
+    const { status } = await api.post("/nutrition-targets", {
+      goal: "recomp",
+      rate_pct_bw_week: 0.3,
+      protein_g_per_kg_ffm: 2.7,
+      decision: "nope",
+    });
+    assertEquals(status, 422);
+  });
+
+  await t.step("an aggressive gain is clipped, not stored", async () => {
+    const { status, body } = await api.post("/nutrition-targets", {
+      goal: "gain",
+      rate_pct_bw_week: 2.0,
+      protein_g_per_kg_bw: 1.8,
+      decision: "Bulk. The server had better say no to this rate.",
+      request_id: uuid(),
+    });
+    assertEquals(status, 201, body.error);
+    assertEquals(body.target.clipped, true);
+    assertEquals(body.target.clipped_reason, "rate");
+    assertEquals(body.computation.rate_requested, 2.0);
+    assertEquals(body.computation.rate_used, 0.5);
+    // recomp -> gain is a genuine phase switch; the guard must not eat it.
+    assertEquals(body.phase_switch_registered, true);
+  });
+
+  await t.step("a conservative gain is untouched", async () => {
+    const { status, body } = await api.post("/nutrition-targets", {
+      goal: "gain",
+      rate_pct_bw_week: 0.3,
+      protein_g_per_kg_bw: 1.8,
+      decision: "Lean gain at the doctrine's default.",
+      request_id: uuid(),
+    });
+    assertEquals(status, 201);
+    assertEquals(body.target.clipped, false);
+    assertEquals(body.target.clipped_reason, null);
+  });
+});
+
 Deno.test("a week knows whether its target moved underneath it", async (t) => {
   await resetNutrition();
   const weekStart = lastMonday(); // the last finished week: Monday to Sunday
