@@ -6,9 +6,9 @@ import { api, daysAgo, resetNutrition } from "./helpers.ts";
 // bodyweight stores instants; everything downstream needs one value per Rome
 // calendar day. Two rules do that collapsing, both of them in SQL, both of
 // them silent when wrong: which instant wins when a day has several, and which
-// day an instant belongs to. Neither is observable from the bodyweight
-// endpoint — it returns the raw series — so they are asserted through
-// nutrition-state's recent_days, which reads the view.
+// day an instant belongs to. The raw rows on the bodyweight endpoint don't
+// show the collapsing, so the rules are asserted through nutrition-state's
+// recent_days, which reads the view.
 //
 // A break in either rule reads as a real weight change: the trend moves, the
 // back-solve reads a slope that never happened, and the calorie target follows.
@@ -111,4 +111,35 @@ Deno.test("one weight per Rome day", async (t) => {
       `the evening 84.0 leaked into the trend: ${body.trend_weight.trend_kg}`,
     );
   });
+});
+
+Deno.test("the bodyweight read serves the trend beside the raw rows", async () => {
+  // The chart rules say raw as faint points, trend as the line, and never
+  // smooth anything client-side — which was an instruction to draw a line no
+  // endpoint returned. The series computed for the estimate now rides along
+  // with the raw rows, one call for both.
+  const { body } = await api.get("/bodyweight");
+  assert(Array.isArray(body.trend), "the trend series must be served");
+  assert(body.trend.length >= 5, `${body.trend.length}`);
+  for (const p of body.trend) {
+    assertEquals(typeof p.day, "string");
+    assertEquals(typeof p.weight_kg, "number");
+    assertEquals(typeof p.trend_kg, "number");
+    assertEquals(typeof p.interpolated, "boolean");
+  }
+
+  // The single-day gaps left by the fixture above are bridged in the trend —
+  // days that have no raw row at all, which is why the trend could never
+  // have been a column on the raw series.
+  assert(
+    body.trend.some((p: { interpolated: boolean }) => p.interpolated),
+    "the fixture's one-day gaps must appear as interpolated trend days",
+  );
+
+  // The two reads must never disagree: nutrition-state's trend point is the
+  // last entry of this same series.
+  const state = await api.get("/nutrition-state");
+  const last = body.trend[body.trend.length - 1];
+  assertEquals(last.day, state.body.trend_weight.day);
+  assertEquals(last.trend_kg, state.body.trend_weight.trend_kg);
 });

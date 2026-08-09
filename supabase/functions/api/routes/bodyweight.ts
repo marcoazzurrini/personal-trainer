@@ -2,6 +2,7 @@ import { Hono } from "@hono/hono";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
 import { recordBodyweight } from "../lib/bodyweight.ts";
+import { loadTrend } from "../lib/nutrition_read.ts";
 import {
   optionalString,
   optionalTimestamp,
@@ -16,7 +17,14 @@ bodyweight.get("/", async (c) => {
   const rows = await sql`
     select id, value_kg::float8, measured_at, source
     from bodyweight order by measured_at`;
-  return c.json({ bodyweight: rows });
+  // The trend rides along as its own series, not as a column on the raw rows.
+  // It cannot be a column: an interpolated day has no raw row to carry it, so
+  // a per-row trend would gap exactly where the EMA earns its keep — and the
+  // trend is a per-day fact while rows are instants, two different things
+  // that would conflate on any day with a second weigh-in. One call now
+  // yields both series the bodyweight chart needs; the chart rules forbid
+  // computing a trend client-side, and for a long while nothing served one.
+  return c.json({ bodyweight: rows, trend: await loadTrend() });
 });
 
 // Nothing but request shaping: the defaults belong to the HTTP call, and every
