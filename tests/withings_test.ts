@@ -3,7 +3,7 @@ import {
   getWeights,
   type MeasureGroup,
   refreshTokens,
-  selectScaleWeights,
+  selectWeights,
   WithingsError,
 } from "../supabase/functions/api/lib/withings.ts";
 import { api, BASE, resetWithings } from "./helpers.ts";
@@ -214,10 +214,10 @@ Deno.test("withings measurement fetch", async (t) => {
 
 Deno.test("withings scaling and filtering", async (t) => {
   await t.step("the exponent is read, not assumed", () => {
-    const { accepted } = selectScaleWeights([
+    const { accepted } = selectWeights([
       group({ grpid: 1, measures: [{ value: 72700, type: 1, unit: -3 }] }),
       group({ grpid: 2, measures: [{ value: 727, type: 1, unit: -1 }] }),
-    ], DEVICE);
+    ]);
     assertEquals(accepted.map((a) => a.valueKg), [72.7, 72.7]);
   });
 
@@ -226,9 +226,8 @@ Deno.test("withings scaling and filtering", async (t) => {
   // and the dedupe on redelivery compares sent against stored — every later
   // delivery of the same reading would then read as a conflicting measurement.
   await t.step("values arrive at the precision the column stores", () => {
-    const { accepted } = selectScaleWeights(
+    const { accepted } = selectWeights(
       [group({ measures: [{ value: 72655, type: 1, unit: -3 }] })],
-      DEVICE,
     );
     const kg = accepted[0].valueKg;
     assert(
@@ -240,26 +239,26 @@ Deno.test("withings scaling and filtering", async (t) => {
   });
 
   await t.step("epoch seconds become a UTC instant", () => {
-    const { accepted } = selectScaleWeights(
-      [group({ date: 1786296000 })],
-      DEVICE,
-    );
+    const { accepted } = selectWeights([group({ date: 1786296000 })]);
     assertEquals(accepted[0].measuredAt, new Date(1786296000000).toISOString());
   });
 
-  await t.step("only the scale's own readings are kept", () => {
-    const { accepted, skipped } = selectScaleWeights([
-      group({ grpid: 1 }), // the scale
-      group({ grpid: 2, deviceid: null }), // typed in by hand
-      group({ grpid: 3, deviceid: "some-other-device" }),
+  // What is kept is "a real weight measurement", and nothing narrower. The
+  // device is deliberately not consulted: see selectWeights for why a scale
+  // Marco has not bought yet was the deciding argument.
+  await t.step("objectives and non-weight groups are discarded", () => {
+    const { accepted, skipped } = selectWeights([
+      group({ grpid: 1 }),
+      group({ grpid: 2, deviceid: null }), // entered by hand — still a weight
+      group({ grpid: 3, deviceid: "a-scale-bought-next-year" }),
       group({ grpid: 4, category: 2 }), // an objective, not a measurement
       group({ grpid: 5, measures: [{ value: 20, type: 6, unit: 0 }] }), // no weight
-    ], DEVICE);
+    ]);
 
-    assertEquals(accepted.map((a) => a.grpid), [1]);
-    assertEquals(skipped.map((s) => s.grpid), [2, 3, 4, 5]);
-    assert(skipped[0].why.includes("hand-entered"));
-    assert(skipped[3].why.includes("no weight measure"));
+    assertEquals(accepted.map((a) => a.grpid), [1, 2, 3]);
+    assertEquals(skipped.map((s) => s.grpid), [4, 5]);
+    assert(skipped[0].why.includes("objective"));
+    assert(skipped[1].why.includes("no weight measure"));
   });
 });
 

@@ -13,7 +13,7 @@ import {
   type MeasureRange,
   NOTIFY_WINDOW_MARGIN_S,
   refreshTokens,
-  selectScaleWeights,
+  selectWeights,
   type WithingsConfig,
   WithingsError,
 } from "./withings.ts";
@@ -34,7 +34,6 @@ const CATCH_UP_INTERVAL_HOURS = 6;
 
 interface AuthRow {
   withings_user_id: string;
-  device_id: string;
   access_token: string;
   refresh_token: string;
   access_token_expires_at: Date;
@@ -47,7 +46,7 @@ export interface SyncSummary {
   written: number;
   /** Already present and identical — a redelivery, which is free. */
   duplicate: number;
-  /** Not from the scale: hand-entered, imported, or an objective. */
+  /** Not a weight measurement: an objective, or a group without one. */
   ignored: number;
   /** Rejected by the bodyweight guards. Never fatal; see writeReadings. */
   refused: number;
@@ -66,7 +65,7 @@ function config(): WithingsConfig {
 
 async function readAuth(): Promise<AuthRow | null> {
   const [row] = await sql<AuthRow[]>`
-    select withings_user_id, device_id, access_token, refresh_token,
+    select withings_user_id, access_token, refresh_token,
            access_token_expires_at, last_sync_at
     from withings_auth where id = 1`;
   return row ?? null;
@@ -152,7 +151,7 @@ async function sync(
   const cfg = config();
   const token = await accessTokenFor(cfg, auth);
   const { updatetime, groups } = await getWeights(cfg, token, range);
-  const { accepted, skipped } = selectScaleWeights(groups, auth.device_id);
+  const { accepted, skipped } = selectWeights(groups);
 
   for (const s of skipped) {
     console.log(`withings: ignored group ${s.grpid} — ${s.why}`);

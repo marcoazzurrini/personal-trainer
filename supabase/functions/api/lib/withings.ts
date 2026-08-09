@@ -186,43 +186,34 @@ export interface Selection {
 }
 
 /**
- * Keeps the readings the scale took and discards everything else.
+ * Keeps the weight measurements and discards what is not one.
  *
- * A note on how this rule was arrived at, because the comment that would have
- * been easiest to write here is one this codebase cannot support. The account
- * was inspected before any of this was written (getmeas, meastype=1,
- * lastupdate=0, plus category=2 and an unfiltered pass): it returned seven
- * groups, every one of them attrib=0, category=1, model="Body", carrying the
- * same deviceid. There was no manual entry and no third-party import left in
- * the account to compare against, so the distinguishing property of a bad
- * reading could not be observed — only the shared property of good ones.
+ * This filter used to also pin the scale's device id, to keep hand-entered and
+ * third-party-imported weights out. That clause is gone, and the reason it is
+ * gone is worth more than the clause was.
  *
- * Hence: pin the deviceid, and say nothing about attrib. Filtering on attrib
- * would be a guess dressed as a check, and a guess in this position is worse
- * than an absent clause, because the next person reads it as verified. Pinning
- * the device is strictly stronger anyway — a hand-typed weight has no scale
- * behind it and so has no device id to carry.
+ * It could never be verified. The account was inspected before any of this was
+ * written and held nothing but scale readings — no manual entry, no import — so
+ * there was no negative example to test the rule against. It guarded a case that
+ * had already been cleaned up and, on the evidence available, might never occur.
  *
- * This rule is a hypothesis until acceptance test 4 runs it: add a weight by
- * hand in the Withings app and confirm no row appears.
+ * Against that it carried a real failure: a replaced scale reports a different
+ * device id, every reading would fail the pin, and the sync would stop writing
+ * rows while continuing to report success. Nothing would raise an error. The
+ * first sign would be a coach saying there is not enough data to estimate
+ * expenditure, weeks later, for reasons no one would connect to a new scale.
+ *
+ * So the trade was an unverifiable guard against a silent, delayed, hard-to-
+ * diagnose failure — and Withings' own account is now the source of truth: what
+ * it holds as a real measurement is treated as one. The cost of that choice,
+ * stated plainly: connect another app to Withings and its weights will flow in
+ * here too.
  */
-export function selectScaleWeights(
-  groups: readonly MeasureGroup[],
-  deviceId: string,
-): Selection {
+export function selectWeights(groups: readonly MeasureGroup[]): Selection {
   const accepted: WeightReading[] = [];
   const skipped: { grpid: number; why: string }[] = [];
 
   for (const group of groups) {
-    if (group.deviceid !== deviceId) {
-      skipped.push({
-        grpid: group.grpid,
-        why: `deviceid ${
-          group.deviceid ?? "null"
-        } is not the scale — hand-entered or imported`,
-      });
-      continue;
-    }
     if (group.category !== 1) {
       skipped.push({
         grpid: group.grpid,

@@ -101,11 +101,12 @@ types it. Two consequences for a coach:
   not whether he remembered to tell you. Weights he reads off some other scale
   are still worth a `POST` and land as `"manual"`.
 - **A wrong automatic row is deleted like any other**, with
-  `DELETE /bodyweight/:id`. It will not come back: the sync only writes what the
-  scale itself measured, and re-delivering a reading that is already recorded
-  does nothing. The one case worth naming is a weight that is real but not
-  Marco's — a guest on the scale — which looks like a sudden 15 kg step and
-  should be asked about, not absorbed into the trend.
+  `DELETE /bodyweight/:id`, and re-delivering a reading already recorded does
+  nothing, so it stays deleted. What the sync writes is whatever Marco's Withings
+  account holds as a real measurement — it does not check which scale, or whether
+  a human typed it. So a weight that is real but not his (a guest on the scale)
+  arrives looking like a sudden 15 kg step. Ask about a jump like that; never
+  absorb it into the trend.
 
 If a whole day is missing, that is a fact about the day, not about the plumbing:
 a dropped notification is collected by a catch-up pass within hours.
