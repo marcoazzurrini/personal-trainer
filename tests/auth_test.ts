@@ -19,6 +19,19 @@ Deno.test("auth and error envelope", async (t) => {
     assertEquals(status, 401);
   });
 
+  await t.step(
+    "the previous token still answers during a rotation",
+    async () => {
+      // Conversations hold the token in context for as long as they live, so a
+      // rotation without a grace window 401s every chat mid-sentence. The local
+      // and CI envs set API_TOKEN_PREVIOUS so this path is always exercised.
+      const previous = Deno.env.get("API_TOKEN_PREVIOUS") ??
+        "local-dev-token-previous";
+      const { status } = await api.get("/exercises", previous);
+      assertEquals(status, 200);
+    },
+  );
+
   await t.step("unknown routes return JSON with guidance", async () => {
     const { status, body } = await api.get("/nope");
     assertEquals(status, 404);

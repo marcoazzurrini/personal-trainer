@@ -35,7 +35,7 @@ jobs:
           version: 2.111.0
       - name: Write local function env
         run: |
-          printf 'API_TOKEN=local-dev-token\nDATABASE_URL=postgresql://postgres:postgres@db:5432/postgres\n' \
+          printf 'API_TOKEN=local-dev-token\nAPI_TOKEN_PREVIOUS=local-dev-token-previous\nDATABASE_URL=postgresql://postgres:postgres@db:5432/postgres\n' \
             > supabase/functions/.env
       - name: Start local stack (db, functions, gateway only)
         run: supabase start -x gotrue,realtime,storage-api,imgproxy,mailpit,postgrest,postgres-meta,studio,logflare,vector

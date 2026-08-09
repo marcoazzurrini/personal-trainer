@@ -45,7 +45,9 @@ app.get("/health", async (c) => {
 });
 
 // The log page namespace is tokenless like /health: the unguessable
-// public_id is its auth, and the coach token never reaches a browser.
+// public_id is its auth (21 chars of CSPRNG over 62 symbols, ~125 bits), and
+// the coach token never reaches a browser. Its writes carry no rate limit —
+// the entropy is the defense; revisit only if a session URL ever leaks.
 app.route("/s", logPage);
 
 // Withings cannot send our bearer token, so its two routes are registered here,
@@ -54,13 +56,23 @@ app.route("/s", logPage);
 // under /withings is mounted below the middleware and stays behind the token.
 app.route("/withings", withingsWebhook);
 
-// One static bearer token on every coach-API endpoint.
+// One static bearer token on every coach-API endpoint — two during a
+// rotation. API_TOKEN is current; API_TOKEN_PREVIOUS, when set, is the one
+// being retired. The grace window exists because conversations hold the
+// token in context for as long as they live: without it, turning the secret
+// 401s every chat mid-sentence. The procedure lives in skill/generate-skill.sh
+// next to the script that re-renders SKILL.md with the new value.
 app.use(async (c, next) => {
   const expected = Deno.env.get("API_TOKEN");
   if (!expected) {
     return c.json({ error: "API_TOKEN is not configured on the server." }, 500);
   }
-  if (c.req.header("authorization") !== `Bearer ${expected}`) {
+  const previous = Deno.env.get("API_TOKEN_PREVIOUS");
+  const sent = c.req.header("authorization");
+  const accepted = sent === `Bearer ${expected}` ||
+    (previous !== undefined && previous !== "" &&
+      sent === `Bearer ${previous}`);
+  if (!accepted) {
     return c.json({
       error:
         "Missing or wrong bearer token. Send an Authorization: Bearer <token> header.",

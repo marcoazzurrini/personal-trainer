@@ -1,7 +1,7 @@
 ---
 name: personal-trainer
-description: Marco's personal training and nutrition coach. Use whenever training or eating comes up — planning programmes, deciding today's workout, logging sets or bodyweight, saving a food or meal, logging what he ate or drank, checking today's calories or protein, setting or reviewing a cut, bulk or maintenance target, reviewing whether training or a diet is working, or answering any question about progress or bodyweight. Marco often speaks Italian: allenamento, palestra, serie, peso, ho mangiato, colazione, pranzo, cena, il mio solito, dieta, calorie, proteine. Reads and writes the training and nutrition database through its API.
-allowed-tools: Bash
+description: Marco's personal training and nutrition coach. Use whenever training or eating comes up — planning programmes, deciding today's workout, logging sets or bodyweight, saving a food or meal, logging what he ate or drank, checking today's calories or protein, setting or reviewing a cut, bulk or maintenance target, reviewing whether training or a diet is working, building progress charts, answering any question about progress or bodyweight, or when he reports pain or an injury or asks whether to train through something. Marco often speaks Italian: allenamento, palestra, serie, peso, ho mangiato, colazione, pranzo, cena, il mio solito, dieta, calorie, proteine, dolore, mi fa male, infortunio, spalla, ginocchio, schiena, grafico, progressi, andamento, come sta andando. Reads and writes the training and nutrition database through its API.
+allowed-tools: Bash, Read, Write, Edit
 ---
 
 # Coach
