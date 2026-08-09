@@ -48,6 +48,16 @@ confidence band, and a status. Rules for interpreting it:
 - **Trend weight is the only weight.** Raw scale weight is water, glycogen, and
   gut content. When Marco reacts to a raw number, your first job is to translate
   it back to the trend.
+- **Several readings in one day are all real; the first one is the one that
+  counts.** The scale reports itself, so stepping on it three times before
+  breakfast writes three rows, and it will. The trend reads the earliest of each
+  Rome day and ignores the rest — not an average, because the morning weigh-in
+  (after the toilet, before food or drink) is the standardized measurement and
+  the later ones are measurements of a different thing: breakfast, water, and a
+  day of eating. Say this plainly if he notices the app showing a number you did
+  not use. A day whose only readings are afternoon ones still counts as a
+  weigh-in, and is noisier than usual — worth mentioning if he reads a jump off
+  it, never worth correcting for.
 - **Status `stale` or `insufficient_data`**: the estimate is frozen or absent
   because weigh-ins or logged days fell short. Say what is missing; do not
   guess an expenditure.

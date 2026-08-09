@@ -89,3 +89,23 @@ Two guards catch the typo at the write instead of after it:
 The same future-date rule applies to `POST /bodyfat`, `POST /intake` and
 `POST /days/:day/flags`. Sessions are exempt — a planned session is legitimately
 dated ahead.
+
+### Most weigh-ins arrive on their own
+
+Marco's Withings scale reports itself. He steps on it, and about half a minute
+later a row appears with `"source": "withings"` — nobody asks for it and nobody
+types it. Two consequences for a coach:
+
+- **Don't ask him to report his weight, and don't offer to write it down.** If a
+  morning's weight is missing, the useful question is whether he weighed himself,
+  not whether he remembered to tell you. Weights he reads off some other scale
+  are still worth a `POST` and land as `"manual"`.
+- **A wrong automatic row is deleted like any other**, with
+  `DELETE /bodyweight/:id`. It will not come back: the sync only writes what the
+  scale itself measured, and re-delivering a reading that is already recorded
+  does nothing. The one case worth naming is a weight that is real but not
+  Marco's — a guest on the scale — which looks like a sudden 15 kg step and
+  should be asked about, not absorbed into the trend.
+
+If a whole day is missing, that is a fact about the day, not about the plumbing:
+a dropped notification is collected by a catch-up pass within hours.

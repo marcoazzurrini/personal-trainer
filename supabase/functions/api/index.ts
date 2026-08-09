@@ -24,20 +24,35 @@ import { trainingState } from "./routes/training_state.ts";
 import { userContext } from "./routes/user_context.ts";
 import { weekSchedule } from "./routes/week_schedule.ts";
 import { weeklyExerciseSets, weeklyVolume } from "./routes/volume.ts";
+import { withingsAdmin, withingsWebhook } from "./routes/withings.ts";
+import { catchUpIfDue } from "./lib/withings_sync.ts";
 
 const app = new Hono().basePath("/api");
 
 // Registered before the token middleware on purpose: /health is public so the
 // uptime monitor can ping it without credentials. The select is the point —
 // database activity is what keeps the free project from being paused.
+//
+// It carries the Withings catch-up as well, because this ping is the only
+// scheduled event in the system and a second scheduler would be one more thing
+// to configure outside the repository and forget. catchUpIfDue throttles itself
+// to one pass every few hours and cannot throw: an unreachable Withings must
+// never make the monitor believe the project is down.
 app.get("/health", async (c) => {
   await sql`select 1`;
-  return c.json({ status: "ok" });
+  const withings = await catchUpIfDue();
+  return c.json({ status: "ok", ...(withings ? { withings } : {}) });
 });
 
 // The log page namespace is tokenless like /health: the unguessable
 // public_id is its auth, and the coach token never reaches a browser.
 app.route("/s", logPage);
+
+// Withings cannot send our bearer token, so its two routes are registered here,
+// ahead of the middleware. They answer without calling next(), which is what
+// keeps them public — the same mechanism /health relies on. Everything else
+// under /withings is mounted below the middleware and stays behind the token.
+app.route("/withings", withingsWebhook);
 
 // One static bearer token on every coach-API endpoint.
 app.use(async (c, next) => {
@@ -77,6 +92,9 @@ app.route("/nutrition-events", nutritionEvents);
 app.route("/nutrition/weekly", nutritionWeekly);
 app.route("/docs", docs);
 app.route("/docs-proposals", docsProposals);
+// The manual sync trigger, on the same prefix as the webhook above but on this
+// side of the middleware.
+app.route("/withings", withingsAdmin);
 
 app.notFound((c) =>
   c.json({ error: `No route for ${c.req.method} ${c.req.path}.` }, 404)

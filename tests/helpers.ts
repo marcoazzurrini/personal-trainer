@@ -118,6 +118,20 @@ export async function resetNutrition() {
   }
 }
 
+// Empties the Withings credentials. The route suite asserts what an
+// unconfigured install does, and an empty table is precisely that state — but
+// the more important reason is that a seeded row would make those tests place
+// real calls to Withings with a live token. A test run must not be able to
+// touch the outside world by inheriting local state.
+export async function resetWithings() {
+  const db = postgres(DB_URL);
+  try {
+    await db`truncate table withings_auth`;
+  } finally {
+    await db.end();
+  }
+}
+
 /** The Sunday that ended the most recent finished Rome week. */
 export function lastFinishedSunday(): string {
   const monday = new Date(`${thisMonday()}T00:00:00Z`);
