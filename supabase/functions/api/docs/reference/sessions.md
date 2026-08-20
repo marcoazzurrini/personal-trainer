@@ -89,6 +89,11 @@ Resolved from the exercise, so the payload usually says nothing about it:
   `GET /sessions/:id`). The measure rule is checked against what the row *becomes*,
   so clearing one half of a pair is refused.
 - Session-level facts — notes, `overall_feel`, completion → `PATCH /sessions/:id`.
+- A mis-planned session nothing has touched → `DELETE /sessions/:id`, then write it
+  again. A planned session with no actuals is a proposal, not history — iterating on
+  a plan means discarding the draft, never superseding it into dead rows. Refused
+  with a 409 the moment any set carries an actual or the session was started or
+  finished: from then on it happened, and what happened is corrected, not deleted.
 
 ## Field values
 

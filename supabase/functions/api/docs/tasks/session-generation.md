@@ -135,3 +135,9 @@ The response carries `public_id`. Hand the person the log page link:
 happened, and that record is what makes the effort reports interpretable afterwards. If
 the person reports mid-workout changes in chat rather than on the page, log them as
 actuals (`logging`) — never edit the ask.
+
+**Iterating on a plan is delete-and-recreate, not supersede.** While nothing has been
+performed, the session is a draft: if Marco wants it different, `DELETE /sessions/:id`
+and write the better one — going back and forth must not leave abandoned sessions in
+the record. The deletion is refused the moment any set carries an actual or the
+session was started, so there is no risk of discarding real training by iterating.

@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  BASE,
   ensureCatalogue,
   lastMonday,
   lastTuesday,
@@ -195,4 +196,73 @@ Deno.test("session lifecycle", async (t) => {
     assertEquals(skipped.weight_kg, null);
     assertEquals(skipped.target_weight_kg, 100);
   });
+});
+
+Deno.test("a draft session is discardable; a performed one is not", async (t) => {
+  await resetTraining();
+  await ensureCatalogue();
+  // The iteration loop this protects: coach proposes a session, Marco wants
+  // it different, coach discards the draft and writes a better one. Before
+  // the delete existed the only path was superseding, and the record filled
+  // with dead planned sessions precisely because someone cared about the
+  // plan. The guard is the other half: one actual, or a started/finished
+  // stamp, and the session is history — the delete refuses.
+  const plan = () => ({
+    date: today(),
+    rationale: "draft for the delete tests",
+    sets: [
+      { exercise: "squat", target_weight_kg: 100, target_reps: 5 },
+      { exercise: "squat", target_weight_kg: 100, target_reps: 5 },
+    ],
+  });
+
+  await t.step("nothing touched: the draft deletes whole", async () => {
+    const created = await api.post("/sessions", plan());
+    assertEquals(created.status, 201, created.body.error);
+    const id = created.body.session.id;
+    const publicId = created.body.session.public_id;
+
+    const { status, body } = await api.delete(`/sessions/${id}`);
+    assertEquals(status, 200);
+    assertEquals(body.deleted.sets, 2);
+
+    assertEquals((await api.get(`/sessions/${id}`)).status, 404);
+    // The log page link dies with the draft.
+    const page = await fetch(`${BASE}/s/${publicId}`);
+    await page.body?.cancel();
+    assertEquals(page.status, 404);
+  });
+
+  await t.step("one actual on record refuses the delete", async () => {
+    const created = await api.post("/sessions", plan());
+    const id = created.body.session.id;
+    const setId = created.body.session.sets[0].id;
+    const logged = await api.patch(`/sets/${setId}`, {
+      weight_kg: 100,
+      reps: 5,
+      effort: "hard",
+    });
+    assertEquals(logged.status, 200, logged.body.error);
+
+    const { status, body } = await api.delete(`/sessions/${id}`);
+    assertEquals(status, 409);
+    assert(body.error.includes("1 of its 2 sets"), body.error);
+    assert(body.error.includes("PATCH /sets/:id"), body.error);
+  });
+
+  await t.step(
+    "a started session is history even with no actuals",
+    async () => {
+      // Starting the workout is commitment enough: the log page was opened, the
+      // warmup happened, the plan was the plan. No silent discard after that.
+      const created = await api.post("/sessions", plan());
+      const id = created.body.session.id;
+      await api.patch(`/sessions/${id}`, {
+        started_at: new Date().toISOString(),
+      });
+      const { status, body } = await api.delete(`/sessions/${id}`);
+      assertEquals(status, 409);
+      assert(body.error.includes("started or finished"), body.error);
+    },
+  );
 });

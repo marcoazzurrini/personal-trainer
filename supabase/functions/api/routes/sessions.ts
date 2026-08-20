@@ -292,3 +292,46 @@ sessions.patch("/:id", async (c) => {
   await sql`update sessions set ${sql(fields)} where id = ${sessionId}`;
   return c.json({ session: await sessionDetail(sessionId) });
 });
+
+// A planned session nobody has touched is a proposal, not history. Iterating
+// on a plan means discarding the draft and writing a better one — without
+// this, the only path was superseding, which litters the record with dead
+// rows precisely because someone was careful about the plan. The moment any
+// set carries an actual, or the session was started or finished, it happened:
+// from then on it is history, and history is corrected, never deleted.
+sessions.delete("/:id", async (c) => {
+  const sessionId = requireIdParam(c.req.param("id"), "session");
+  const [session] = await sql`
+    select id, date, started_at, completed_at
+    from sessions where id = ${sessionId}`;
+  if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
+
+  const [{ total, performed }] = await sql`
+    select count(*)::int as total,
+      count(*) filter (where
+        weight_kg is not null or reps is not null or distance_m is not null
+        or duration_s is not null or effort is not null
+        or performed_at is not null)::int as performed
+    from sets where session_id = ${sessionId}`;
+
+  if (
+    performed > 0 || session.started_at !== null ||
+    session.completed_at !== null
+  ) {
+    const why = performed > 0
+      ? `${performed} of its ${total} sets carry actuals`
+      : "it was started or finished";
+    throw new ApiError(
+      409,
+      `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
+    );
+  }
+
+  await sql.begin(async (tx) => {
+    await tx`delete from sets where session_id = ${sessionId}`;
+    await tx`delete from sessions where id = ${sessionId}`;
+  });
+  return c.json({
+    deleted: { id: session.id, date: session.date, sets: total },
+  });
+});
