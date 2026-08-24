@@ -7,10 +7,10 @@ import { blocks } from "./routes/blocks.ts";
 import { bodyfat } from "./routes/bodyfat.ts";
 import { bodyweight } from "./routes/bodyweight.ts";
 import { docs } from "./routes/docs.ts";
-import { docsProposals } from "./routes/docs_proposals.ts";
 import { exercises, muscles } from "./routes/exercises.ts";
 import { foods } from "./routes/foods.ts";
 import { days, intake } from "./routes/intake.ts";
+import { issues } from "./routes/issues.ts";
 import { logPage } from "./routes/logpage.ts";
 import { meals } from "./routes/meals.ts";
 import { mesocycles } from "./routes/mesocycles.ts";
@@ -103,7 +103,7 @@ app.route("/nutrition-targets", nutritionTargets);
 app.route("/nutrition-events", nutritionEvents);
 app.route("/nutrition/weekly", nutritionWeekly);
 app.route("/docs", docs);
-app.route("/docs-proposals", docsProposals);
+app.route("/issues", issues);
 // The manual sync trigger, on the same prefix as the webhook above but on this
 // side of the middleware.
 app.route("/withings", withingsAdmin);

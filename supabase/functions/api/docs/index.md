@@ -29,7 +29,9 @@ Two reflexes replace memory:
   already makes a retry collide: exercise and muscle names are unique, a bodyweight
   measurement is keyed by `(measured_at, source)`, a day flag upserts. Food names are
   deliberately **not** unique — brands and reformulations share a name — which is why
-  `POST /foods` is not exempt despite being a catalogue write.
+  `POST /foods` is not exempt despite being a catalogue write. Commenting on an open
+  issue is exempt on different grounds: a duplicated comment is a paragraph repeated in
+  a thread, not a second thing to review.
 - **Errors are prompts.** A rejected call returns plain English stating what was
   wrong. Read it and fix the call instead of retrying blindly.
 - Exercises, foods and meals all resolve by id, name, or alias, case-insensitively. If
@@ -66,7 +68,7 @@ One per thing a coach does.
 | `GET /docs/tasks/logging`            | Something needs writing down: sessions done off-app, corrections, lasting facts, bodyweight |
 | `GET /docs/tasks/evaluation`         | Reviews and "is this working?" questions                                                    |
 | `GET /docs/tasks/charts`             | Marco asks to see progress, in either half — training, nutrition, or the two together      |
-| `GET /docs/tasks/improving-docs`     | A document has proven wrong or incomplete in practice                                       |
+| `GET /docs/tasks/reporting-problems` | Something in the system is in the way — a call failed or returned something wrong, an error message misled you, a procedure keeps producing friction, a document has proven incomplete |
 | `GET /docs/tasks/nutrition-onboarding` | `nutrition-state` shows no target and an empty registry — setting up weighing, staples and the first target before anything is logged |
 | `GET /docs/tasks/nutrition-logging`  | Marco says he ate something, wants to save a food or meal, or asks about today's intake     |
 | `GET /docs/tasks/nutrition-checkin`  | "How's the cut going", "should we adjust", setting up a goal phase or changing a target |

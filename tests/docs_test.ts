@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { isDocName } from "../supabase/functions/api/lib/doc_names.ts";
 import { api, BASE } from "./helpers.ts";
 
 Deno.test("skill documents", async (t) => {
@@ -23,7 +24,7 @@ Deno.test("skill documents", async (t) => {
         "tasks/logging",
         "tasks/evaluation",
         "tasks/charts",
-        "tasks/improving-docs",
+        "tasks/reporting-problems",
         "reference/planning",
         "reference/sessions",
         "reference/exercises",
@@ -137,4 +138,19 @@ Deno.test("skill documents", async (t) => {
     const { status } = await api.get("/docs/method/../../index.ts");
     assertEquals(status, 404);
   });
+});
+
+// The rule that lets the docs route serve any merged file without an
+// allowlist, and that /issues reuses to validate the documents a report
+// names. No dots at all, so a name can never spell ".." and leave the folder.
+Deno.test("document names", () => {
+  for (const good of ["index", "method/hypertrophy", "a-b/c-d/e2"]) {
+    assert(isDocName(good), good);
+  }
+  for (
+    const bad of ["", "..", "a..b", "a.md", "/a", "a/", "A", "a b", "a//b"]
+  ) {
+    assert(!isDocName(bad), bad);
+  }
+  assert(!isDocName("x".repeat(81)), "over the length cap");
 });
