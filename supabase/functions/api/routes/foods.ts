@@ -72,7 +72,20 @@ foods.get("/", async (c) => {
 });
 
 foods.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "name",
+    "brand",
+    "kcal_100g",
+    "protein_100g",
+    "carbs_100g",
+    "fat_100g",
+    "fiber_100g",
+    "grams_per_unit",
+    "source",
+    "source_note",
+    "energy_check",
+    "aliases",
+  ]);
   const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
@@ -153,7 +166,19 @@ foods.get("/:ref", async (c) => {
 foods.patch("/:ref", async (c) => {
   const id = await resolveFoodId(c.req.param("ref"));
   const [before] = await sql`select * from foods where id = ${id}`;
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "name",
+    "brand",
+    "kcal_100g",
+    "protein_100g",
+    "carbs_100g",
+    "fat_100g",
+    "fiber_100g",
+    "grams_per_unit",
+    "source",
+    "source_note",
+    "energy_check",
+  ]);
 
   const fields: Record<string, unknown> = {};
   for (
@@ -253,7 +278,7 @@ foods.patch("/:ref", async (c) => {
 // exactly the way a duplicate exercise splits a lift's.
 foods.post("/:ref/aliases", async (c) => {
   const id = await resolveFoodId(c.req.param("ref"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["alias", "aliases"]);
   const aliases = body.alias !== undefined
     ? [requireString(body, "alias")]
     : parseAliases(body.aliases);

@@ -31,7 +31,7 @@ bodyweight.get("/", async (c) => {
 // rule about what makes a measurement believable lives in recordBodyweight,
 // where the Withings sync reaches it too.
 bodyweight.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, ["value_kg", "measured_at", "source"]);
   const { row, created } = await recordBodyweight({
     valueKg: requireNumber(body, "value_kg"),
     source: optionalString(body, "source") ?? "manual",

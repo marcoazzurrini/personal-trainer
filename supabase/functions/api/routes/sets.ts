@@ -37,7 +37,19 @@ sets.patch("/:id", async (c) => {
     where t.id = ${setId}`;
   if (!existing) throw new ApiError(404, `No set with id ${setId}.`);
 
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "weight_kg",
+    "reps",
+    "distance_m",
+    "duration_s",
+    "effort",
+    "performed_at",
+    "notes",
+    "target_weight_kg",
+    "target_reps",
+    "target_distance_m",
+    "target_duration_s",
+  ]);
   const target = TARGET_FIELDS.find((f) => f in body);
   if (target) {
     throw new ApiError(

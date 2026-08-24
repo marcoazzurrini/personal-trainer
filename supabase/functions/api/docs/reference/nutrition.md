@@ -170,12 +170,20 @@ POST /intake
 
 | Form | Fields | Writes |
 | --- | --- | --- |
-| A saved meal | `"meal": "<id, name, or alias>"` | one row per item, sharing `meal_id` |
+| A saved meal | `"meal": "<id, name, or alias>"`, optional `"scale"` | one row per item, sharing `meal_id` |
 | A single food | `"food": "<id, name, or alias>"` plus `"grams"` **or** `"units"` | one row |
 | An ad-hoc estimate | `"adhoc_kcal": 1200`, optional `"adhoc_protein_g"` | one row |
 
 Exactly one form per call. Multiple entries per day are normal, and the day's totals
 are computed at read time.
+
+`scale` is a fraction of a saved meal — `0.5` for half the usual portion, `2` for a
+double — and multiplies every item's grams, macros following the grams actually
+stored. It goes with `meal` and only with `meal`: part of a single food is that food
+at fewer grams, and part of an estimate is the estimate at the number you mean. It
+must be greater than 0 and at most 10; past that the decimal point is in the wrong
+place. Use it rather than expanding a meal into separate food entries by hand — the
+expansion loses the `meal_id` that says these rows were one routine.
 
 `adhoc_kcal` is a **required number**, not an optional one. Estimate conversationally,
 state the assumption, and log it — an ad-hoc entry is a first-class record, not a

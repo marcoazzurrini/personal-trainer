@@ -34,6 +34,11 @@ Two reflexes replace memory:
   a thread, not a second thing to review.
 - **Errors are prompts.** A rejected call returns plain English stating what was
   wrong. Read it and fix the call instead of retrying blindly.
+- **A field a call does not accept is refused, not ignored.** Invent a plausible
+  parameter and the call fails naming it, and lists the fields that do exist —
+  which is usually the one you wanted. Never assume an unfamiliar field was
+  understood because the call succeeded; if it had not been understood, it would
+  not have succeeded.
 - Exercises, foods and meals all resolve by id, name, or alias, case-insensitively. If
   a name doesn't resolve, the error says what to do. Only add a genuinely new one —
   never a synonym of something that exists, which would split its history in two.

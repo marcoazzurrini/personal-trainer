@@ -4,6 +4,7 @@ import { ApiError } from "../lib/errors.ts";
 import { foodMacros, scaleFood, sumMacros } from "../lib/nutrition.ts";
 import { resolveFoodId, resolveMealId } from "../lib/resolve.ts";
 import {
+  assertKnownFields,
   type Body,
   readJson,
   requireNumber,
@@ -73,6 +74,7 @@ async function parseItems(
       throw new ApiError(422, 'Each entry in "items" must be an object.');
     }
     const item = entry as Body;
+    assertKnownFields(item, ["food", "grams"], 'an entry in "items"');
     items.push({
       foodId: await resolveFoodId(item.food),
       grams: requireNumber(item, "grams"),
@@ -98,7 +100,7 @@ meals.get("/", async (c) => {
 
 // One call, one transaction: a meal arrives complete or not at all.
 meals.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, ["name", "items", "aliases"]);
   const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
@@ -155,7 +157,7 @@ meals.get("/:ref", async (c) => {
 // by this route remembering to be careful.
 meals.patch("/:ref", async (c) => {
   const id = await resolveMealId(c.req.param("ref"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["name", "items", "aliases"]);
 
   const name = "name" in body ? requireString(body, "name") : null;
   const aliases = parseAliases(body.aliases);

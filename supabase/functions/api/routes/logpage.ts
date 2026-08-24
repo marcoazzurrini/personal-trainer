@@ -104,7 +104,14 @@ logPage.patch("/:publicId/sets/:setId", async (c) => {
   const setId = requireIdParam(c.req.param("setId"), "set");
   const existing = await setInSession(setId, session.id);
 
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "weight_kg",
+    "reps",
+    "distance_m",
+    "duration_s",
+    "effort",
+    "notes",
+  ]);
   const fields: Record<string, unknown> = {};
   if ("weight_kg" in body) {
     fields.weight_kg = optionalNumber(body, "weight_kg", { min: 0 });
@@ -170,7 +177,16 @@ logPage.patch("/:publicId/sets/:setId", async (c) => {
 // duplicating it.
 logPage.post("/:publicId/sets", async (c) => {
   const session = await sessionByPublicId(c.req.param("publicId"));
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "exercise_id",
+    "position",
+    "kind",
+    "weight_kg",
+    "reps",
+    "distance_m",
+    "duration_s",
+    "effort",
+  ]);
   const exerciseId = requireInt(body as Body, "exercise_id", { min: 1 });
   const position = requireInt(body as Body, "position", { min: 1 });
   const kind = requireOneOf(
@@ -230,7 +246,7 @@ logPage.post("/:publicId/sets", async (c) => {
 // Notes save as they are typed, without finishing anything.
 logPage.post("/:publicId/notes", async (c) => {
   const session = await sessionByPublicId(c.req.param("publicId"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["notes"]);
   await sql`
     update sessions set notes = ${optionalString(body, "notes")}
     where id = ${session.id}`;
@@ -240,7 +256,7 @@ logPage.post("/:publicId/notes", async (c) => {
 // Finishing a workout is a field changing.
 logPage.post("/:publicId/finish", async (c) => {
   const session = await sessionByPublicId(c.req.param("publicId"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["overall_feel"]);
   const overallFeel = "overall_feel" in body
     ? optionalString(body, "overall_feel")
     : null;

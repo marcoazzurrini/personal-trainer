@@ -17,7 +17,7 @@ blocks.get("/", async (c) => {
 });
 
 blocks.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, ["name", "goal", "started_on", "ended_on"]);
   const requestId = requireUuid(body, "request_id");
 
   const [existing] = await sql`

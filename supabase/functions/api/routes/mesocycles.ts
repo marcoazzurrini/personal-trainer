@@ -129,7 +129,16 @@ export const mesocycles = new Hono();
 // The complete plan in one call and one transaction: intent plus exercise
 // list. Retries with the same request_id return the original result.
 mesocycles.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "block_id",
+    "name",
+    "track",
+    "intent",
+    "started_on",
+    "planned_weeks",
+    "sessions_per_week",
+    "exercises",
+  ]);
   const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
@@ -182,7 +191,7 @@ mesocycles.get("/:id", async (c) => {
 // Trivial single-field edits only. Structural change goes through revisions.
 mesocycles.patch("/:id", async (c) => {
   const m = await resolveMesocycle(c.req.param("id"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["name", "intent", "ended_on"]);
   const fields: Record<string, unknown> = {};
   if ("name" in body) fields.name = requireString(body, "name");
   if ("ended_on" in body) fields.ended_on = optionalDate(body, "ended_on");
@@ -207,7 +216,15 @@ mesocycles.patch("/:id", async (c) => {
 // There is no way to change the plan without saying why.
 mesocycles.post("/:id/revisions", async (c) => {
   const m = await resolveMesocycle(c.req.param("id"));
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "decision",
+    "intent",
+    "add",
+    "remove",
+    "redose",
+    "weekly_sets",
+    "load_targets",
+  ]);
 
   const requestId = requireUuid(body, "request_id");
   {
@@ -348,7 +365,7 @@ mesocycles.post("/:id/revisions", async (c) => {
 // a local back-off or a declared light week — see tasks/programming).
 mesocycles.post("/:id/decisions", async (c) => {
   const m = await resolveMesocycle(c.req.param("id"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["what_changed", "why"]);
   const [row] = await sql`
     insert into mesocycle_decisions (mesocycle_id, what_changed, why, request_id)
     values (${m.id}, ${requireString(body, "what_changed")},

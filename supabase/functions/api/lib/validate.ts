@@ -3,19 +3,61 @@ import { ApiError } from "./errors.ts";
 
 export type Body = Record<string, unknown>;
 
-export async function readJson(c: Context): Promise<Body> {
+// request_id is universal, so no caller has to list it. Everything else a
+// route accepts, it names.
+const ALWAYS_ACCEPTED = "request_id";
+
+// A field this endpoint does not read is refused, not dropped.
+//
+// Silence was the old behaviour and it is the worse failure: the client is a
+// model that reasonably guesses at a parameter it has not seen documented,
+// and a guess that is ignored returns 200 over a record that says something
+// else. That is how `{"meal": "colazione", "scale": 0.5}` logged a whole
+// breakfast — the write looked like it worked, and nothing downstream can
+// tell an intended full portion from a silently unscaled half.
+//
+// The accepted list doubles as the prompt: a caller that got the name wrong
+// is shown the names that exist, which is usually all it needed.
+export function assertKnownFields(
+  obj: Body,
+  accepts: readonly string[],
+  what: string,
+): void {
+  const unknown = Object.keys(obj).filter(
+    (k) => k !== ALWAYS_ACCEPTED && !accepts.includes(k),
+  );
+  if (unknown.length === 0) return;
+  const named = unknown.map((k) => `"${k}"`).join(", ");
+  throw new ApiError(
+    422,
+    `Unknown field${unknown.length > 1 ? "s" : ""} ${named} in ${what}. ` +
+      `Accepted: ${[...accepts, ALWAYS_ACCEPTED].join(", ")}. ` +
+      "An unrecognised field is refused rather than ignored: dropped in silence, " +
+      "a guessed or misspelled name lets the call answer 200 while the record " +
+      "says something other than what was meant.",
+  );
+}
+
+// Every write names the fields it reads. The list is required rather than
+// optional so a new route cannot quietly opt out of the check.
+export async function readJson(
+  c: Context,
+  accepts: readonly string[],
+): Promise<Body> {
+  let body: unknown;
   try {
-    const body = await c.req.json();
+    body = await c.req.json();
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       throw new Error();
     }
-    return body as Body;
   } catch {
     throw new ApiError(
       422,
       "The request body must be a JSON object. Send Content-Type: application/json.",
     );
   }
+  assertKnownFields(body as Body, accepts, "the request body");
+  return body as Body;
 }
 
 export function requireString(body: Body, field: string): string {

@@ -34,7 +34,7 @@ bodyfat.get("/", async (c) => {
 // resending is a no-op, and a genuinely different value for the same day and
 // method is a conflict worth asking about rather than silently overwriting.
 bodyfat.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, ["percent", "method", "day", "note"]);
   const requestId = requireUuid(body, "request_id");
   const percent = requireNumber(body, "percent");
   const method = requireOneOf(body, "method", METHODS);

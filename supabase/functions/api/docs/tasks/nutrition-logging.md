@@ -13,7 +13,11 @@ The procedure exists so that a logged day costs seconds.
    foods resolve by name or alias, case-insensitively. If it resolves, log it
    for the day. Done. One short acknowledgment; add an observation only if it
    is genuinely useful today.
-2. If the phrasing implies a variation ("usual breakfast but double yogurt"),
+2. If the phrasing is a **portion** of the routine ("meta della mia solita
+   colazione"), send the meal with `"scale": 0.5` — one call, every item scaled,
+   and the rows still say which meal they were. Do not expand it into separate
+   food entries by hand: that loses the linkage.
+3. If the phrasing implies a **variation** ("usual breakfast but double yogurt"),
    log the meal and adjust: log the extra quantity as a separate food entry.
    Do not create a new meal for a one-off variation; create one only when Marco
    says a variation is becoming a routine.

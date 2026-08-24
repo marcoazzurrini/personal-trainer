@@ -118,7 +118,14 @@ issues.get("/", async (c) => {
 });
 
 issues.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "kind",
+    "title",
+    "problem",
+    "evidence",
+    "suggestion",
+    "docs",
+  ]);
   const requestId = requireUuid(body, "request_id");
 
   // The retry answer, before anything reaches GitHub. Same shape as the
@@ -199,7 +206,7 @@ issues.post("/", async (c) => {
 // prevent. The ledger a table would buy is not worth what it would cost.
 issues.post("/:number/comments", async (c) => {
   const issueNumber = requireIdParam(c.req.param("number"), "issue");
-  const body = await readJson(c);
+  const body = await readJson(c, ["note"]);
   const note = capped(requireString(body, "note"), MAX_COMMENT, "note");
   try {
     const { url } = await commentOnIssue(config(), issueNumber, note);

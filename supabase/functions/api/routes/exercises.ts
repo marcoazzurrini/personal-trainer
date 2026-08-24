@@ -119,7 +119,17 @@ exercises.get("/", async (c) => {
 // One call creates the exercise with its aliases and muscle mappings.
 // Muscles are referenced by name and must already exist.
 exercises.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "name",
+    "equipment",
+    "pattern",
+    "notes",
+    "measure",
+    "stimulus_type",
+    "systemic_fatigue",
+    "aliases",
+    "muscles",
+  ]);
   const name = requireString(body, "name");
   const equipment = optionalString(body, "equipment");
   const pattern = optionalString(body, "pattern");
@@ -218,7 +228,18 @@ exercises.get("/:ref/history", async (c) => {
 // aliases — the same rule as foods' "a different product is never an edit".
 exercises.patch("/:ref", async (c) => {
   const e = await resolveExercise(c.req.param("ref"));
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "name",
+    "equipment",
+    "pattern",
+    "notes",
+    "measure",
+    "stimulus_type",
+    "systemic_fatigue",
+    "alias",
+    "aliases",
+    "muscles",
+  ]);
 
   if ("muscles" in body) {
     throw new ApiError(
@@ -283,7 +304,7 @@ exercises.patch("/:ref", async (c) => {
 // history in two. Same rule and same surface as foods.
 exercises.post("/:ref/aliases", async (c) => {
   const e = await resolveExercise(c.req.param("ref"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["alias", "aliases"]);
   const aliases = body.alias !== undefined
     ? [requireString(body, "alias")]
     : body.aliases;
@@ -372,7 +393,7 @@ exercises.delete("/:ref", async (c) => {
 // silently rewrites the very numbers the plan is being judged on.
 exercises.put("/:ref/muscles", async (c) => {
   const e = await resolveExercise(c.req.param("ref"));
-  const body = await readJson(c);
+  const body = await readJson(c, ["muscles"]);
   if (!Array.isArray(body.muscles)) {
     throw new ApiError(
       422,
@@ -427,7 +448,7 @@ muscles.get("/", async (c) => {
 });
 
 muscles.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, ["name"]);
   const name = requireString(body, "name");
   const [row] = await sql`
     insert into muscles (name) values (${name}) returning id, name`;

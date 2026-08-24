@@ -8,6 +8,7 @@ import {
 } from "../lib/resolve.ts";
 import { assertEffort, assertSetMeasures } from "../lib/training.ts";
 import {
+  assertKnownFields,
   type Body,
   optionalInt,
   optionalNumber,
@@ -70,6 +71,26 @@ interface NewSet {
   notes: string | null;
 }
 
+// What a set entry may carry. Named here rather than inferred, because a
+// nested object is where a guessed field is most likely to go unnoticed:
+// "target_rpe" on one set of fifteen answers 201 and is simply not there.
+const SET_ENTRY_FIELDS = [
+  "exercise",
+  "kind",
+  "mesocycle",
+  "target_weight_kg",
+  "target_reps",
+  "target_distance_m",
+  "target_duration_s",
+  "weight_kg",
+  "reps",
+  "distance_m",
+  "duration_s",
+  "effort",
+  "performed_at",
+  "notes",
+] as const;
+
 // One set entry of POST /sessions. Targets only (upcoming) or actuals only
 // (retro) — a target written after the work would always match what was done.
 async function parseNewSet(entry: unknown): Promise<NewSet> {
@@ -77,6 +98,7 @@ async function parseNewSet(entry: unknown): Promise<NewSet> {
     throw new ApiError(422, 'Each entry in "sets" must be an object.');
   }
   const s = entry as Body;
+  assertKnownFields(s, SET_ENTRY_FIELDS, 'an entry in "sets"');
   const exercise = await resolveExercise(s.exercise);
   const kind = requireOneOf(s, "kind", KINDS, "working");
 
@@ -167,7 +189,7 @@ sessions.get("/:id", async (c) => {
 // date, sets with actuals and null targets. Set rows are created here —
 // logging fills them in rather than inserting.
 sessions.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, ["date", "rationale", "sets"]);
   const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
@@ -220,7 +242,22 @@ sessions.post("/:id/sets", async (c) => {
   const [session] = await sql`select id from sessions where id = ${sessionId}`;
   if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
 
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "exercise",
+    "kind",
+    "mesocycle",
+    "target_weight_kg",
+    "target_reps",
+    "target_distance_m",
+    "target_duration_s",
+    "weight_kg",
+    "reps",
+    "distance_m",
+    "duration_s",
+    "effort",
+    "performed_at",
+    "notes",
+  ]);
   // Appends at max(position)+1, so there is no natural key to collide on:
   // without the id a lost response becomes a duplicate set.
   const requestId = requireUuid(body, "request_id");
@@ -270,7 +307,13 @@ sessions.patch("/:id", async (c) => {
   const [session] = await sql`select id from sessions where id = ${sessionId}`;
   if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
 
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "started_at",
+    "completed_at",
+    "overall_feel",
+    "notes",
+    "rationale",
+  ]);
   const fields: Record<string, unknown> = {};
   if ("notes" in body) fields.notes = optionalString(body, "notes");
   if ("overall_feel" in body) {

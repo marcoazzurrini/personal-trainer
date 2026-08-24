@@ -20,7 +20,7 @@ import { optionalDate, readJson, requireString } from "../lib/validate.ts";
 export const weekSchedule = new Hono();
 
 weekSchedule.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, ["week_start", "schedule"]);
   const schedule = requireString(body, "schedule");
   const weekStart = optionalDate(body, "week_start");
 

@@ -380,3 +380,59 @@ Deno.test("an unlogged day reads null, not zero", async () => {
   assertEquals(loggedRow.entries, 1);
   assertEquals(unloggedRow.kcal, null);
 });
+
+// A field name nobody reads is the same failure as a number nobody checks.
+//
+// The case that produced this guard: the coach reasoned its way to a "scale"
+// parameter for logging half a saved meal, sent it, and got a 201 over a
+// whole breakfast. The field was dropped in silence, so the record said a
+// full portion and nothing anywhere could tell that apart from one actually
+// eaten. Every guard in this file exists because the wrong answer looked
+// exactly like the right one; this is that shape arriving through the key.
+Deno.test("an unrecognised field is refused, not dropped", async (t) => {
+  await t.step("a guessed parameter names the ones that exist", async () => {
+    const { status, body } = await api.post("/intake", {
+      meal: "Colazione",
+      portion: 0.5,
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes('"portion"'));
+    // The prompt is the accepted list: usually all a caller needed.
+    assert(body.error.includes("scale"), "it should offer the real name");
+  });
+
+  await t.step("a misspelling is caught the same way", async () => {
+    const { status, body } = await api.post("/bodyweight", {
+      value_kg: 82,
+      measured_at: `${today()}T05:30:00Z`,
+      sorce: "manual",
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes('"sorce"'));
+    assert(body.error.includes("source"));
+  });
+
+  // Nested is where this matters most: one bad key among fifteen sets
+  // answers 201 and simply is not in the record afterwards.
+  await t.step("inside a nested entry too", async () => {
+    const { status, body } = await api.post("/sessions", {
+      date: today(),
+      rationale: "checking the guard",
+      sets: [{ exercise: "Back Squat", target_reps: 5, target_rpe: 8 }],
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes('"target_rpe"'));
+    assert(body.error.includes("sets"), "it should say where it looked");
+  });
+
+  await t.step("request_id never has to be listed", async () => {
+    const { status, body } = await api.postRaw("/blocks", {
+      request_id: uuid(),
+    });
+    assertEquals(status, 422);
+    assert(
+      !body.error.includes("Unknown field"),
+      `request_id is universal, but: ${body.error}`,
+    );
+  });
+});

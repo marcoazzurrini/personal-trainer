@@ -211,6 +211,55 @@ Deno.test("nutrition tracking", async (t) => {
     );
   });
 
+  // Marco eats half his usual breakfast often enough that the alternative —
+  // expanding the meal into four separate food entries at scaled grams — was
+  // the routine workaround, and it threw the meal linkage away every time.
+  await t.step("a portion of a meal scales every item", async () => {
+    const { status, body } = await api.post("/intake", {
+      meal: "Colazione",
+      scale: 0.5,
+      request_id: uuid(),
+    });
+    assertEquals(status, 201);
+
+    const find = (food: string, grams: number) =>
+      body.entries.find(
+        (e: { food: string; grams: number | null; meal_id: number | null }) =>
+          e.food === food && e.grams === grams && e.meal_id === breakfastId,
+      );
+
+    const yogurt = find("Greek Yogurt 0%", 100); // 200 g at half
+    const honey = find("Honey", 10); //             20 g at half
+    assert(yogurt, "the yogurt should be logged at half its grams");
+    assert(honey, "the honey should be logged at half its grams");
+    // Macros follow the grams actually stored, not the recipe's.
+    assertEquals(yogurt.kcal, 57); // 57/100g
+    assertEquals(honey.kcal, 30.4); // 304/100g
+    // The linkage the workaround lost is the reason this exists.
+    assertEquals(yogurt.meal, "Colazione");
+  });
+
+  await t.step("a portion belongs to a meal, and is bounded", async () => {
+    for (const scale of [0, -1, 11]) {
+      const { status, body } = await api.post("/intake", {
+        meal: "Colazione",
+        scale,
+      });
+      assertEquals(status, 422, String(scale));
+      assert(body.error.includes("scale"), String(scale));
+    }
+
+    // A part of a single food is that food at fewer grams, so scale has no
+    // meaning there and saying so beats silently ignoring it.
+    const onFood = await api.post("/intake", {
+      food: "Honey",
+      grams: 20,
+      scale: 0.5,
+    });
+    assertEquals(onFood.status, 422);
+    assert(onFood.body.error.includes("meal"));
+  });
+
   await t.step("a different product is a new food, not an edit", async () => {
     // The rule that makes retroactive food correction safe. A reformulated or
     // rebranded yogurt is a different thing, so it gets its own row and the

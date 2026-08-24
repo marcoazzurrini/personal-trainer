@@ -103,13 +103,26 @@ async function insertEntry(
        ${row.note}, ${requestId})`;
 }
 
+// Past this, a "portion" is a mistyped decimal. See the check below.
+const MAX_SCALE = 10;
+
 intake.get("/", async (c) => {
   const day = c.req.query("day") ?? await romeToday();
   return c.json(await dayView(day));
 });
 
 intake.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "day",
+    "meal",
+    "scale",
+    "food",
+    "grams",
+    "units",
+    "adhoc_kcal",
+    "adhoc_protein_g",
+    "note",
+  ]);
   const requestId = requireUuid(body, "request_id");
   const today = await romeToday();
   const day = requireNotFuture(
@@ -137,6 +150,26 @@ intake.post("/", async (c) => {
           wants.join(" and ")
         }. A meal plus an extra food is two calls, which is also how a variation on a routine gets logged.`,
     );
+  }
+
+  // A portion of a saved meal. Bounded on both sides: a scale of 0 logs
+  // nothing while answering 201, and anything past 10x a routine portion is a
+  // misplaced decimal rather than an appetite — the same reasoning that makes
+  // a future date a typo instead of a fact.
+  const scale = optionalNumber(body, "scale");
+  if (scale !== null) {
+    if (wants[0] !== "meal") {
+      throw new ApiError(
+        422,
+        '"scale" is a portion of a saved meal, so it goes with "meal". A part of a single food is that food at fewer grams; an estimate is "adhoc_kcal" at the number you mean.',
+      );
+    }
+    if (scale <= 0 || scale > MAX_SCALE) {
+      throw new ApiError(
+        422,
+        `"scale" must be greater than 0 and at most ${MAX_SCALE} — 0.5 for half the usual portion, 2 for a double. A meal not eaten is not logged, and past ${MAX_SCALE}x the decimal point is usually in the wrong place.`,
+      );
+    }
   }
 
   if (body.adhoc_kcal !== undefined && body.adhoc_kcal !== null) {
@@ -205,11 +238,15 @@ intake.post("/", async (c) => {
   // One transaction — a half-logged meal would understate the day silently.
   await sql.begin(async (tx) => {
     for (const item of items) {
+      // Rounded to the tenth the column stores, then the macros are taken
+      // from that number rather than from the unrounded one — otherwise a
+      // row's macros describe grams it does not claim to hold.
+      const grams = Math.round(item.grams * (scale ?? 1) * 10) / 10;
       await insertEntry(tx, day, requestId, {
         foodId: item.food_id,
-        grams: item.grams,
+        grams,
         mealId,
-        ...scaleFood(foodMacros(item), item.grams),
+        ...scaleFood(foodMacros(item), grams),
         note,
       });
     }
@@ -237,7 +274,15 @@ intake.patch("/:id", async (c) => {
     );
   }
 
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "grams",
+    "kcal",
+    "protein_g",
+    "carbs_g",
+    "fat_g",
+    "fiber_g",
+    "note",
+  ]);
   const note = "note" in body ? optionalString(body, "note") : undefined;
   const grams = optionalNumber(body, "grams", { min: 0 });
   const kcal = optionalNumber(body, "kcal", { min: 0 });
@@ -302,7 +347,7 @@ days.post("/:day/flags", async (c) => {
     await romeToday(),
     "day",
   );
-  const body = await readJson(c);
+  const body = await readJson(c, ["flag"]);
   const flag = requireOneOf(body, "flag", FLAGS);
   await sql`
     insert into day_flags (day, flag) values (${day}, ${flag})

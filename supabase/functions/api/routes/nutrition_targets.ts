@@ -49,7 +49,16 @@ nutritionTargets.get("/", async (c) => {
 });
 
 nutritionTargets.post("/", async (c) => {
-  const body = await readJson(c);
+  const body = await readJson(c, [
+    "goal",
+    "effective_from",
+    "kcal_target",
+    "protein_g_target",
+    "protein_g_per_kg_ffm",
+    "protein_g_per_kg_bw",
+    "rate_pct_bw_week",
+    "decision",
+  ]);
   const requestId = requireUuid(body, "request_id");
   if (requestId) {
     const [existing] = await sql`
