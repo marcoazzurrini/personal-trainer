@@ -190,8 +190,15 @@ export async function seedCut(seed: CutSeed) {
 // test can satisfy one requirement of the back-solve while starving another —
 // which is how a threshold gets tested from both sides.
 
-export const WINDOW_DAYS = 21; // DEFAULT_WINDOW_DAYS
-export const MIN_USABLE_DAYS = 14; // MIN_WINDOW_DAYS
+// Imported, not restated: a restated literal would keep the seeded window and
+// the assertions self-consistent with each other while the route read a
+// different number — the threshold tests would pass while pinning the wrong
+// value.
+import {
+  DEFAULT_WINDOW_DAYS as WINDOW_DAYS,
+  MIN_WINDOW_DAYS as MIN_USABLE_DAYS,
+} from "../supabase/functions/api/lib/expenditure.ts";
+export { MIN_USABLE_DAYS, WINDOW_DAYS };
 
 /** The window the estimate reads: N days ending at the last finished Sunday, oldest first. */
 export function expenditureWindow(count = WINDOW_DAYS): string[] {
