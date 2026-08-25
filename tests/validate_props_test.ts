@@ -107,8 +107,8 @@ Deno.test("requireIdParam accepts exactly the positive integers", () => {
 
 Deno.test("a valid timestamp round-trips to the same instant", () => {
   // Whatever offset the caller wrote, the stored UTC form names the same
-  // moment. (A timestamp with no offset at all is a different, unresolved
-  // question — this property deliberately generates only explicit ones.)
+  // moment. A timestamp with no offset at all is refused: it would name a
+  // different instant depending on the runtime's zone.
   fc.assert(
     fc.property(
       fc.integer({ min: 0, max: 4_000_000_000_000 }),
@@ -122,6 +122,12 @@ Deno.test("a valid timestamp round-trips to the same instant", () => {
         const local = new Date(ms + offsetH * 3_600_000).toISOString()
           .replace("Z", `${sign}${hh}:00`);
         assertEquals(optionalTimestamp({ t: local }, "t"), iso);
+        // The same wall-clock text with the offset stripped, and the bare
+        // date, both parse — that is the trap — but are refused.
+        assert(
+          refused(() => optionalTimestamp({ t: iso.replace("Z", "") }, "t")),
+        );
+        assert(refused(() => optionalTimestamp({ t: iso.slice(0, 10) }, "t")));
       },
     ),
   );

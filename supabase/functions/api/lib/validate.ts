@@ -92,13 +92,20 @@ export function requireNumber(body: Body, field: string): number {
 }
 
 // Accepts an ISO 8601 timestamp string; returns it normalized to UTC ISO.
+// The offset (Z or ±hh:mm) is required: without one, Date.parse reads a
+// date-time in whatever zone the runtime happens to run in, and a bare date
+// as midnight UTC — either way the instant stored depends on something the
+// caller never said.
 export function optionalTimestamp(body: Body, field: string): string | null {
   const v = body[field];
   if (v === undefined || v === null) return null;
-  if (typeof v !== "string" || Number.isNaN(Date.parse(v))) {
+  if (
+    typeof v !== "string" || Number.isNaN(Date.parse(v)) ||
+    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(v)
+  ) {
     throw new ApiError(
       422,
-      `"${field}" must be an ISO 8601 timestamp, e.g. "2026-08-05T08:30:00Z".`,
+      `"${field}" must be an ISO 8601 timestamp with an explicit offset, e.g. "2026-08-05T08:30:00Z".`,
     );
   }
   return new Date(v).toISOString();
