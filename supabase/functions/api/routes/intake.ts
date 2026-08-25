@@ -302,6 +302,22 @@ intake.patch("/:id", async (c) => {
   const grams = optionalNumber(body, "grams", { min: 0 });
   const kcal = optionalNumber(body, "kcal", { min: 0 });
 
+  // "grams" answers every macro question by re-scaling from the food; a
+  // direct macro is a second answer to one of them. Accepting both wrote a
+  // row whose macros described the grams while the overridden field said
+  // something else — the same contradiction checkEnergy refuses at food
+  // creation, so it is refused here too.
+  const overridden = ["kcal", "protein_g", "carbs_g", "fat_g", "fiber_g"]
+    .filter((k) => body[k] !== undefined && body[k] !== null);
+  if (grams !== null && overridden.length > 0) {
+    throw new ApiError(
+      422,
+      `"grams" recomputes kcal and the macros from the food, so it cannot be combined with ${
+        overridden.map((k) => `"${k}"`).join(", ")
+      }. Send "grams" alone to re-scale, or the numbers alone to override them.`,
+    );
+  }
+
   if (grams !== null && entry.food_id === null) {
     throw new ApiError(
       422,

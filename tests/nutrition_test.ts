@@ -339,6 +339,22 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(fixed.grams, 165);
     assertEquals(fixed.kcal, 236);
 
+    // Re-scaling and overriding in one request would write a row whose
+    // macros describe the grams while kcal says something else. Refused,
+    // and the row is left as it was.
+    const contradictory = await api.patch(`/intake/${egg.id}`, {
+      grams: 110,
+      kcal: 50,
+    });
+    assertEquals(contradictory.status, 422);
+    assert(contradictory.body.error.includes('"grams"'));
+    const after = await api.get("/intake");
+    const untouched = after.body.entries.find(
+      (e: { id: number }) => e.id === egg.id,
+    );
+    assertEquals(untouched.grams, 165);
+    assertEquals(untouched.kcal, 236);
+
     // A duplicate log is removed, not zeroed: a 0 kcal row would still count
     // as a logged entry and inflate adherence.
     const removed = await api.delete(`/intake/${egg.id}`);
