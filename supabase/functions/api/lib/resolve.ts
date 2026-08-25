@@ -14,11 +14,16 @@ export async function resolveExerciseId(ref: unknown): Promise<number> {
   }
   if (typeof ref === "string" && ref.trim() !== "") {
     const name = ref.trim();
+    // Ranked like resolveNamed below, and for the same reason: a bare union
+    // with limit 1 left a name/alias collision to whichever row the planner
+    // produced first, which is a different exercise on a different day.
     const [row] = await sql`
-      select e.id from exercises e where lower(e.name) = lower(${name})
+      select e.id, 1 as rank from exercises e
+      where lower(e.name) = lower(${name})
       union all
-      select a.exercise_id from exercise_aliases a
+      select a.exercise_id as id, 2 as rank from exercise_aliases a
       where lower(a.alias) = lower(${name})
+      order by rank
       limit 1`;
     if (row) return row.id;
     if (/^\d+$/.test(name)) return resolveExerciseId(Number(name));

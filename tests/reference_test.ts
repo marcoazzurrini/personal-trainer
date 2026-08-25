@@ -119,4 +119,37 @@ Deno.test("reference data", async (t) => {
     assertEquals(series.body.bodyweight.length, 1);
     assertEquals(series.body.bodyweight[0].value_kg, 82.5);
   });
+
+  await t.step("a canonical name outranks an alias spelling it", async () => {
+    // The catalogue survives resets, so clear any leftovers from a prior run
+    // before creating the fixtures.
+    await api.delete("/exercises/Collision Probe");
+    await api.delete("/exercises/Collision Prober");
+
+    const canonical = await api.post("/exercises", {
+      name: "Collision Probe",
+      measure: "reps",
+      muscles: [{ muscle: "quads", volume_factor: 1 }],
+    });
+    assertEquals(canonical.status, 201, canonical.body.error);
+    const other = await api.post("/exercises", {
+      name: "Collision Prober",
+      measure: "reps",
+      muscles: [{ muscle: "quads", volume_factor: 1 }],
+      aliases: ["collision probe"],
+    });
+    assertEquals(other.status, 201, other.body.error);
+
+    // "collision probe" is now both a canonical name and another exercise's
+    // alias. The name must win — the exercise resolver once left this
+    // collision to whichever row the planner happened to produce first.
+    const { status, body } = await api.get(
+      "/exercises/collision%20probe/history?limit=1",
+    );
+    assertEquals(status, 200);
+    assertEquals(body.exercise, "Collision Probe");
+
+    await api.delete("/exercises/Collision Prober");
+    await api.delete("/exercises/Collision Probe");
+  });
 });
