@@ -136,8 +136,7 @@ export async function resetWithings() {
 
 /** The Sunday that ended the most recent finished Rome week. */
 export function lastFinishedSunday(): string {
-  const monday = new Date(`${thisMonday()}T00:00:00Z`);
-  return isoDate(addDays(monday, -1));
+  return lastFinishedSundayOf(ROME_TODAY);
 }
 
 interface CutSeed {
@@ -154,7 +153,7 @@ interface CutSeed {
 // finished Sunday, which is where the expenditure back-solve looks.
 export async function seedCut(seed: CutSeed) {
   const skip = seed.skipLastDays ?? 0;
-  const end = new Date(`${lastFinishedSunday()}T00:00:00Z`);
+  const end = lastFinishedSunday();
 
   await api.post("/foods", {
     name: "Seed Food",
@@ -168,7 +167,7 @@ export async function seedCut(seed: CutSeed) {
   });
 
   for (let i = seed.days - 1; i >= skip; i--) {
-    const day = isoDate(addDays(end, -i));
+    const day = daysBefore(end, i);
     const elapsed = seed.days - 1 - i;
     const weight = seed.startWeightKg + seed.kgPerWeek / 7 * elapsed;
     await api.post("/bodyweight", {
@@ -199,6 +198,11 @@ import {
   MIN_WINDOW_DAYS as MIN_USABLE_DAYS,
 } from "../supabase/functions/api/lib/expenditure.ts";
 export { MIN_USABLE_DAYS, WINDOW_DAYS };
+import {
+  addDays,
+  lastFinishedSunday as lastFinishedSundayOf,
+  mondayOf,
+} from "../supabase/functions/api/lib/dates.ts";
 
 /** The window the estimate reads: N days ending at the last finished Sunday, oldest first. */
 export function expenditureWindow(count = WINDOW_DAYS): string[] {
@@ -256,6 +260,80 @@ export async function seedBodyfat(percent = 14, day = lastFinishedSunday()) {
   });
 }
 
+// --- Seeding a training plan ------------------------------------------------
+
+export interface PlanExercise {
+  exercise: string;
+  role?: string;
+  priority?: number;
+  weekly_dose?: number;
+  weekly_dose_unit?: string;
+  notes?: string;
+}
+
+// The block-and-mesocycle scaffolding the training suites used to retype.
+// The exercises are each test's substance and stay explicit at the call
+// site; everything else defaults to the common shape — hypertrophy, four
+// weeks, started last Monday, so "today" sits in week two. Throws with the
+// server's own message on failure: a fixture that cannot be built should
+// fail the run by saying why, not by cascading.
+export async function seedPlan(opts: {
+  exercises: PlanExercise[];
+  name?: string;
+  track?: string;
+  intent?: string;
+  planned_weeks?: number;
+  sessions_per_week?: number;
+  started_on?: string;
+  /** Reuse an existing block — a second track running alongside the first. */
+  blockId?: number;
+}): Promise<{
+  blockId: number;
+  mesocycleId: number;
+  /** The created mesocycle as the API answered it, for asserting against. */
+  // deno-lint-ignore no-explicit-any
+  mesocycle: any;
+}> {
+  const startedOn = opts.started_on ?? lastMonday();
+  let blockId = opts.blockId;
+  if (blockId === undefined) {
+    const block = await api.post("/blocks", {
+      name: "Test block",
+      goal: "testing",
+      started_on: startedOn,
+    });
+    if (block.status !== 201) {
+      throw new Error(`seedPlan block: ${block.body.error}`);
+    }
+    blockId = block.body.block.id;
+  }
+  const meso = await api.post("/mesocycles", {
+    request_id: uuid(),
+    block_id: blockId,
+    name: opts.name ?? "Test meso",
+    track: opts.track ?? "hypertrophy",
+    intent: opts.intent ?? "Testing. Double progression 6-10.",
+    planned_weeks: opts.planned_weeks ?? 4,
+    sessions_per_week: opts.sessions_per_week ?? 3,
+    started_on: startedOn,
+    exercises: opts.exercises.map((e, i) => ({
+      role: "main",
+      priority: i + 1,
+      weekly_dose: 10,
+      weekly_dose_unit: "sets",
+      ...e,
+    })),
+  });
+  if (meso.status !== 201) {
+    throw new Error(`seedPlan mesocycle: ${meso.body.error}`);
+  }
+  return {
+    blockId: blockId!,
+    mesocycleId: meso.body.mesocycle.id,
+    mesocycle: meso.body.mesocycle,
+  };
+}
+
 // Loads the catalogue if this database has never seen it (fresh CI stack).
 export async function ensureCatalogue() {
   const { body } = await api.get("/exercises");
@@ -288,51 +366,39 @@ const ROME_TODAY: string = await (async () => {
   }
 })();
 
-function romeToday(): Date {
-  return new Date(`${ROME_TODAY}T00:00:00Z`);
-}
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-function addDays(d: Date, days: number): Date {
-  const copy = new Date(d);
-  copy.setUTCDate(copy.getUTCDate() + days);
-  return copy;
-}
+// The arithmetic on top of that anchor comes from lib/dates.ts — the same
+// functions the API's own code uses, so the suite cannot disagree with the
+// server about where a week starts. The reasoning above for the anchor
+// applies to the week boundaries too: two implementations of "Monday" were
+// two clocks waiting to disagree.
 
 /** N days before a "YYYY-MM-DD", as another "YYYY-MM-DD". */
 export function daysBefore(day: string, n: number): string {
-  return isoDate(addDays(new Date(`${day}T00:00:00Z`), -n));
+  return addDays(day, -n);
 }
 
 /** The Rome day N days back from today — the window suites count backwards. */
 export function daysAgo(n: number): string {
-  return daysBefore(today(), n);
+  return addDays(ROME_TODAY, -n);
 }
 
 /** Monday of the current Rome week. */
 export function thisMonday(): string {
-  const today = romeToday();
-  const dow = today.getUTCDay(); // Sun=0 … Sat=6
-  return isoDate(addDays(today, dow === 0 ? -6 : 1 - dow));
+  return mondayOf(ROME_TODAY);
 }
 
 /** Monday of the previous Rome week — always a finished week. */
 export function lastMonday(): string {
-  const monday = new Date(`${thisMonday()}T00:00:00Z`);
-  return isoDate(addDays(monday, -7));
+  return addDays(mondayOf(ROME_TODAY), -7);
 }
 
 /** A day inside last week (its Tuesday). */
 export function lastTuesday(): string {
-  const monday = new Date(`${lastMonday()}T00:00:00Z`);
-  return isoDate(addDays(monday, 1));
+  return addDays(mondayOf(ROME_TODAY), -6);
 }
 
 export function today(): string {
-  return isoDate(romeToday());
+  return ROME_TODAY;
 }
 
 export function uuid(): string {

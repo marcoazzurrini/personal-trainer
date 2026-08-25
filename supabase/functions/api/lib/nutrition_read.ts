@@ -1,4 +1,5 @@
 import { sql } from "../db.ts";
+import { addDays } from "./dates.ts";
 import {
   backSolve,
   damp,
@@ -18,12 +19,6 @@ import {
 const TRANSIENT_WINDOW_DAYS = 14;
 // How far back to look for a window that still qualifies before giving up.
 const MAX_STALE_WEEKS = 4;
-
-export function addDays(day: string, n: number): string {
-  const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
 
 export async function romeToday(): Promise<string> {
   const [row] = await sql`

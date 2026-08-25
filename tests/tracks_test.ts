@@ -6,6 +6,7 @@ import {
   lastMonday,
   lastTuesday,
   resetTraining,
+  seedPlan,
   thisMonday,
   today,
   uuid,
@@ -18,58 +19,30 @@ Deno.test("two plans running side by side", async (t) => {
   await resetTraining();
   await ensureCatalogue();
 
-  const block = await api.post("/blocks", {
-    name: "Concurrent block",
-    goal: "size and speed",
-    started_on: lastMonday(),
-  });
-  const blockId = block.body.block.id;
-
-  const hyp = await api.post("/mesocycles", {
-    block_id: blockId,
+  const { blockId, mesocycleId: hypId, mesocycle: hypMeso } = await seedPlan({
     name: "Hyp",
-    track: "hypertrophy",
     intent: "Grow. Double progression.",
     planned_weeks: 5,
-    sessions_per_week: 3,
-    started_on: lastMonday(),
     exercises: [
-      {
-        exercise: "squat",
-        role: "main",
-        priority: 1,
-        weekly_dose: 9,
-        weekly_dose_unit: "sets",
-      },
+      { exercise: "squat", weekly_dose: 9 },
       {
         exercise: "band face pull",
         role: "rehab",
         priority: 9,
         weekly_dose: 6,
-        weekly_dose_unit: "sets",
         notes: "shoulder",
       },
     ],
   });
-  assertEquals(hyp.status, 201);
-  const hypId = hyp.body.mesocycle.id;
 
-  const speed = await api.post("/mesocycles", {
-    block_id: blockId,
+  const { mesocycleId: speedId } = await seedPlan({
+    blockId,
     name: "Speed",
     track: "speed",
     intent: "Hold top speed. Full recovery.",
-    planned_weeks: 4,
     sessions_per_week: 2,
-    started_on: lastMonday(),
     exercises: [
-      {
-        exercise: "sprint",
-        role: "main",
-        priority: 1,
-        weekly_dose: 0.4,
-        weekly_dose_unit: "km",
-      },
+      { exercise: "sprint", weekly_dose: 0.4, weekly_dose_unit: "km" },
       {
         exercise: "easy run",
         role: "accessory",
@@ -79,8 +52,6 @@ Deno.test("two plans running side by side", async (t) => {
       },
     ],
   });
-  assertEquals(speed.status, 201);
-  const speedId = speed.body.mesocycle.id;
 
   await t.step(
     "rehab is a role inside a plan, not a track of its own",
@@ -102,7 +73,7 @@ Deno.test("two plans running side by side", async (t) => {
         }],
       });
       assertEquals(bad.status, 422);
-      const facePull = hyp.body.mesocycle.exercises.find(
+      const facePull = hypMeso.exercises.find(
         (e: { exercise: string }) => e.exercise === "Band Face Pull",
       );
       assertEquals(facePull.role, "rehab");
@@ -393,29 +364,18 @@ Deno.test("an exercise on two plans is asked about, not guessed", async () => {
   await resetTraining();
   await ensureCatalogue();
 
-  const block = await api.post("/blocks", {
-    name: "Overlap block",
-    goal: "testing",
-    started_on: lastMonday(),
+  const { blockId } = await seedPlan({
+    name: "hypertrophy plan",
+    intent: "testing",
+    exercises: [{ exercise: "squat", weekly_dose: 6 }],
   });
-  for (const track of ["hypertrophy", "strength"]) {
-    await api.post("/mesocycles", {
-      block_id: block.body.block.id,
-      name: `${track} plan`,
-      track,
-      intent: "testing",
-      planned_weeks: 4,
-      sessions_per_week: 3,
-      started_on: lastMonday(),
-      exercises: [{
-        exercise: "squat",
-        role: "main",
-        priority: 1,
-        weekly_dose: 6,
-        weekly_dose_unit: "sets",
-      }],
-    });
-  }
+  await seedPlan({
+    blockId,
+    name: "strength plan",
+    track: "strength",
+    intent: "testing",
+    exercises: [{ exercise: "squat", weekly_dose: 6 }],
+  });
 
   const ambiguous = await api.post("/sessions", {
     request_id: uuid(),

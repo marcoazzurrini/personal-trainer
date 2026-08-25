@@ -2,8 +2,8 @@ import { assert, assertEquals } from "@std/assert";
 import {
   api,
   ensureCatalogue,
-  lastMonday,
   resetTraining,
+  seedPlan,
   today,
   uuid,
 } from "./helpers.ts";
@@ -105,28 +105,17 @@ Deno.test("the exercise correction surface", async (t) => {
     assertEquals(viaPatch.status, 422);
     assert(viaPatch.body.error.includes("PUT"), viaPatch.body.error);
 
-    const block = await api.post("/blocks", {
-      name: "Scratch block",
-      goal: "testing the reclassification gate",
-      started_on: lastMonday(),
-    });
-    const meso = await api.post("/mesocycles", {
-      block_id: block.body.block.id,
+    const { mesocycleId } = await seedPlan({
       name: "Scratch meso",
-      track: "hypertrophy",
       intent: "scratch",
-      planned_weeks: 4,
       sessions_per_week: 2,
-      started_on: lastMonday(),
       exercises: [{
         exercise: "Scratch Press",
         role: "accessory",
         priority: 5,
         weekly_dose: 6,
-        weekly_dose_unit: "sets",
       }],
     });
-    assertEquals(meso.status, 201, meso.body.error);
 
     // Mid-plan: refused, naming the plan and the rule.
     const midPlan = await api.put("/exercises/Scratch Press/muscles", {
@@ -140,7 +129,7 @@ Deno.test("the exercise correction surface", async (t) => {
     );
 
     // Between plans: allowed, and the response says what it rewrote.
-    await api.patch(`/mesocycles/${meso.body.mesocycle.id}`, {
+    await api.patch(`/mesocycles/${mesocycleId}`, {
       ended_on: today(),
     });
     const between = await api.put("/exercises/Scratch Press/muscles", {

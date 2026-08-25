@@ -25,7 +25,10 @@ Deno.test("selectWeights partitions: every group is accepted or named", () => {
   // Nothing is dropped in silence — a group either becomes a reading or
   // appears in skipped with a reason. The sync's audit trail depends on the
   // two halves summing to what arrived.
-  fc.assert(fc.property(fc.array(group, { maxLength: 30 }), (groups) => {
+  fc.assert(fc.property(fc.array(group, { maxLength: 30 }), (raw) => {
+    // Group ids are unique on Withings' side; the generator does not know
+    // that, so uniqueness is imposed here rather than asserted around.
+    const groups = raw.map((g, i) => ({ ...g, grpid: i + 1 }));
     const { accepted, skipped } = selectWeights(groups);
     assertEquals(accepted.length + skipped.length, groups.length);
     const ids = [

@@ -5,8 +5,8 @@ import {
   lastMonday,
   lastTuesday,
   resetTraining,
+  seedPlan,
   today,
-  uuid,
 } from "./helpers.ts";
 
 // The counting rules are where silent wrongness would corrupt coaching.
@@ -34,42 +34,14 @@ Deno.test("counting rules", async (t) => {
     },
   );
 
-  const block = await api.post("/blocks", {
-    name: "Counting block",
-    goal: "testing",
-    started_on: lastMonday(),
-  });
-  await api.post("/mesocycles", {
-    request_id: uuid(),
-    block_id: block.body.block.id,
+  await seedPlan({
     name: "Counting meso",
-    track: "hypertrophy",
     intent: "Testing the counters.",
-    planned_weeks: 4,
     sessions_per_week: 2,
-    started_on: lastMonday(),
     exercises: [
-      {
-        exercise: "squat",
-        role: "main",
-        priority: 1,
-        weekly_dose: 6,
-        weekly_dose_unit: "sets",
-      },
-      {
-        exercise: "deficit split squat",
-        role: "accessory",
-        priority: 2,
-        weekly_dose: 4,
-        weekly_dose_unit: "sets",
-      },
-      {
-        exercise: "box jumps",
-        role: "accessory",
-        priority: 3,
-        weekly_dose: 3,
-        weekly_dose_unit: "sets",
-      },
+      { exercise: "squat", weekly_dose: 6 },
+      { exercise: "deficit split squat", role: "accessory", weekly_dose: 4 },
+      { exercise: "box jumps", role: "accessory", weekly_dose: 3 },
     ],
   });
 

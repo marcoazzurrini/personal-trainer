@@ -3,8 +3,8 @@ import {
   api,
   BASE,
   ensureCatalogue,
-  lastMonday,
   resetTraining,
+  seedPlan,
   today,
 } from "./helpers.ts";
 
@@ -14,40 +14,17 @@ Deno.test("log page namespace", async (t) => {
   await resetTraining();
   await ensureCatalogue();
 
-  const block = await api.post("/blocks", {
-    name: "Log block",
-    goal: "testing",
-    started_on: lastMonday(),
-  });
-  const meso = await api.post("/mesocycles", {
-    block_id: block.body.block.id,
-    name: "Meso",
-    track: "hypertrophy",
-    intent: "testing",
-    planned_weeks: 4,
-    sessions_per_week: 3,
-    started_on: lastMonday(),
+  const { mesocycleId } = await seedPlan({
     exercises: [
-      {
-        exercise: "squat",
-        role: "main",
-        priority: 1,
-        weekly_dose: 9,
-        weekly_dose_unit: "sets",
-        notes: "6-10 reps",
-      },
+      { exercise: "squat", weekly_dose: 9, notes: "6-10 reps" },
       {
         exercise: "sprint",
         role: "accessory",
-        priority: 2,
         weekly_dose: 0.4,
         weekly_dose_unit: "km",
       },
     ],
   });
-  // Asserted, not assumed: without it a rejected fixture leaves every step
-  // below running against no plan at all, and still passing.
-  assertEquals(meso.status, 201);
   const session = await api.post("/sessions", {
     date: today(),
     rationale: "log page test",
@@ -209,7 +186,7 @@ Deno.test("log page namespace", async (t) => {
       const added = check.body.session.sets.find(
         (x: { position: number }) => x.position === 20,
       );
-      assertEquals(added.mesocycle_id, meso.body.mesocycle.id);
+      assertEquals(added.mesocycle_id, mesocycleId);
     },
   );
 

@@ -18,6 +18,8 @@
 // without a stack, and it is the only arithmetic in the system where being
 // quietly wrong would be invisible for weeks.
 
+import { addDays, daysBetween } from "./dates.ts";
+
 export const DEFAULT_ALPHA = 0.10; // ~19-day-equivalent window
 export const MIN_WINDOW_DAYS = 14;
 export const DEFAULT_WINDOW_DAYS = 21;
@@ -67,17 +69,10 @@ export interface TrendPoint {
   trend_kg: number;
 }
 
-function addDays(day: string, n: number): string {
-  const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-export function daysBetween(from: string, to: string): number {
-  const a = Date.parse(`${from}T00:00:00Z`);
-  const b = Date.parse(`${to}T00:00:00Z`);
-  return Math.round((b - a) / 86_400_000);
-}
+// Re-exported: daysBetween has always been part of this module's public
+// face, and its callers should not care that the arithmetic moved to
+// lib/dates.ts when the week functions joined it.
+export { daysBetween } from "./dates.ts";
 
 // Exponentially weighted moving average over the daily series, initialized at
 // the first weigh-in's raw value.

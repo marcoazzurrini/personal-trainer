@@ -4,6 +4,7 @@ import {
   ensureCatalogue,
   lastMonday,
   resetTraining,
+  seedPlan,
   today,
 } from "./helpers.ts";
 
@@ -15,34 +16,13 @@ Deno.test("a set is measured the way its exercise is", async (t) => {
   await resetTraining();
   await ensureCatalogue();
 
-  const block = await api.post("/blocks", {
-    name: "Measures block",
-    goal: "testing",
-    started_on: lastMonday(),
-  });
-  await api.post("/mesocycles", {
-    block_id: block.body.block.id,
+  await seedPlan({
     name: "Mixed",
     track: "speed",
     intent: "testing measures",
-    planned_weeks: 4,
-    sessions_per_week: 3,
-    started_on: lastMonday(),
     exercises: [
-      {
-        exercise: "sprint",
-        role: "main",
-        priority: 1,
-        weekly_dose: 0.4,
-        weekly_dose_unit: "km",
-      },
-      {
-        exercise: "box jump",
-        role: "accessory",
-        priority: 2,
-        weekly_dose: 30,
-        weekly_dose_unit: "sets",
-      },
+      { exercise: "sprint", weekly_dose: 0.4, weekly_dose_unit: "km" },
+      { exercise: "box jump", role: "accessory", weekly_dose: 30 },
     ],
   });
 
