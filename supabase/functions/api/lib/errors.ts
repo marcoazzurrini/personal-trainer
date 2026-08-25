@@ -13,7 +13,12 @@ export class ApiError extends Error {
 // Human messages for constraint violations that a well-formed request can
 // still trigger. Everything else falls through to a generic message that
 // quotes the constraint name.
-const constraintMessages: Record<string, string> = {
+//
+// Exported for the tripwire in tests/constraints_test.ts, which checks every
+// name here against the live catalog — a constraint renamed in a migration
+// would otherwise demote its message to the generic fallback with nothing
+// going red.
+export const constraintMessages: Record<string, string> = {
   exercises_name_key:
     "An exercise with that name already exists (names are case-insensitive). Fetch GET /exercises to see it.",
   exercise_aliases_alias_key:
@@ -76,6 +81,7 @@ export function errorResponse(err: unknown, c: Context): Response {
   const pg = err as {
     code?: string;
     constraint_name?: string;
+    column_name?: string;
     message?: string;
     detail?: string;
   };
@@ -101,6 +107,16 @@ export function errorResponse(err: unknown, c: Context): Response {
   // requireIdParam: a malformed number deserves a prompt, not an internal
   // error. Postgres carries no constraint name here, but its detail names the
   // precision and scale, which is exactly what the caller needs.
+  // A null written into a column that cannot hold one. Reaching Postgres at
+  // all means a validator accepted an explicit null for a required field —
+  // PATCH /foods with {"kcal_100g": null} was the live case. The caller still
+  // deserves a prompt naming the field, not an internal error.
+  if (pg.code === "23502") {
+    return c.json({
+      error: `"${pg.column_name}" is required and cannot be null. Omit the ` +
+        "field to leave it unchanged, or send a real value.",
+    }, 422);
+  }
   if (pg.code === "22003") {
     return c.json({
       error: `A number is too large for the column it was written to.${
