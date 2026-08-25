@@ -191,13 +191,21 @@ failure. A day genuinely beyond estimating gets flagged `incomplete` instead, wh
 excludes it rather than counting it as zero.
 
 Every entry stores its own kcal and macros, copied from the food at the moment of
-logging. This is the design, not an optimisation: history stays what it was. The cost
-is that correcting a mistyped food does **not** fix past entries — when that matters,
-correct those rows explicitly.
+logging. This is the design, not an optimisation, and it splits into two rules that
+look contradictory until you see what each is for:
+
+- **A food's numbers were wrong** — they were always wrong, including on the day it
+  was eaten. `PATCH /foods/:ref` corrects the food *and every entry ever logged from
+  it*, and says how many it rewrote.
+- **A meal's recipe changed** — the old version really was eaten. Editing a meal
+  changes what future logs write and leaves history alone.
+
+The test is whether the record was wrong or the world moved on.
 
 ### Correcting what was logged
 
 ```json
+PATCH /intake/:id     { "day": "2026-08-20" }   // moves it; the numbers do not change
 PATCH /intake/:id     { "grams": 165 }          // re-scales from the food as it is NOW
 PATCH /intake/:id     { "kcal": 250, "protein_g": 12 }   // overrides outright
 DELETE /intake/:id                              // a duplicate log, removed not zeroed
@@ -206,6 +214,12 @@ DELETE /intake/:id                              // a duplicate log, removed not 
 These fix **one entry**, when that entry is what was wrong: the amount was misheard, or
 that day's portion was unusual. If the *food's* numbers are wrong, don't correct entries
 one by one — `PATCH /foods/:ref` fixes the food and every entry at once.
+
+Sending `day` moves an entry to another date and changes nothing else — for logging
+after midnight, or a day misremembered by one. Use it instead of deleting and logging
+again: re-logging retypes every ad-hoc number by hand and re-reads a meal's recipe as
+it is now. It cannot land in the future, and the reply is the day the entry moved to,
+with `moved_from` naming the day it left, since that day's totals changed as well.
 
 Sending `grams` re-scales from the food; an ad-hoc entry has no food to re-scale from,
 so correct it with `kcal` directly. Delete rather than zero a mis-log: a 0 kcal row

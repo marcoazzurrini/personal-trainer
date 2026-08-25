@@ -14,9 +14,11 @@
 --    pointing at one: editing a routine must never rewrite history. A meal's
 --    recipe evolves; the breakfast logged in March stays the breakfast that
 --    was eaten in March. (MacroFactor made the same call; Cronometer's
---    propagate-to-past dialog is a documented footgun.) The trade-off accepted
---    with it: correcting a mistyped food does not retroactively fix past
---    entries — the coach fixes those rows explicitly when it matters.
+--    propagate-to-past dialog is a documented footgun.) Superseded in part: a
+--    later change made PATCH /foods rewrite every entry logged from the food,
+--    because a mistyped food was always wrong and its entries always were too.
+--    The snapshot still holds where it was aimed — a meal's recipe evolving
+--    never touches what was already eaten.
 --
 -- 2. THE ROW'S SHAPE IS ITS KIND. There is no kind column. A food entry has
 --    food_id and grams; an ad-hoc entry ("pizza out, call it 1200") has

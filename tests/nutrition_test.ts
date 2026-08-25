@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { api, resetNutrition, today, uuid } from "./helpers.ts";
+import { api, daysAgo, resetNutrition, today, uuid } from "./helpers.ts";
 
 Deno.test("nutrition tracking", async (t) => {
   await resetNutrition();
@@ -558,6 +558,59 @@ Deno.test("nutrition tracking", async (t) => {
       items: [{ food: "Honey", grams: 30 }],
     });
     assertEquals(reused.status, 201);
+  });
+
+  // The date was wrong, the food was not. Before this the only repair was
+  // delete + re-log, which retypes every ad-hoc number by hand.
+  await t.step("an entry logged on the wrong day can be moved", async () => {
+    const yesterday = daysAgo(1);
+    const logged = await api.post("/intake", {
+      day: today(),
+      adhoc_kcal: 1200,
+      adhoc_protein_g: 40,
+      note: "pizza out",
+    });
+    assertEquals(logged.status, 201);
+    const entry = logged.body.entries.find(
+      (e: { note: string | null }) => e.note === "pizza out",
+    );
+
+    const moved = await api.patch(`/intake/${entry.id}`, { day: yesterday });
+    assertEquals(moved.status, 200);
+    // The reply is the day it landed on, not the one it left.
+    assertEquals(moved.body.day, yesterday);
+    assertEquals(moved.body.moved_from, today());
+
+    // Same entry, same numbers — nothing was re-typed and nothing re-read.
+    const there = moved.body.entries.find(
+      (e: { id: number }) => e.id === entry.id,
+    );
+    assert(there, "the entry should be on the day it moved to");
+    assertEquals(there.kcal, 1200);
+    assertEquals(there.protein_g, 40);
+    assertEquals(there.note, "pizza out");
+
+    // And gone from the day it left.
+    const source = await api.get(`/intake?day=${today()}`);
+    assert(
+      !source.body.entries.some((e: { id: number }) => e.id === entry.id),
+      "the entry should have left the original day",
+    );
+  });
+
+  await t.step("a move cannot land in the future", async () => {
+    const logged = await api.post("/intake", {
+      adhoc_kcal: 300,
+      note: "moving target",
+    });
+    const entry = logged.body.entries.find(
+      (e: { note: string | null }) => e.note === "moving target",
+    );
+    const { status, body } = await api.patch(`/intake/${entry.id}`, {
+      day: "2099-01-01",
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes("future"));
   });
 
   await t.step("a mistyped measurement can be removed", async () => {

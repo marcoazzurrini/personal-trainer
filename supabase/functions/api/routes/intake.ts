@@ -275,6 +275,7 @@ intake.patch("/:id", async (c) => {
   }
 
   const body = await readJson(c, [
+    "day",
     "grams",
     "kcal",
     "protein_g",
@@ -284,6 +285,20 @@ intake.patch("/:id", async (c) => {
     "note",
   ]);
   const note = "note" in body ? optionalString(body, "note") : undefined;
+
+  // The date was wrong; the food was not. Logging after midnight, or
+  // reconstructing a day from memory, puts entries on the day either side of
+  // the one meant. Without this the only repair was to delete each row and log
+  // it again, which retypes every ad-hoc number by hand — and a typo made
+  // while repairing looks exactly like a correct value.
+  //
+  // Only the day moves. Macros are not recomputed: this is the same food on a
+  // different date, not a fresh log, and re-reading the food (or a meal's
+  // recipe) would quietly write numbers that were never eaten.
+  const rawDay = optionalDate(body, "day");
+  const day = rawDay === null
+    ? null
+    : requireNotFuture(rawDay, await romeToday(), "day");
   const grams = optionalNumber(body, "grams", { min: 0 });
   const kcal = optionalNumber(body, "kcal", { min: 0 });
 
@@ -296,6 +311,7 @@ intake.patch("/:id", async (c) => {
 
   const fields: Record<string, unknown> = {};
   if (note !== undefined) fields.note = note;
+  if (day !== null) fields.day = day;
 
   if (grams !== null) {
     const [food] = await sql`select * from foods where id = ${entry.food_id}`;
@@ -310,12 +326,23 @@ intake.patch("/:id", async (c) => {
   if (Object.keys(fields).length === 0) {
     throw new ApiError(
       422,
-      'Send at least one of "grams" (re-scales from the food as it is now), "kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", or "note". To remove an entry entirely, DELETE it.',
+      'Send at least one of "day" (moves the entry to another date, numbers untouched), "grams" (re-scales from the food as it is now), "kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", or "note". To remove an entry entirely, DELETE it.',
     );
   }
 
   await sql`update intake_entries set ${sql(fields)} where id = ${id}`;
-  return c.json(await dayView(entry.day));
+
+  // The day the entry now lives on, not the one it left. Returning the old day
+  // would show a view the entry is no longer in, which reads as a failed write.
+  // moved_from names the other day when there is one: it also changed, and an
+  // emptied day leaves the expenditure window entirely.
+  const landedOn = day ?? entry.day;
+  const view = await dayView(landedOn);
+  return c.json(
+    day !== null && day !== entry.day
+      ? { ...view, moved_from: entry.day }
+      : view,
+  );
 });
 
 // A mis-log ("I logged that twice") is removed, not zeroed: a zero-kcal row
