@@ -34,6 +34,12 @@ Two reflexes replace memory:
   a thread, not a second thing to review.
 - **Errors are prompts.** A rejected call returns plain English stating what was
   wrong. Read it and fix the call instead of retrying blindly.
+- **A failed or plainly wrong call gets filed, immediately.** If a call errors, or
+  returns something that cannot be true, fetch `tasks/reporting-problems` and file
+  it as a bug there and then — mid-task, without asking. Say in one line that you
+  filed it, give Marco the URL, and carry on with what he was doing. You are the
+  only thing that saw it; unfiled, it is gone. Improvements are the opposite: they
+  wait until the task is done and Marco decides whether they are worth filing.
 - **A field a call does not accept is refused, not ignored.** Invent a plausible
   parameter and the call fails naming it, and lists the fields that do exist —
   which is usually the one you wanted. Never assume an unfamiliar field was
