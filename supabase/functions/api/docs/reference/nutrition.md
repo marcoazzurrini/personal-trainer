@@ -365,14 +365,17 @@ the rate. Sending an explicit `kcal_target` bypasses the arithmetic and should b
   recomp holds or drops slowly — accepted from −0.7 to +0.15, with the real bound
   enforced in kcal below. A sign that contradicts a cut or a gain is rejected — that
   mistake turns a cut into a bulk.
-- Both directions clip, and `clipped_reason` says which guard fired. A cut: `rate`
-  (past −0.7%/week) or `deficit` (past 500 kcal/day). A gain: `rate` (past +0.5%/week)
-  or `surplus` (past 350 kcal/day). A recomp: `recomp_deficit` (past 200 kcal/day —
-  its doctrine is a kcal band, so it is enforced in kcal at any bodyweight, and a
-  doctrine-compliant recomp never needs relabelling as a cut). A percentage and an
-  absolute number diverge as bodyweight changes, which is why each direction carries
-  both kinds — and `clipped: true` comes back so you explain the difference rather
-  than quietly delivering something other than what was asked for.
+- Both directions clip, and `clipped_reasons` lists every guard that fired. A cut:
+  `rate` (past −0.7%/week) and/or `deficit` (past 500 kcal/day). A gain: `rate`
+  (past +0.5%/week) and/or `surplus` (past 350 kcal/day). A recomp: `recomp_deficit`
+  (past 200 kcal/day — its doctrine is a kcal band, so it is enforced in kcal at any
+  bodyweight, and a doctrine-compliant recomp never needs relabelling as a cut). A
+  percentage and an absolute number diverge as bodyweight changes, which is why each
+  direction carries both kinds — at a heavy enough bodyweight one request trips both,
+  and the list names each. `clipped: true` comes back so you explain the difference
+  rather than quietly delivering something other than what was asked for, and
+  `rate_used` is always the rate the delivered `kcal_target` implies, whichever
+  guard set it.
 - `decision` is required, like a mesocycle revision's. Nothing changes what Marco eats
   without a written reason.
 - Append-only. The latest row by `effective_from` (then id) is active; two targets can

@@ -33,7 +33,8 @@ target and rate ranges there are binding.
    Keep the guards visible: a cut is clipped at −0.7%/week or a 500 kcal/day
    deficit, a gain at +0.5%/week or a 350 kcal/day surplus, a recomp at a
    200 kcal/day deficit — whichever binds first. The server clips and says
-   which in `clipped_reason`; you explain why Marco got a different number
+   which in `clipped_reasons` — every guard that bound, not just the last —
+   and you explain why Marco got a different number
    than he asked for.
 
 ## Setting up a new goal phase

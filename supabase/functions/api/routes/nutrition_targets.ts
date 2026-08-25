@@ -39,7 +39,7 @@ export const nutritionTargets = new Hono();
 nutritionTargets.get("/", async (c) => {
   const rows = await sql`
     select id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
-      protein_g_target, decision, clipped, clipped_reason, tdee_at_creation,
+      protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
       created_at
     from nutrition_targets order by effective_from desc, id desc`;
   return c.json({
@@ -66,7 +66,7 @@ nutritionTargets.post("/", async (c) => {
     if (existing) {
       const [row] = await sql`
         select id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
-          protein_g_target, decision, clipped, clipped_reason,
+          protein_g_target, decision, clipped, clipped_reasons,
           tdee_at_creation, created_at
         from nutrition_targets where id = ${existing.id}`;
       return c.json({ target: row });
@@ -192,7 +192,7 @@ nutritionTargets.post("/", async (c) => {
 
   let tdeeAtCreation: number | null = null;
   let clipped = false;
-  let clippedReason: string | null = null;
+  let clippedReasons: string[] = [];
   let kcalTarget: number;
   let computation = null;
 
@@ -217,7 +217,7 @@ nutritionTargets.post("/", async (c) => {
     );
     kcalTarget = computed.kcal_target;
     clipped = computed.clipped;
-    clippedReason = computed.clipped_reason;
+    clippedReasons = computed.clipped_reasons;
     tdeeAtCreation = expenditure.tdee_kcal;
     computation = {
       tdee_kcal: expenditure.tdee_kcal,
@@ -230,7 +230,7 @@ nutritionTargets.post("/", async (c) => {
       desired_slope_kg_per_day: computed.desired_slope_kg_per_day,
       implied_deficit_kcal: computed.implied_deficit_kcal,
       clipped: computed.clipped,
-      clipped_reason: computed.clipped_reason,
+      clipped_reasons: computed.clipped_reasons,
     };
   }
 
@@ -239,13 +239,13 @@ nutritionTargets.post("/", async (c) => {
   const [row] = await sql`
     insert into nutrition_targets
       (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target,
-       decision, tdee_at_creation, clipped, clipped_reason, request_id)
+       decision, tdee_at_creation, clipped, clipped_reasons, request_id)
     values
       (${effectiveFrom}, ${goal}, ${rate}, ${kcalTarget}, ${proteinTarget},
-       ${decision}, ${tdeeAtCreation}, ${clipped}, ${clippedReason},
+       ${decision}, ${tdeeAtCreation}, ${clipped}, ${sql.array(clippedReasons)},
        ${requestId})
     returning id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
-      protein_g_target, decision, clipped, clipped_reason, tdee_at_creation,
+      protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
       created_at`;
 
   // A change of goal is a phase switch, and a phase switch moves 1–2 kg of

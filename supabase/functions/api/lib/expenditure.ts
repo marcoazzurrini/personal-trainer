@@ -388,13 +388,12 @@ export type ClipReason =
   | "rate"
   | "deficit"
   | "recomp_deficit"
-  | "surplus"
-  | null;
+  | "surplus";
 
 export interface TargetComputation {
   kcal_target: number;
   clipped: boolean;
-  clipped_reason: ClipReason;
+  clipped_reasons: ClipReason[];
   rate_requested: number;
   rate_used: number;
   desired_slope_kg_per_day: number;
@@ -413,15 +412,18 @@ export function targetFromRate(
   // after the calories are already computed. Both directions have one — the
   // loss ceiling was code from the start, the gain ceiling was prose until it
   // let a +3%/week bulk through untouched.
-  let reason: ClipReason = null;
+  // Every guard that binds is collected, not just the last: a request can
+  // trip the rate ceiling and then a kcal cap, and the caller learns both —
+  // the same philosophy as backSolve's blockers.
+  const reasons: ClipReason[] = [];
   let rate = ratePctBwWeek;
   if (rate < -MAX_LOSS_RATE_PCT_BW_WEEK) {
     rate = -MAX_LOSS_RATE_PCT_BW_WEEK;
-    reason = "rate";
+    reasons.push("rate");
   }
   if (rate > MAX_GAIN_RATE_PCT_BW_WEEK) {
     rate = MAX_GAIN_RATE_PCT_BW_WEEK;
-    reason = "rate";
+    reasons.push("rate");
   }
 
   const desiredSlope = rate / 100 * trendWeightKg / 7; // kg/day
@@ -429,7 +431,7 @@ export function targetFromRate(
 
   if (tdee - kcal > MAX_DEFICIT_KCAL) {
     kcal = tdee - MAX_DEFICIT_KCAL;
-    reason = "deficit";
+    reasons.push("deficit");
   }
   // Tighter than the cut's 500 and checked after it, so on a recomp the
   // stricter bound wins and the reason names the doctrine that bound it.
@@ -437,19 +439,28 @@ export function targetFromRate(
   // bodyweight, instead of a rate band pretending to be a kcal rule.
   if (goal === "recomp" && tdee - kcal > MAX_RECOMP_DEFICIT_KCAL) {
     kcal = tdee - MAX_RECOMP_DEFICIT_KCAL;
-    reason = "recomp_deficit";
+    reasons.push("recomp_deficit");
   }
   if (kcal - tdee > MAX_SURPLUS_KCAL) {
     kcal = tdee + MAX_SURPLUS_KCAL;
-    reason = "surplus";
+    reasons.push("surplus");
   }
+
+  // rate_used is the rate the final kcal actually delivers. When a kcal cap
+  // re-binds after the rate clip, the rate-stage value would sit next to a
+  // kcal_target it no longer implies — the response contradicting itself.
+  // Left alone when no kcal cap fired, so an unclipped rate stays exact.
+  const kcalBound = reasons.some((r) => r !== "rate");
+  const rateUsed = kcalBound
+    ? round((kcal - tdee) / energyDensityKcalPerKg / trendWeightKg * 7 * 100, 4)
+    : rate;
 
   return {
     kcal_target: Math.round(kcal),
-    clipped: reason !== null,
-    clipped_reason: reason,
+    clipped: reasons.length > 0,
+    clipped_reasons: reasons,
     rate_requested: ratePctBwWeek,
-    rate_used: rate,
+    rate_used: rateUsed,
     desired_slope_kg_per_day: round(desiredSlope, 4),
     implied_deficit_kcal: Math.round(tdee - kcal),
   };

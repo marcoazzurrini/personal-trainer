@@ -137,7 +137,7 @@ Deno.test("expenditure and targets", async (t) => {
     });
     assertEquals(body.target.clipped, true);
     // At this bodyweight the rate ceiling binds before the 500 kcal cap does.
-    assertEquals(body.target.clipped_reason, "rate");
+    assertEquals(body.target.clipped_reasons, ["rate"]);
     assertEquals(body.computation.rate_requested, -1.5);
     assertEquals(body.computation.rate_used, -0.7);
     assert(body.computation.implied_deficit_kcal < 500);

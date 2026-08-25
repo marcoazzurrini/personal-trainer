@@ -352,7 +352,7 @@ Deno.test("targetFromRate laws", async (t) => {
     fc.assert(
       fc.property(targetArgs, ({ tdee, rate, weight, density, goal }) => {
         const r = targetFromRate(tdee, rate, weight, density, goal);
-        assertEquals(r.clipped, r.clipped_reason !== null);
+        assertEquals(r.clipped, r.clipped_reasons.length > 0);
         assert(r.rate_used >= -MAX_LOSS_RATE_PCT_BW_WEEK);
         assert(r.rate_used <= MAX_GAIN_RATE_PCT_BW_WEEK);
         assert(r.implied_deficit_kcal <= MAX_DEFICIT_KCAL);
@@ -360,6 +360,32 @@ Deno.test("targetFromRate laws", async (t) => {
         if (goal === "recomp") {
           assert(r.implied_deficit_kcal <= MAX_RECOMP_DEFICIT_KCAL);
         }
+        // The list names every binding guard, not just the last to fire: an
+        // out-of-band rate stays reported even when a kcal cap re-binds
+        // afterwards — the case the old single reason silently dropped.
+        if (
+          rate < -MAX_LOSS_RATE_PCT_BW_WEEK || rate > MAX_GAIN_RATE_PCT_BW_WEEK
+        ) {
+          assert(r.clipped_reasons.includes("rate"));
+        }
+      }),
+    );
+  });
+
+  await t.step("rate_used always re-implies kcal_target", () => {
+    // The response carries both the rate it used and the kcal it delivers.
+    // Whichever guard set the number, feeding rate_used back through the
+    // arithmetic must land on kcal_target — otherwise the response
+    // contradicts itself, which is what happened when a kcal cap re-bound
+    // after the rate clip and rate_used kept the rate-stage value.
+    fc.assert(
+      fc.property(targetArgs, ({ tdee, rate, weight, density, goal }) => {
+        const r = targetFromRate(tdee, rate, weight, density, goal);
+        const back = tdee + r.rate_used / 100 * weight / 7 * density;
+        assert(
+          Math.abs(back - r.kcal_target) <= 1,
+          `${back} vs ${r.kcal_target}`,
+        );
       }),
     );
   });

@@ -194,7 +194,7 @@ export interface ActiveTarget {
   protein_g_target: number;
   decision: string;
   clipped: boolean;
-  clipped_reason: string | null;
+  clipped_reasons: string[];
   tdee_at_creation: number | null;
   created_at: string;
 }
@@ -204,7 +204,7 @@ export async function activeTarget(
 ): Promise<ActiveTarget | null> {
   const [row] = await sql`
     select id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
-      protein_g_target, decision, clipped, clipped_reason, tdee_at_creation,
+      protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
       created_at
     from nutrition_targets
     where effective_from <= ${asOf}

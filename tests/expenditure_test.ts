@@ -298,7 +298,7 @@ Deno.test("target from rate", async (t) => {
     // ~446 kcal deficit, inside the 500 cap.
     const t4 = targetFromRate(2600, -1.5, 82, density, "cut");
     assertEquals(t4.clipped, true);
-    assertEquals(t4.clipped_reason, "rate");
+    assertEquals(t4.clipped_reasons, ["rate"]);
     assertEquals(t4.rate_requested, -1.5);
     assertEquals(t4.rate_used, -0.7);
     assert(t4.implied_deficit_kcal < 500);
@@ -311,15 +311,30 @@ Deno.test("target from rate", async (t) => {
     const heavyDensity = energyDensity(fatMassKg(120, 30));
     const t5 = targetFromRate(3000, -0.7, 120, heavyDensity, "cut");
     assertEquals(t5.clipped, true);
-    assertEquals(t5.clipped_reason, "deficit");
+    assertEquals(t5.clipped_reasons, ["deficit"]);
     assertEquals(t5.implied_deficit_kcal, 500);
     assertEquals(t5.kcal_target, 2500);
+  });
+
+  await t.step("a request that trips two guards reports both", () => {
+    // -1.5%/week at 120 kg: the rate ceiling clips it to -0.7, and the
+    // deficit that -0.7 implies at this weight still exceeds 500 kcal/day,
+    // so the kcal cap re-binds. Both guards appear, in the order they fired,
+    // and rate_used is the rate the delivered kcal implies — not the -0.7
+    // the rate stage settled on, which the target no longer matches.
+    const heavyDensity = energyDensity(fatMassKg(120, 30));
+    const b = targetFromRate(3000, -1.5, 120, heavyDensity, "cut");
+    assertEquals(b.clipped_reasons, ["rate", "deficit"]);
+    assertEquals(b.kcal_target, 2500);
+    assert(b.rate_used > -0.7);
+    const back = 3000 + b.rate_used / 100 * 120 / 7 * heavyDensity;
+    assertEquals(Math.round(back), 2500);
   });
 
   await t.step("a legal rate is untouched", () => {
     const t6 = targetFromRate(2600, -0.5, 82, density, "cut");
     assertEquals(t6.clipped, false);
-    assertEquals(t6.clipped_reason, null);
+    assertEquals(t6.clipped_reasons, []);
     assertEquals(t6.rate_used, -0.5);
   });
 
@@ -329,7 +344,7 @@ Deno.test("target from rate", async (t) => {
     // because only the cut had guards and the gain ceiling lived in prose.
     const g = targetFromRate(2600, 3.0, 82, density, "gain");
     assertEquals(g.clipped, true);
-    assertEquals(g.clipped_reason, "rate");
+    assertEquals(g.clipped_reasons, ["rate"]);
     assertEquals(g.rate_requested, 3.0);
     assertEquals(g.rate_used, 0.5);
   });
@@ -341,7 +356,7 @@ Deno.test("target from rate", async (t) => {
     const heavyDensity = energyDensity(fatMassKg(120, 30));
     const s = targetFromRate(3000, 0.5, 120, heavyDensity, "gain");
     assertEquals(s.clipped, true);
-    assertEquals(s.clipped_reason, "surplus");
+    assertEquals(s.clipped_reasons, ["surplus"]);
     assertEquals(s.kcal_target, 3350);
   });
 
@@ -351,7 +366,7 @@ Deno.test("target from rate", async (t) => {
     // cut, past the floor for a recomp — and the reason names the doctrine.
     const r = targetFromRate(2600, -0.5, 82, density, "recomp");
     assertEquals(r.clipped, true);
-    assertEquals(r.clipped_reason, "recomp_deficit");
+    assertEquals(r.clipped_reasons, ["recomp_deficit"]);
     assertEquals(r.kcal_target, 2400);
     assertEquals(r.implied_deficit_kcal, 200);
   });
@@ -360,7 +375,7 @@ Deno.test("target from rate", async (t) => {
     // −0.15%/week at 82 kg is ~96 kcal/day, inside the doctrine's band.
     const r = targetFromRate(2600, -0.15, 82, density, "recomp");
     assertEquals(r.clipped, false);
-    assertEquals(r.clipped_reason, null);
+    assertEquals(r.clipped_reasons, []);
   });
 
   await t.step("every goal has a lane through the arithmetic", () => {

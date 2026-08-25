@@ -76,7 +76,7 @@ Deno.test("the deficit cap binds where the rate cap does not", async (t) => {
   // catches an over-aggressive cut first, but at 120 kg a perfectly legal
   // -0.7%/week already implies more than 500 kcal/day. expenditure_test proves
   // that arithmetic; this proves the route reports which guard actually fired,
-  // because clipped_reason is what the decision log will say later.
+  // because clipped_reasons is what the decision log will say later.
   const days = expenditureWindow();
   await seedFood();
   await seedWeighIns(days, 120, -0.5);
@@ -93,11 +93,21 @@ Deno.test("the deficit cap binds where the rate cap does not", async (t) => {
     });
     assertEquals(status, 201);
     assertEquals(body.target.clipped, true);
-    assertEquals(body.target.clipped_reason, "deficit");
+    assertEquals(body.target.clipped_reasons, ["deficit"]);
+    // The kcal cap set the target, so rate_used reports the gentler rate the
+    // capped kcal delivers — not the -0.7 that was asked for and never
+    // reached — and feeding it back through the arithmetic lands on the
+    // target. The fields of one answer imply each other.
+    assert(body.computation.rate_used > -0.7, "the cap softened the rate");
     assertEquals(
-      body.computation.rate_used,
-      -0.7,
-      "the rate was never clipped",
+      Math.round(
+        body.computation.tdee_kcal +
+          body.computation.rate_used / 100 *
+            body.computation.trend_weight_kg / 7 *
+            body.computation.energy_density_kcal_per_kg,
+      ),
+      body.target.kcal_target,
+      "rate_used re-implies the delivered target",
     );
     assertEquals(body.computation.implied_deficit_kcal, 500);
     assertEquals(
@@ -147,7 +157,7 @@ Deno.test("recomp and gain are guarded like cuts", async (t) => {
       assertEquals(status, 201, body.error);
       assertEquals(body.target.goal, "recomp");
       assertEquals(body.target.clipped, true);
-      assertEquals(body.target.clipped_reason, "recomp_deficit");
+      assertEquals(body.target.clipped_reasons, ["recomp_deficit"]);
       assertEquals(
         body.target.kcal_target,
         body.target.tdee_at_creation - 200,
@@ -203,7 +213,7 @@ Deno.test("recomp and gain are guarded like cuts", async (t) => {
     });
     assertEquals(status, 201, body.error);
     assertEquals(body.target.clipped, true);
-    assertEquals(body.target.clipped_reason, "rate");
+    assertEquals(body.target.clipped_reasons, ["rate"]);
     assertEquals(body.computation.rate_requested, 2.0);
     assertEquals(body.computation.rate_used, 0.5);
     // recomp -> gain is a genuine phase switch; the guard must not eat it.
@@ -220,7 +230,7 @@ Deno.test("recomp and gain are guarded like cuts", async (t) => {
     });
     assertEquals(status, 201);
     assertEquals(body.target.clipped, false);
-    assertEquals(body.target.clipped_reason, null);
+    assertEquals(body.target.clipped_reasons, []);
   });
 });
 
