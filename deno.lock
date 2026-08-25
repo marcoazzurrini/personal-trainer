@@ -1,12 +1,17 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@hono/hono@4": "4.13.0",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "npm:fast-check@^4.9.0": "4.9.0",
     "npm:lefthook@2.1.10": "2.1.10",
     "npm:postgres@^3.4.0": "3.4.9"
   },
   "jsr": {
+    "@hono/hono@4.13.0": {
+      "integrity": "01944c68d43ec22e31b236923335ff8415bae8f32f76290d3a8387b9640c96af"
+    },
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
       "dependencies": [
@@ -18,6 +23,12 @@
     }
   },
   "npm": {
+    "fast-check@4.9.0": {
+      "integrity": "sha512-7ms6T7SybUev/PQITciI0yLM2pOSFy5zpG8Ty7tQofcVaQUvrMXp6CBwqF6fThLCLOrfBtuHAtwq6Yu4XPCllg==",
+      "dependencies": [
+        "pure-rand"
+      ]
+    },
     "lefthook-darwin-arm64@2.1.10": {
       "integrity": "sha512-nw+X8wRNDoUUV6WSteyKBbcLySq+fsmZt5WV/s50ZJpysmsDKJOUMln6SllNfP+60dzUahAO7REco/2633BsLg==",
       "os": ["darwin"],
@@ -87,11 +98,16 @@
     },
     "postgres@3.4.9": {
       "integrity": "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="
+    },
+    "pure-rand@8.4.2": {
+      "integrity": "sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng=="
     }
   },
   "workspace": {
     "dependencies": [
+      "jsr:@hono/hono@4",
       "jsr:@std/assert@1",
+      "npm:fast-check@^4.9.0",
       "npm:postgres@^3.4.0"
     ]
   }

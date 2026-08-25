@@ -60,6 +60,13 @@ const RULES: Record<Measure, Rule> = {
 
 const ALL_FIELDS: readonly Field[] = ["reps", "distance", "duration"];
 
+// Own keys only. A plain index would answer for "toString" and its prototype
+// siblings with a function instead of a rule, and the refusal below would
+// become a TypeError — a 500 where the caller needed the list of measures.
+function ruleFor(measure: string): Rule | undefined {
+  return Object.hasOwn(RULES, measure) ? RULES[measure as Measure] : undefined;
+}
+
 export interface SetMeasures {
   weightKg: number | null;
   reps: number | null;
@@ -103,7 +110,7 @@ export function assertSetMeasures(
   side: "target" | "actual",
   v: SetMeasures,
 ): void {
-  const rule = RULES[measure as Measure];
+  const rule = ruleFor(measure);
   if (!rule) {
     throw new ApiError(
       422,
@@ -207,7 +214,7 @@ export function assertDoseUnit(
 }
 
 export function doseUnitsFor(measure: string): DoseUnit[] {
-  const rule = RULES[measure as Measure];
+  const rule = ruleFor(measure);
   const units: DoseUnit[] = ["sets"];
   if (rule?.needs.includes("duration")) units.push("minutes");
   if (rule?.needs.includes("distance")) units.push("km");

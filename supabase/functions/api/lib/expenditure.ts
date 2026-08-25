@@ -93,12 +93,16 @@ export function trendSeries(
   alpha: number = DEFAULT_ALPHA,
 ): TrendPoint[] {
   if (weights.length === 0) return [];
-  const byDay = new Map(weights.map((w) => [w.day, Number(w.value_kg)]));
-  const first = weights[0].day;
-  const last = weights[weights.length - 1].day;
+  // Sorted here, not assumed: the SQL that feeds this orders by day, but an
+  // unsorted array used to be answered with a silently truncated series —
+  // wrong in exactly the invisible-for-weeks way this module exists to avoid.
+  const ordered = [...weights].sort((a, b) => a.day < b.day ? -1 : 1);
+  const byDay = new Map(ordered.map((w) => [w.day, Number(w.value_kg)]));
+  const first = ordered[0].day;
+  const last = ordered[ordered.length - 1].day;
 
   const points: TrendPoint[] = [];
-  let trend = Number(weights[0].value_kg);
+  let trend = Number(ordered[0].value_kg);
 
   for (let day = first; daysBetween(day, last) >= 0; day = addDays(day, 1)) {
     let weight = byDay.get(day);
@@ -209,6 +213,16 @@ function bandFor(coverage: number): number {
 
 export function backSolve(input: WindowInput): Expenditure {
   const { days, intakeByDay, excludedDays, trend, bodyfatPercent } = input;
+
+  // The one case where window is null — there was no window to speak of.
+  // Without this guard the blockers below interpolate undefined for the
+  // window's dates.
+  if (days.length === 0) {
+    return insufficient(
+      ["There is no finished day to estimate over yet."],
+      null,
+    );
+  }
 
   const from = days[0];
   const to = days[days.length - 1];
