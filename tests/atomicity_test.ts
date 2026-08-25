@@ -138,7 +138,7 @@ Deno.test("a session whose sets break a rule is not created", async (t) => {
     // The squat set that did insert would otherwise still be counted: it is a
     // performed working set, so it would show up in the volume view as a
     // session's worth of work that never happened.
-    const history = await api.get("/exercises/squat/history");
+    const history = await api.get("/exercises/squat/history?limit=all");
     assertEquals(history.body.sets.length, 0);
   });
 });

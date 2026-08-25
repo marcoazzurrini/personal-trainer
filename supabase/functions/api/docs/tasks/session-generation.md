@@ -80,7 +80,8 @@ an average week, and no week is average.
 ## Choosing the targets
 
 Apply the method document to this exercise's recent history. Last session's numbers are in
-the training state; deeper history is `GET /exercises/:name/history`.
+the training state; deeper history is `GET /exercises/:name/history?limit=20` — enough to see
+the recent trend without reading a year of it.
 
 **Target the effort, then find the weight.** For a goal where effort is the primary
 variable — hypertrophy, most obviously — what you are prescribing is a hard set of N reps,

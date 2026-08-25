@@ -8,7 +8,7 @@ muscle classification that every volume number depends on.
 | Endpoint | Returns |
 | --- | --- |
 | `GET /exercises` | The catalogue: names, aliases, equipment, `measure`, `systemic_fatigue`, muscles with `volume_factor`. |
-| `GET /exercises/:name/history` | That exercise's performed working sets over time (warmups excluded), with its `measure` so the columns can be read. A sprint's history is metres and seconds; reading it for a rising weight would find nothing and conclude wrongly that nothing is happening. |
+| `GET /exercises/:name/history?limit=` | That exercise's performed working sets over time (warmups excluded), newest sets kept when limited, each with its `effort` and its `notes`, plus the exercise's `measure` so the columns can be read. A sprint's history is metres and seconds; reading it for a rising weight would find nothing and conclude wrongly that nothing is happening. **`limit` is required**: a whole number for the most recent sets, or `all` for the whole series. The reply carries `total_sets`, so a partial read knows what it did not ask for. |
 | `GET /muscles` | The known muscle names. |
 
 ## Creating an exercise

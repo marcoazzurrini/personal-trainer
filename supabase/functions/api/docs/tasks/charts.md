@@ -11,7 +11,9 @@ Build what was asked about; read the whole list before deciding what that was.
 
 ## Training
 
-**1. One exercise over time** — `GET /exercises/:name/history`. The top set's weight per
+**1. One exercise over time** — `GET /exercises/:name/history?limit=all`. A chart of a
+block or a year wants the whole series, so this is the one read that asks for it.
+The top set's weight per
 date as a line, with reps annotated on the points. This is the view that answers the
 question people actually mean: is the bar moving.
 

@@ -194,9 +194,47 @@ Deno.test("counting rules", async (t) => {
   });
 
   await t.step("history returns working sets in date order", async () => {
-    const { body } = await api.get("/exercises/squat/history");
+    const { body } = await api.get("/exercises/squat/history?limit=all");
     assertEquals(body.sets.length, 3); // warmup excluded
     assertEquals(body.sets[0].date, lastTuesday());
     assertEquals(body.sets[2].date, today());
+    assertEquals(body.total_sets, 3);
+  });
+
+  // The read grows forever otherwise: a main lift passes a few hundred sets in
+  // a year, and every set now carries its note. A default would have been a
+  // decision nobody makes.
+  await t.step("history refuses to guess how much to return", async () => {
+    const { status, body } = await api.get("/exercises/squat/history");
+    assertEquals(status, 422);
+    assert(body.error.includes("limit"));
+    assert(
+      body.error.includes("all"),
+      "the whole-series answer must be offered",
+    );
+
+    for (const bad of ["0", "-3", "banana", "1.5"]) {
+      const res = await api.get(`/exercises/squat/history?limit=${bad}`);
+      assertEquals(res.status, 422, bad);
+    }
+  });
+
+  await t.step("a limit keeps the recent end, and says so", async () => {
+    const { body } = await api.get("/exercises/squat/history?limit=2");
+    assertEquals(body.sets.length, 2);
+    assertEquals(body.returned, 2);
+    // Still chronological, and it is the *latest* two that survive.
+    assertEquals(body.sets[1].date, today());
+    // What it chose not to read is visible, so 2 is never mistaken for all.
+    assertEquals(body.total_sets, 3);
+  });
+
+  // The reason notes are here at all: the numbers alone read as a plateau.
+  await t.step("a set's note comes back with its numbers", async () => {
+    const { body } = await api.get("/exercises/squat/history?limit=all");
+    assert(
+      body.sets.every((s: Record<string, unknown>) => "notes" in s),
+      "every set should carry its note field",
+    );
   });
 });

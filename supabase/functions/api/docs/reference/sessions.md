@@ -95,6 +95,20 @@ Resolved from the exercise, so the payload usually says nothing about it:
   with a 409 the moment any set carries an actual or the session was started or
   finished: from then on it happened, and what happened is corrected, not deleted.
 
+## Writing a set's `notes`
+
+A note earns its place only when it says something the numbers cannot, and
+**keep it to a clause**. "Top third under control, red band" or "left knee
+pinched on the last two" is the whole job. Do not restate the set, do not
+narrate the session, and do not write a note at all when the reps, the weight
+and the `effort` already say it — most sets need none.
+
+The reason is not tidiness. Notes come back with every set in
+`GET /exercises/:name/history`, which is where an exercise gets judged, so a
+paragraph per set becomes a wall of prose between the coach and the trend it is
+supposed to read. A clause survives that; a paragraph is what makes `limit`
+necessary in the first place.
+
 ## Field values
 
 - `effort` — `easy` | `hard` | `failure`. It reports how close a set came to

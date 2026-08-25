@@ -31,7 +31,7 @@ delivering its metres at drifting times, or a jump session losing height across 
 the same finding as a wall of `easy`.
 
 **3. Did it produce anything?** The intent's load goals against actual performance
-(`GET /exercises/:name/history`, which returns the exercise's `measure` so the columns
+(`GET /exercises/:name/history?limit=20`, which returns the exercise's `measure` so the columns
 can be read). Reps creeping up at fixed weights, or weight up at the same reps, is the
 proxy for lifting; times falling at a fixed distance is the proxy for speed. The
 adaptation itself can't be measured week to week.

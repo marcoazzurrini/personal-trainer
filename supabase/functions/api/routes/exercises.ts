@@ -186,27 +186,73 @@ exercises.post("/", async (c) => {
   return c.json({ exercise: created }, 201);
 });
 
+// How much history the caller asked for — required, with no default.
+//
+// A default here would be a decision nobody makes. request_id was optional
+// once and the calls that could have sent it simply did not; the fix was to
+// stop offering the choice of not deciding. The same applies to a read whose
+// size grows forever: a main lift reaches a few hundred sets in a year, every
+// set now carries its note, and "however much there is" is not an amount
+// anybody chose.
+//
+// "all" is a first-class answer rather than a large number, because charting
+// a whole block genuinely wants the series. Forced to invent a number, a
+// caller picks a round one and plots a third of the history without noticing.
+function historyLimit(raw: string | undefined): number | null {
+  if (raw === "all") return null;
+  const n = Number(raw);
+  if (raw === undefined || !Number.isInteger(n) || n < 1) {
+    throw new ApiError(
+      422,
+      '"limit" is required on a history read: a whole number for the most recent sets — 10 to 30 is usually enough to judge how an exercise is going — or "all" for the whole series, which is what charting a block or a year needs. Every set carries its note, so ask for what you will actually read. The reply says how many sets exist in total, so a partial read knows what it left behind.',
+    );
+  }
+  return n;
+}
+
 // Every working set for one lift over time. Accepts id, name, or alias.
 exercises.get("/:ref/history", async (c) => {
+  const limit = historyLimit(c.req.query("limit"));
   const exerciseId = await resolveExerciseId(c.req.param("ref"));
   const [exercise] = await sql`
     select id, name, measure from exercises where id = ${exerciseId}`;
+
+  const [{ total }] = await sql`
+    select count(*)::int as total
+    from sets t
+    where t.exercise_id = ${exerciseId} and t.kind = 'working'
+      and set_performed(t.reps, t.distance_m, t.duration_s)`;
+
   // Every measure comes back, and which ones are populated is the exercise's
   // measure. A sprint's history is metres and seconds; reading it for a rising
   // weight would find nothing and conclude wrongly that nothing is happening.
+  //
+  // notes comes with them because this is where an exercise is judged, not
+  // only where it is plotted. Four sessions at four reps read as a plateau;
+  // "top third under control, red band" is the only thing that says otherwise,
+  // and it was invisible here while the numbers were not.
+  //
+  // Ordered newest-first so a limit keeps the recent end, then reversed: the
+  // series reads oldest to newest whichever amount was asked for. Postgres
+  // treats `limit null` as no limit, which is what "all" resolves to.
   const rows = await sql`
     select s.date, t.weight_kg::float8, t.reps,
-      t.distance_m::float8, t.duration_s::float8, t.effort, t.session_id
+      t.distance_m::float8, t.duration_s::float8, t.effort, t.notes,
+      t.session_id
     from sets t
     join sessions s on s.id = t.session_id
     where t.exercise_id = ${exerciseId} and t.kind = 'working'
       and set_performed(t.reps, t.distance_m, t.duration_s)
-    order by s.date, t.position`;
+    order by s.date desc, t.position desc
+    limit ${limit}`;
+
   return c.json({
     exercise: exercise.name,
     exercise_id: exercise.id,
     measure: exercise.measure,
-    sets: rows,
+    total_sets: total,
+    returned: rows.length,
+    sets: rows.reverse(),
   });
 });
 
