@@ -264,10 +264,14 @@ Deno.test("backSolve laws", async (t) => {
       const e = backSolve(w);
       assertEquals(e.status, "ok");
       const i = e.inputs!;
+      // The tolerance is the rounding of the reported inputs, not slack in
+      // the identity: mean ±0.5, slope ±0.00005 × density ≤ 9440, and
+      // density ±0.5 × |slope| ≤ ~8.5 kg/day on these wild windows — about
+      // 5.7 kcal worst case. A real inconsistency would miss by hundreds.
       assertAlmostEquals(
         e.tdee_kcal!,
         i.mean_intake_kcal - i.slope_kg_per_day * i.energy_density_kcal_per_kg,
-        3,
+        8,
       );
       assert(e.band_kcal! >= 200 && e.band_kcal! <= 250);
     }));

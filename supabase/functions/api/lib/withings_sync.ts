@@ -20,7 +20,11 @@ import {
 
 export const WITHINGS_SOURCE = "withings";
 
-const API_BASE = "https://wbsapi.withings.net";
+// Overridable the way GITHUB_API_BASE is: production never sets it, and the
+// sync tests point it at a local stub so this file's wiring — watermark,
+// refresh, refusal counting — can be exercised without touching Withings.
+const API_BASE = Deno.env.get("WITHINGS_API_BASE") ??
+  "https://wbsapi.withings.net";
 
 // Refresh a minute early rather than on the tick: a token that expires between
 // the check and the call would surface as a status 401 in the middle of a sync,
