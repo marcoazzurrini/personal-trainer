@@ -52,7 +52,6 @@ const SetRow = z.object({
 
 const SessionHeader = z.object({
   id: z.int(),
-  public_id: z.string(),
   date: z.string(),
   rationale: z.string().nullable(),
   notes: z.string().nullable(),
@@ -78,17 +77,10 @@ const AppendedSet = SetRow.omit({
   target_duration_s: true,
 }).extend({ session_id: z.int() });
 
-function newPublicId(): string {
-  const alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(21));
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
-}
-
 async function sessionDetail(id: number) {
   const session = requireRow(
     await sql<z.infer<typeof SessionHeader>[]>`
-    select id, public_id, date, rationale, notes,
+    select id, date, rationale, notes,
       overall_feel, started_at, completed_at
     from sessions where id = ${id}`,
     `No session with id ${id}.`,
@@ -244,7 +236,7 @@ sessions.openapi(
     // Filtering by plan asks which sessions contained work for it, because a
     // session is no longer owned by one.
     const rows = await sql<z.infer<typeof SessionHeader>[]>`
-    select id, public_id, date, rationale, notes,
+    select id, date, rationale, notes,
       overall_feel, started_at, completed_at
     from sessions s
     ${
@@ -353,8 +345,8 @@ sessions.openapi(
 
         const id = await sql.begin(async (tx) => {
           const [session] = await tx`
-      insert into sessions (public_id, date, rationale, request_id)
-      values (${newPublicId()}, ${b.date}, ${b.rationale}, ${b.request_id})
+      insert into sessions (date, rationale, request_id)
+      values (${b.date}, ${b.rationale}, ${b.request_id})
       returning id`;
           let position = 1;
           for (const s of sets) {

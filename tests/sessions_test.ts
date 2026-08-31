@@ -37,7 +37,6 @@ Deno.test("session lifecycle", async (t) => {
     });
     assertEquals(status, 201);
     sessionId = body.session.id;
-    assert(body.session.public_id.length >= 20);
     assertEquals(body.session.sets.length, 3);
     assertEquals(
       body.session.sets.map((s: { position: number }) => s.position),

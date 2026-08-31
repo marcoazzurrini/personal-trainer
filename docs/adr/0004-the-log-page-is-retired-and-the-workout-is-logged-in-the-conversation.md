@@ -72,6 +72,14 @@ the migrations that still mention the page (`exercises.measure`,
 on the same thing: a comment on a Postgres column is changed by a migration,
 not by an edit.
 
+**Epilogue.** #33 landed the same week. `public_id`, its unique constraint and
+the generator are gone, and the three comments were reworded in the same
+migration. The response-shape break turned out to be shape only: no coaching
+document named the field and nothing in `skill/` read it, so nothing lost
+anything it was using. The unguessable ids were not preserved — an id that
+existed to authenticate a page nobody can open guards nothing, and a shareable
+link, if one is ever wanted, would mint its own.
+
 Four hundred and thirty-two lines of browser JavaScript inside a template
 literal left with the page. That was the largest concentration of code in this
 repository invisible to `deno fmt`, `deno lint` and `deno check` — the only
