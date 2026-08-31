@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError, requireRow } from "../http/errors.ts";
 import { assertEffort, assertSetMeasures } from "../rules/training.ts";
 import {
   body,
@@ -104,13 +104,15 @@ sets.openapi(
   }),
   async (c) => {
     const setId = c.req.valid("param").id;
-    const [existing] = await sql`
+    const existing = requireRow(
+      await sql`
     select t.id, t.kind, t.performed_at, t.effort, t.weight_kg::float8, t.reps,
       t.distance_m::float8, t.duration_s::float8,
       e.name as exercise, e.measure, e.stimulus_type
     from sets t join exercises e on e.id = t.exercise_id
-    where t.id = ${setId}`;
-    if (!existing) throw new ApiError(404, `No set with id ${setId}.`);
+    where t.id = ${setId}`,
+      `No set with id ${setId}.`,
+    );
 
     const b = c.req.valid("json");
     const target = TARGET_FIELDS.find((f) => b[f] !== undefined);

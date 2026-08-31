@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { requireRow } from "../http/errors.ts";
 import { recordBodyweight } from "../record/bodyweight.ts";
 import { loadTrend } from "../record/nutrition_read.ts";
 import {
@@ -147,12 +147,12 @@ bodyweight.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    const [row] = await sql<Array<Omit<MeasurementRow, "id">>>`
+    const row = requireRow(
+      await sql<Array<Omit<MeasurementRow, "id">>>`
     delete from bodyweight where id = ${id}
-    returning value_kg::float8, measured_at, source`;
-    if (!row) {
-      throw new ApiError(404, `No bodyweight measurement with id ${id}.`);
-    }
+    returning value_kg::float8, measured_at, source`,
+      `No bodyweight measurement with id ${id}.`,
+    );
     return c.json({ deleted: row });
   },
 );

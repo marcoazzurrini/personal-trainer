@@ -10,6 +10,21 @@ export class ApiError extends Error {
   }
 }
 
+// A read that found nothing, turned into the refusal that says so. Thirteen
+// sites ran a query, tested the result and threw; only the sentence differed,
+// and it has to — the client is a model, and "No session with id 4." sends it
+// somewhere different from "No food with id 4."
+//
+// 404 is fixed rather than a parameter because an absent row is the only thing
+// this answers. A query that comes back empty for some other reason — an
+// exercise that exists but is not in the plan, a name that resolves to nothing
+// — is refusing something else, and those sites state their own status and
+// often run a second query to say what the caller should have sent instead.
+export function requireRow<T>(rows: readonly T[], message: string): T {
+  if (rows.length === 0) throw new ApiError(404, message);
+  return rows[0];
+}
+
 // Human messages for constraint violations that a well-formed request can
 // still trigger. Everything else falls through to a generic message that
 // quotes the constraint name.

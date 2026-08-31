@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { requireRow } from "../http/errors.ts";
 import {
   body,
   idParam,
@@ -152,10 +152,12 @@ nutritionEvents.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    const [row] = await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
+    const row = requireRow(
+      await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
     delete from nutrition_events where id = ${id}
-    returning day, kind, note`;
-    if (!row) throw new ApiError(404, `No nutrition event with id ${id}.`);
+    returning day, kind, note`,
+      `No nutrition event with id ${id}.`,
+    );
     return c.json({ deleted: row });
   },
 );

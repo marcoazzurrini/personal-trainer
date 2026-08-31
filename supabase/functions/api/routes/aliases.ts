@@ -1,6 +1,6 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError, requireRow } from "../http/errors.ts";
 import { aliasList, body, text } from "../http/schema.ts";
 
 // Exercises, foods and meals all answer to more than one name, and the rule
@@ -135,14 +135,14 @@ export function releaseAliasRoute<Body>(
       const { ref: reference, alias: rawAlias } = c.req.valid("param");
       const entity = await surface.resolve(reference);
       const alias = decodeURIComponent(rawAlias);
-      const rows = await sql`
+      requireRow(
+        await sql`
       delete from ${sql(surface.aliasTable)}
       where ${sql(surface.foreignKey)} = ${entity.id}
         and lower(alias) = lower(${alias})
-      returning id`;
-      if (rows.length === 0) {
-        throw new ApiError(404, surface.notAnAlias(alias, entity));
-      }
+      returning id`,
+        surface.notAnAlias(alias, entity),
+      );
       return c.json(await surface.respond(entity.id));
     },
   );

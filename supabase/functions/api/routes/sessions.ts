@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError, requireRow } from "../http/errors.ts";
 import {
   resolveExercise,
   resolveMesocycle,
@@ -81,11 +81,13 @@ function newPublicId(): string {
 }
 
 async function sessionDetail(id: number) {
-  const [session] = await sql<z.infer<typeof SessionHeader>[]>`
+  const session = requireRow(
+    await sql<z.infer<typeof SessionHeader>[]>`
     select id, public_id, date, rationale, notes,
       overall_feel, started_at, completed_at
-    from sessions where id = ${id}`;
-  if (!session) throw new ApiError(404, `No session with id ${id}.`);
+    from sessions where id = ${id}`,
+    `No session with id ${id}.`,
+  );
   // Each set says which plan it serves; the session says nothing, because a
   // session that sprints and then squats serves two.
   const sets = await sql<z.infer<typeof SetRow>[]>`
@@ -406,9 +408,10 @@ sessions.openapi(
   }),
   async (c) => {
     const sessionId = c.req.valid("param").id;
-    const [session] =
-      await sql`select id from sessions where id = ${sessionId}`;
-    if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
+    requireRow(
+      await sql`select id from sessions where id = ${sessionId}`,
+      `No session with id ${sessionId}.`,
+    );
 
     const b = c.req.valid("json");
     // Appends at max(position)+1, so there is no natural key to collide on:
@@ -494,9 +497,10 @@ sessions.openapi(
   }),
   async (c) => {
     const sessionId = c.req.valid("param").id;
-    const [session] =
-      await sql`select id from sessions where id = ${sessionId}`;
-    if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
+    requireRow(
+      await sql`select id from sessions where id = ${sessionId}`,
+      `No session with id ${sessionId}.`,
+    );
 
     const b = c.req.valid("json");
     const fields: Record<string, unknown> = {};
@@ -561,10 +565,12 @@ sessions.openapi(
   }),
   async (c) => {
     const sessionId = c.req.valid("param").id;
-    const [session] = await sql`
+    const session = requireRow(
+      await sql`
     select id, date, started_at, completed_at
-    from sessions where id = ${sessionId}`;
-    if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
+    from sessions where id = ${sessionId}`,
+      `No session with id ${sessionId}.`,
+    );
 
     const [{ total, performed }] = await sql`
     select count(*)::int as total,

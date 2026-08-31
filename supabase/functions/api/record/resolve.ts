@@ -1,5 +1,5 @@
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError, requireRow } from "../http/errors.ts";
 import { TRACKS } from "../rules/training.ts";
 
 // Exercises, foods and meals resolve the same way — id, name, or alias,
@@ -170,10 +170,11 @@ export async function resolveMesocycle(idParam: string): Promise<any> {
       }.`,
     );
   }
-  const [row] = await sql`
-    select * from mesocycles where id = ${Number(idParam)}`;
-  if (!row) throw new ApiError(404, `No mesocycle with id ${idParam}.`);
-  return row;
+  return requireRow(
+    await sql`
+    select * from mesocycles where id = ${Number(idParam)}`,
+    `No mesocycle with id ${idParam}.`,
+  );
 }
 
 // Which plan a set serves. Resolved server-side on every write, so the log

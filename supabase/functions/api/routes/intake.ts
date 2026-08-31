@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
 import { requireNotFuture } from "../rules/dates.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError, requireRow } from "../http/errors.ts";
 import {
   foodMacros,
   gramsEaten,
@@ -371,14 +371,11 @@ intake.openapi(
   }),
   async (c) => {
     const id = c.req.valid("param").id;
-    const [entry] = await sql`
-    select * from intake_entries where id = ${id}`;
-    if (!entry) {
-      throw new ApiError(
-        404,
-        `No intake entry with id ${id}. GET /intake?day=YYYY-MM-DD lists a day's entries with their ids.`,
-      );
-    }
+    const entry = requireRow(
+      await sql`
+    select * from intake_entries where id = ${id}`,
+      `No intake entry with id ${id}. GET /intake?day=YYYY-MM-DD lists a day's entries with their ids.`,
+    );
 
     const b = c.req.valid("json");
     const note = b.note !== undefined ? b.note : undefined;
@@ -479,9 +476,11 @@ intake.openapi(
   }),
   async (c) => {
     const id = c.req.valid("param").id;
-    const [entry] = await sql`
-    delete from intake_entries where id = ${id} returning day`;
-    if (!entry) throw new ApiError(404, `No intake entry with id ${id}.`);
+    const entry = requireRow(
+      await sql`
+    delete from intake_entries where id = ${id} returning day`,
+      `No intake entry with id ${id}.`,
+    );
     return c.json(await dayView(entry.day));
   },
 );
@@ -556,11 +555,11 @@ days.openapi(
   }),
   async (c) => {
     const { day, flag } = c.req.valid("param");
-    const rows = await sql`
-    delete from day_flags where day = ${day} and flag = ${flag} returning id`;
-    if (rows.length === 0) {
-      throw new ApiError(404, `${day} is not flagged "${flag}".`);
-    }
+    requireRow(
+      await sql`
+    delete from day_flags where day = ${day} and flag = ${flag} returning id`,
+      `${day} is not flagged "${flag}".`,
+    );
     return c.json(await dayView(day));
   },
 );

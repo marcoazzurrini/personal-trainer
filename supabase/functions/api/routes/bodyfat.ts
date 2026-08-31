@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { romeDate } from "../record/calendar.ts";
 import { requireNotFuture } from "../rules/dates.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError, requireRow } from "../http/errors.ts";
 import {
   body,
   idParam,
@@ -173,12 +173,14 @@ bodyfat.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    const [row] = await sql<
-      Array<Pick<EstimateRow, "day" | "percent" | "method">>
-    >`
+    const row = requireRow(
+      await sql<
+        Array<Pick<EstimateRow, "day" | "percent" | "method">>
+      >`
     delete from bodyfat_estimates where id = ${id}
-    returning day, percent::float8, method`;
-    if (!row) throw new ApiError(404, `No body-fat estimate with id ${id}.`);
+    returning day, percent::float8, method`,
+      `No body-fat estimate with id ${id}.`,
+    );
     return c.json({ deleted: row });
   },
 );
