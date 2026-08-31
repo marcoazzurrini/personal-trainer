@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
+import { romeDate } from "../record/calendar.ts";
 import { requireNotFuture } from "../rules/dates.ts";
 import { ApiError } from "../http/errors.ts";
 import {
@@ -110,7 +111,7 @@ bodyfat.openapi(
   async (c) => {
     const b = c.req.valid("json");
     const [clock] = await sql`
-    select (now() at time zone 'Europe/Rome')::date as today`;
+    select ${romeDate()} as today`;
     // Rome's today comes from Postgres, so the rule cannot be expressed in the
     // schema: it is a comparison against a value the schema never sees.
     const day = requireNotFuture(

@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
+import { romeNow } from "../record/calendar.ts";
 import { resolveExercise, resolveExerciseId } from "../record/resolve.ts";
 import { MEASURES } from "../rules/training.ts";
 import { aliasList, body, oneOf, optionalText, text } from "../http/schema.ts";
@@ -640,7 +641,7 @@ exercises.openapi(
     join sessions s on s.id = t.session_id
     where t.exercise_id = ${e.id} and t.kind = 'working'
       and date_trunc('week', s.date)
-        < date_trunc('week', now() at time zone 'Europe/Rome')`;
+        < date_trunc('week', ${romeNow()})`;
 
     await sql.begin(async (tx) => {
       await tx`delete from exercise_muscles where exercise_id = ${e.id}`;

@@ -1,4 +1,5 @@
 import { sql } from "../db.ts";
+import { lastFinishedDay } from "./calendar.ts";
 import { addDays } from "../rules/dates.ts";
 import {
   backSolve,
@@ -19,20 +20,6 @@ import {
 const TRANSIENT_WINDOW_DAYS = 14;
 // How far back to look for a window that still qualifies before giving up.
 const MAX_STALE_WEEKS = 4;
-
-export async function romeToday(): Promise<string> {
-  const [row] = await sql`
-    select (now() at time zone 'Europe/Rome')::date as today`;
-  return row.today;
-}
-
-/** The Sunday that ended the most recent finished week. */
-export async function lastFinishedDay(): Promise<string> {
-  const [row] = await sql`
-    select (date_trunc('week', now() at time zone 'Europe/Rome')::date - 1)
-      as day`;
-  return row.day;
-}
 
 export async function loadTrend(): Promise<TrendPoint[]> {
   const rows = await sql`

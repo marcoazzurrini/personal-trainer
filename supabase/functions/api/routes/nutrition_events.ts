@@ -9,7 +9,8 @@ import {
   optionalText,
   requestId,
 } from "../http/schema.ts";
-import { activeTransients, romeToday } from "../record/nutrition_read.ts";
+import { romeToday } from "../record/calendar.ts";
+import { activeTransients } from "../record/nutrition_read.ts";
 
 // The register of things that make bodyweight move for reasons that are not
 // fat or muscle. Registering one tells the expenditure back-solve to damp its

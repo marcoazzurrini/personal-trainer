@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
+import { romeIsoDow, romeWeekStart } from "../record/calendar.ts";
 import { body, optionalDate, text } from "../http/schema.ts";
 
 // The shape of a week, in prose, as the coach proposed it and Marco accepted
@@ -66,10 +67,7 @@ weekSchedule.openapi(
     const [row] = await sql`
     insert into week_schedules (week_start, schedule)
     values (
-      ${
-      weekStart ??
-        sql`date_trunc('week', now() at time zone 'Europe/Rome')::date`
-    },
+      ${weekStart ?? romeWeekStart()},
       ${b.schedule})
     on conflict (week_start) do update
       set schedule = excluded.schedule, written_at = now()
@@ -84,9 +82,8 @@ weekSchedule.openapi(
     let note: string | null = null;
     if (weekStart === null) {
       const [clock] = await sql`
-      select extract(isodow from now() at time zone 'Europe/Rome')::int as dow,
-        (date_trunc('week', now() at time zone 'Europe/Rome')::date + 7)
-          as next_monday`;
+      select ${romeIsoDow()} as dow,
+        (${romeWeekStart()} + 7) as next_monday`;
       if (clock.dow >= 6) {
         note =
           `week_start defaulted to ${row.week_start} — the Monday of the week now ending, not next week. If this schedule was meant for the coming week, resend it with "week_start": "${clock.next_monday}".`;

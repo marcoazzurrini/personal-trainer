@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
+import { romeDate } from "../record/calendar.ts";
 import {
   activeTarget,
   activeTransients,
@@ -175,7 +176,7 @@ nutritionState.openapi(
   }),
   async (c) => {
     const [clock] = await sql`
-    select (now() at time zone 'Europe/Rome')::date as today`;
+    select ${romeDate()} as today`;
     const today = clock.today as string;
 
     const entries = await sql<z.infer<typeof Entry>[]>`

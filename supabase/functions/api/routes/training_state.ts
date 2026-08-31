@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { docExists } from "../doc_names.ts";
+import { romeDate, romeWeekStart } from "../record/calendar.ts";
 import { deliveredInDoseUnit } from "../rules/training.ts";
 
 // The composite: everything true about the training as of now. A view over
@@ -134,8 +135,8 @@ trainingState.openapi(
   }),
   async (c) => {
     const [clock] = await sql`
-    select (now() at time zone 'Europe/Rome')::date as today,
-      date_trunc('week', now() at time zone 'Europe/Rome')::date as week_start`;
+    select ${romeDate()} as today,
+      ${romeWeekStart()} as week_start`;
 
     const userContext = await sql<z.infer<typeof ContextEntry>[]>`
     select distinct on (topic) topic, content, written_at
@@ -149,7 +150,7 @@ trainingState.openapi(
     const active = await sql`
     select id, name, track, intent, planned_weeks, sessions_per_week,
       started_on,
-      ((((now() at time zone 'Europe/Rome')::date - started_on) / 7) + 1)::int as week
+      ((((${romeDate()}) - started_on) / 7) + 1)::int as week
     from mesocycles where ended_on is null
     order by track`;
 
@@ -184,7 +185,7 @@ trainingState.openapi(
         me.weekly_dose::float8 as dose, me.weekly_dose_unit as dose_unit,
         coalesce(d.sets_done, 0)::int as sets_done,
         d.distance_m, d.duration_s,
-        ((now() at time zone 'Europe/Rome')::date -
+        ((${romeDate()}) -
          (select max(s.date) from sets t
           join sessions s on s.id = t.session_id
           where t.exercise_id = me.exercise_id

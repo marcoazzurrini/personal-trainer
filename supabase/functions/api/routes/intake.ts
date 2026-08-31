@@ -8,6 +8,7 @@ import {
   scaleFood,
   sumMacros,
 } from "../rules/nutrition.ts";
+import { romeToday } from "../record/calendar.ts";
 import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
 import {
   body,
@@ -66,12 +67,6 @@ const DayView = z.object({
 // A food or meal reference: an id, a name, or an alias, so deliberately either
 // a number or a string.
 const reference = () => z.union([z.string().min(1), z.number()]);
-
-async function romeToday(): Promise<string> {
-  const [row] = await sql`
-    select (now() at time zone 'Europe/Rome')::date as today`;
-  return row.today;
-}
 
 async function dayView(day: string) {
   const entries = await sql<z.infer<typeof Entry>[]>`

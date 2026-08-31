@@ -13,12 +13,12 @@ import {
   proteinFromMultiplier,
   targetFromRate,
 } from "../rules/expenditure.ts";
+import { romeToday } from "../record/calendar.ts";
 import {
   activeTarget,
   currentExpenditure,
   latestBodyfat,
   loadTrend,
-  romeToday,
 } from "../record/nutrition_read.ts";
 import {
   body,

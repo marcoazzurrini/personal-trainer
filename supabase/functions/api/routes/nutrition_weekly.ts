@@ -1,11 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { energyDensity, fatMassKg, GOALS } from "../rules/expenditure.ts";
-import {
-  lastFinishedDay,
-  latestBodyfat,
-  loadTrend,
-} from "../record/nutrition_read.ts";
+import { lastFinishedDay } from "../record/calendar.ts";
+import { latestBodyfat, loadTrend } from "../record/nutrition_read.ts";
 
 // Finished weeks only, like every other weekly read in this system: the
 // current week is never blended in, because a Tuesday's three logged days

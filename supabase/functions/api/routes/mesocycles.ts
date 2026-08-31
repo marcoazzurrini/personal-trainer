@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
+import { romeDate } from "../record/calendar.ts";
 import {
   resolveExercise,
   resolveExerciseId,
@@ -164,7 +165,7 @@ async function insertPlanExercise(
        effective_from)
     values
       (${mesocycleId}, ${p.exerciseId}, ${p.weeklyDose}, ${p.weeklyDoseUnit},
-       ${effectiveFrom ?? sql`(now() at time zone 'Europe/Rome')::date`})`;
+       ${effectiveFrom ?? romeDate()})`;
 }
 
 // The plan, exactly: the mesocycle row (intent included — it is the plan's
@@ -181,7 +182,7 @@ async function mesocycleDetail(id: number) {
   >`
     select id, block_id, name, track, intent, planned_weeks,
       sessions_per_week, started_on, ended_on,
-      ((((now() at time zone 'Europe/Rome')::date - started_on) / 7) + 1)::int as week
+      ((((${romeDate()}) - started_on) / 7) + 1)::int as week
     from mesocycles where id = ${id}`;
   const exercises = await sql<z.infer<typeof PlanExerciseRow>[]>`
     select me.id, e.id as exercise_id, e.name as exercise, e.measure,
@@ -537,7 +538,7 @@ mesocycles.openapi(
           (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit,
            effective_from)
         values (${m.id}, ${d.exerciseId}, ${d.dose}, ${d.unit},
-          (now() at time zone 'Europe/Rome')::date)`;
+          ${romeDate()})`;
       }
       if (newIntent !== null) {
         await tx`update mesocycles set intent = ${newIntent} where id = ${m.id}`;
