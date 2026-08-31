@@ -117,6 +117,14 @@ const Bodyfat = z.object({
   note: z.string().nullable(),
 });
 
+// A rate of change in weight, stated both ways it gets used: absolute and as a
+// share of bodyweight. record/nutrition_read.ts's slopePctBwWeek is the
+// definition.
+const Slope = z.object({
+  kg_per_week: z.number(),
+  pct_bw_week: z.number(),
+});
+
 const NutritionState = z.object({
   today: z.string(),
   today_so_far: z.object({
@@ -140,8 +148,12 @@ const NutritionState = z.object({
     // available and so the most comparable across days.
     earliest_scale_kg: z.number(),
     interpolated: z.boolean(),
-    slope_7d: z.number().nullable(),
-    slope_21d: z.number().nullable(),
+    // A slope is stated both ways it gets used: absolute, and as a share of
+    // bodyweight — the number a cut is judged by is the percentage. The
+    // computation (record/nutrition_read.ts) has always returned both; the
+    // schema here promised only the first.
+    slope_7d: Slope.nullable(),
+    slope_21d: Slope.nullable(),
   }).nullable(),
   expenditure: Expenditure,
   target: Target.nullable(),

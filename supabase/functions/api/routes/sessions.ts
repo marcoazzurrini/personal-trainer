@@ -428,7 +428,7 @@ sessions.openapi(
     const { body: answer, status } = await writeOnce({
       table: "sets",
       requestId: b.request_id,
-      select: sql`id, session_id, exercise_id, mesocycle_id, position, kind,
+      select: sql`id, exercise_id, mesocycle_id, position, kind,
         weight_kg::float8, reps, distance_m::float8, duration_s::float8,
         effort, performed_at, notes`,
       replay: (duplicate: z.infer<typeof AppendedSet>) => ({ set: duplicate }),
@@ -459,7 +459,7 @@ sessions.openapi(
        ${s.kind}, ${s.weightKg}, ${s.reps}, ${s.distanceM}, ${s.durationS},
        ${s.effort}, ${s.performedAt ?? new Date().toISOString()}, ${s.notes},
        ${b.request_id})
-    returning id, session_id, exercise_id, mesocycle_id, position, kind,
+    returning id, exercise_id, mesocycle_id, position, kind,
       weight_kg::float8, reps, distance_m::float8, duration_s::float8,
       effort, performed_at, notes`;
         return { set: row };

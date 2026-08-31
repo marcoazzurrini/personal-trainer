@@ -24,6 +24,13 @@ type MeasurementRow = z.infer<typeof Measurement>;
 
 const TrendPoint = z.object({
   day: z.string(),
+  // The two fields the EMA needs to state its own gaps: the day's raw or
+  // interpolated weight, and which of the two it is. A point nobody weighed
+  // is a different fact from one they did, and the chart wants to mark it.
+  // rules/expenditure.ts defines the shape; this declares what was always
+  // served — the schema promised less than the SQL returned.
+  weight_kg: z.number(),
+  interpolated: z.boolean(),
   trend_kg: z.number(),
 });
 
@@ -61,7 +68,7 @@ bodyweight.openapi(
     // computing a trend client-side, and for a long while nothing served one.
     return c.json({
       bodyweight: rows,
-      trend: await loadTrend() as z.infer<typeof TrendPoint>[],
+      trend: await loadTrend(),
     });
   },
 );

@@ -59,7 +59,231 @@ async function request(
   });
   const parsed = await res.json();
   assertErrorEnvelope(res.status, parsed, method, path);
+  if (res.status < 400) {
+    assertMatchesDocument(method, path, res.status, parsed);
+  }
   return { status: res.status, body: parsed };
+}
+
+// --- The declared success shapes, checked against every answer ---------------
+//
+// The error envelope is one half of the contract; the declared response shape
+// is the other. @hono/zod-openapi validates requests, not responses, so the
+// schema and the SQL that fills it are two copies of one truth with nothing
+// holding them together: /openapi.json can describe a field the SQL stopped
+// returning, and every test stays green. Checked here, beside the envelope,
+// for the same reason — on every call every test makes, covering whichever
+// path a test happens to walk down, including the ones reached by accident.
+
+import { Ajv, type ValidateFunction } from "ajv";
+
+/** A parsed JSON object, guarded at every use. */
+type Node = Record<string, unknown>;
+
+function record(value: unknown): Node | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Node // checked: reached only through the guard above
+    : null;
+}
+
+// zod-to-openapi writes nullability in OpenAPI 3.0's "nullable: true", which
+// JSON Schema does not understand. Resolved once, at load, into the type
+// array that means the same thing.
+function resolveNullable(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const child of node) resolveNullable(child);
+    return;
+  }
+  const object = record(node);
+  if (object === null) return;
+  if (object.nullable === true && typeof object.type === "string") {
+    object.type = [object.type, "null"];
+  }
+  delete object.nullable;
+  for (const child of Object.values(object)) resolveNullable(child);
+}
+
+interface DeclaredRoute {
+  /** The path template split into segments, without the leading "/api" mount. */
+  segments: string[];
+  method: string;
+  /** Declared status -> response schema; null where the route declares prose only. */
+  schemaFor: Map<string, Node | null>;
+  compiledFor: Map<string, ValidateFunction>;
+}
+
+// Read once, like Rome's today: the document is the contract, and reading it
+// per call would let two copies disagree about what was promised. No token —
+// /openapi.json is public, and what it publishes is the shape, not the data.
+const DECLARED_ROUTES: DeclaredRoute[] = await (async () => {
+  const response = await fetch(`${BASE}/openapi.json`);
+  const document = record(await response.json());
+  if (document === null || record(document.paths) === null) {
+    throw new Error("/openapi.json did not answer with a document");
+  }
+  const methods = new Set(["get", "post", "patch", "put", "delete"]);
+  const routes: DeclaredRoute[] = [];
+  for (const [template, pathItem] of Object.entries(document.paths as Node)) {
+    const operations = record(pathItem);
+    if (operations === null) continue;
+    for (const [method, operation] of Object.entries(operations)) {
+      if (!methods.has(method)) continue; // the document keys methods lowercase; request() sends uppercase
+      const responses = record(operation)?.responses;
+      const schemaFor = new Map<string, Node | null>();
+      for (const [status, entry] of Object.entries(record(responses) ?? {})) {
+        const json = record(record(entry)?.content)?.["application/json"];
+        schemaFor.set(status, record(record(json)?.schema));
+      }
+      routes.push({
+        segments: template
+          .replace(/^\/api(?=\/|$)/, "")
+          .split("/")
+          .filter((segment) => segment !== ""),
+        method: method.toUpperCase(),
+        schemaFor,
+        compiledFor: new Map(),
+      });
+    }
+  }
+  resolveNullable(document);
+  return routes;
+})();
+
+// strict: false because the document is OpenAPI, which carries keywords a
+// plain JSON Schema validator would reject (description, example).
+const ajv = new Ajv({ strict: false });
+
+// A union — z.union emits anyOf — answers under one of its branches, so the
+// extra keys are judged inside the branch that matched, not against the union
+// as a whole.
+const branchValidators = new WeakMap<Node, ValidateFunction>();
+
+function branchFor(branches: Node[], value: unknown): Node | null {
+  for (const branch of branches) {
+    let validate = branchValidators.get(branch);
+    if (validate === undefined) {
+      validate = ajv.compile(branch);
+      branchValidators.set(branch, validate);
+    }
+    if (validate(value)) return branch;
+  }
+  return null; // no branch matched: ajv has already said so above
+}
+
+function decode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function matchDeclared(method: string, path: string): DeclaredRoute | null {
+  const parts = path.split("?")[0].split("/").filter((p) => p !== "");
+  outer: for (const route of DECLARED_ROUTES) {
+    if (route.method !== method || route.segments.length !== parts.length) {
+      continue;
+    }
+    for (let i = 0; i < parts.length; i++) {
+      const template = route.segments[i];
+      const isParameter = template.startsWith("{");
+      if (!isParameter && template !== decode(parts[i])) continue outer;
+    }
+    return route;
+  }
+  return null;
+}
+
+// Drift runs in two directions, and only one of them is a validation
+// failure. A field the SQL dropped breaks the schema; a field the SQL added
+// that the document never promised breaks nothing at all, because a schema
+// that says nothing about extra keys permits them. Both are drift, so both
+// are looked for explicitly: the caller's next call is built from the answer,
+// and an undeclared field is one the document never admitted to.
+function collectExtras(
+  schema: Node | null,
+  value: unknown,
+  at: string,
+  extras: string[],
+): void {
+  const branches = schema !== null && Array.isArray(schema.anyOf)
+    ? schema.anyOf.filter((b): b is Node => record(b) !== null)
+    : null;
+  if (branches !== null) {
+    const branch = branchFor(branches, value);
+    if (branch !== null) collectExtras(branch, value, at, extras);
+    return;
+  }
+  const object = record(value);
+  if (object !== null) {
+    const properties = record(schema?.properties);
+    for (const key of Object.keys(object)) {
+      if (properties === null || !(key in properties)) {
+        extras.push(`${at}${at === "" ? "" : "."}${key}`);
+        continue; // no schema to compare against under an undeclared key
+      }
+      collectExtras(
+        record(properties[key]),
+        object[key],
+        `${at}${at === "" ? "" : "."}${key}`,
+        extras,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    const items = record(schema?.items);
+    value.forEach((item, i) =>
+      collectExtras(items, item, `${at}[${i}]`, extras)
+    );
+  }
+}
+
+function assertMatchesDocument(
+  method: string,
+  path: string,
+  status: number,
+  body: unknown,
+): void {
+  // Surfaces deliberately outside the document — the log page, the Withings
+  // webhook, the uptime probe, the document itself — match nothing here, and
+  // that is the exemption: the document is the contract, and what it does not
+  // describe is not checked against it.
+  const route = matchDeclared(method, path);
+  if (route === null) return;
+  const schema = route.schemaFor.get(String(status));
+  if (schema === undefined) {
+    throw new Error(
+      `${method} ${path} answered ${status}, which its route does not declare ` +
+        `— declared: ${[...route.schemaFor.keys()].join(", ")}. The document ` +
+        `is generated from the routes, so the code and the description have split.`,
+    );
+  }
+  if (schema === null) return; // declared, but as prose alone (the markdown docs)
+
+  let validate = route.compiledFor.get(String(status));
+  if (validate === undefined) {
+    validate = ajv.compile(schema);
+    route.compiledFor.set(String(status), validate);
+  }
+  const problems: string[] = [];
+  if (!validate(body)) {
+    for (const error of validate.errors ?? []) {
+      problems.push(
+        `${error.instancePath || "(root)"} ${error.message ?? "is not valid"}`,
+      );
+    }
+  }
+  const extras: string[] = [];
+  collectExtras(schema, body, "", extras);
+  for (const extra of extras) problems.push(`${extra} is not in the document`);
+  if (problems.length > 0) {
+    throw new Error(
+      `${method} ${path} answered ${status} with ${JSON.stringify(body)} ` +
+        `— ${problems.join("; ")}. The schema and the SQL have drifted; ` +
+        `whichever is wrong, fix it.`,
+    );
+  }
 }
 
 // Creating POSTs require a request_id, so api.post supplies one when the test
