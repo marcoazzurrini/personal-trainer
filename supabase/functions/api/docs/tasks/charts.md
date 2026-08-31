@@ -72,7 +72,8 @@ target — a step, not a flat line, because the target changes between phases an
 it flat would hide exactly the moment worth looking at.
 
 Two things this chart must show or it will lie. **`days_logged`**: a week averaging
-2,100 kcal over three logged days is not a 2,100 kcal week. And
+2,100 kcal over three logged days is not a 2,100 kcal week — and the means leave flagged
+days out on top of that, so the bar can rest on fewer days than `days_logged` names. And
 **`target.changed_during_week`**: where it is true, two targets governed the week and the
 comparison is muddy — say so rather than drawing a clean bar against the later one.
 

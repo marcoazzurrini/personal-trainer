@@ -413,9 +413,13 @@ reconstruct which target applied to which week by date from an append-only histo
 - `rate_pct_bw_week` on the row is what the week's trend actually did; `target.rate_pct_bw_week`
   is what was asked for. Those two together are the answer to "is this working" — see
   `tasks/charts` view 6.
-- `mean_kcal` is an average over `days_logged`, not over seven days. A week averaging
-  2,100 kcal across three logged days is not a 2,100 kcal week, and reading it as one is
-  the most likely way this endpoint misleads.
+- `mean_kcal` and `mean_protein_g` average the week's logged days with the flagged ones
+  left out — not seven days, and not `days_logged` either. A week averaging 2,100 kcal
+  across three logged days is not a 2,100 kcal week, and reading it as one is the most
+  likely way this endpoint misleads. A day flagged `incomplete` records less than was
+  eaten, so counting it would report a shortfall that never happened. `days_logged` and
+  `days_flagged` are both returned, but subtracting one from the other does not give the
+  denominator: a flagged day with no entries was never in the mean to begin with.
 
 ## What can be removed, and what cannot
 

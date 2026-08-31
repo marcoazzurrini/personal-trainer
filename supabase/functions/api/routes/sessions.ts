@@ -65,6 +65,10 @@ const SessionDetail = SessionHeader.extend({ sets: z.array(SetRow) });
 
 // The set written by POST /sessions/{id}/sets: an unplanned set, so it never
 // carries targets and the row returned has none to show.
+// Carries session_id, which the sets listed inside a session detail do not:
+// there the session is the thing being read, here the set is answered on its
+// own. GET /exercises/{ref}/history and PATCH /sets/{id} both send it too, so
+// a set arrives the same way whichever route produced it.
 const AppendedSet = SetRow.omit({
   exercise: true,
   measure: true,
@@ -72,7 +76,7 @@ const AppendedSet = SetRow.omit({
   target_reps: true,
   target_distance_m: true,
   target_duration_s: true,
-});
+}).extend({ session_id: z.int() });
 
 function newPublicId(): string {
   const alphabet =
@@ -428,7 +432,7 @@ sessions.openapi(
     const { body: answer, status } = await writeOnce({
       table: "sets",
       requestId: b.request_id,
-      select: sql`id, exercise_id, mesocycle_id, position, kind,
+      select: sql`id, session_id, exercise_id, mesocycle_id, position, kind,
         weight_kg::float8, reps, distance_m::float8, duration_s::float8,
         effort, performed_at, notes`,
       replay: (duplicate: z.infer<typeof AppendedSet>) => ({ set: duplicate }),
@@ -459,7 +463,7 @@ sessions.openapi(
        ${s.kind}, ${s.weightKg}, ${s.reps}, ${s.distanceM}, ${s.durationS},
        ${s.effort}, ${s.performedAt ?? new Date().toISOString()}, ${s.notes},
        ${b.request_id})
-    returning id, exercise_id, mesocycle_id, position, kind,
+    returning id, session_id, exercise_id, mesocycle_id, position, kind,
       weight_kg::float8, reps, distance_m::float8, duration_s::float8,
       effort, performed_at, notes`;
         return { set: row };
