@@ -1,7 +1,7 @@
 import { z } from "@hono/zod-openapi";
 
 // The shapes every request body is checked against, and the prose the checks
-// speak in. This file replaces lib/validate.ts one helper at a time: the
+// speak in. This file replaced lib/validate.ts one helper at a time: the
 // messages here are the messages there, because the client is a model and a
 // reworded refusal is a changed contract.
 //

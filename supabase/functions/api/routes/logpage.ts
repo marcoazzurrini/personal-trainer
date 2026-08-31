@@ -4,23 +4,173 @@
 // unguessable public_id is this namespace's auth. No coaching logic lives
 // here; the page renders what it is given and posts back what was typed.
 
-import { Hono } from "@hono/hono";
+import { type Context, Hono } from "@hono/hono";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
 import { resolveSetMesocycleId } from "../lib/resolve.ts";
 import { assertEffort, assertSetMeasures } from "../lib/training.ts";
-import {
-  type Body,
-  optionalInt,
-  optionalNumber,
-  optionalString,
-  readJson,
-  requireIdParam,
-  requireInt,
-  requireOneOf,
-} from "../lib/validate.ts";
 
 export const logPage = new Hono();
+
+// The page's own validators. The coach API validates with schemas
+// (lib/schema.ts), which say the same sentences and describe themselves into
+// /openapi.json; this namespace is registered above the token middleware and
+// was deliberately left alone — it is the one surface a browser talks to, its
+// shapes are its own, and nothing is gained by describing them in a document
+// the browser never reads.
+
+type Body = Record<string, unknown>;
+
+// request_id is universal, so no caller has to list it. Everything else a
+// route accepts, it names.
+const ALWAYS_ACCEPTED = "request_id";
+
+// A field this endpoint does not read is refused, not dropped.
+//
+// Silence was the old behaviour and it is the worse failure: the client is a
+// model that reasonably guesses at a parameter it has not seen documented,
+// and a guess that is ignored returns 200 over a record that says something
+// else. That is how `{"meal": "colazione", "scale": 0.5}` logged a whole
+// breakfast — the write looked like it worked, and nothing downstream can
+// tell an intended full portion from a silently unscaled half.
+//
+// The accepted list doubles as the prompt: a caller that got the name wrong
+// is shown the names that exist, which is usually all it needed.
+function assertKnownFields(
+  obj: Body,
+  accepts: readonly string[],
+  what: string,
+): void {
+  const unknown = Object.keys(obj).filter(
+    (k) => k !== ALWAYS_ACCEPTED && !accepts.includes(k),
+  );
+  if (unknown.length === 0) return;
+  const named = unknown.map((k) => `"${k}"`).join(", ");
+  throw new ApiError(
+    422,
+    `Unknown field${unknown.length > 1 ? "s" : ""} ${named} in ${what}. ` +
+      `Accepted: ${[...accepts, ALWAYS_ACCEPTED].join(", ")}. ` +
+      "An unrecognised field is refused rather than ignored: dropped in silence, " +
+      "a guessed or misspelled name lets the call answer 200 while the record " +
+      "says something other than what was meant.",
+  );
+}
+
+// Every write names the fields it reads. The list is required rather than
+// optional so a new route cannot quietly opt out of the check.
+async function readJson(
+  c: Context,
+  accepts: readonly string[],
+): Promise<Body> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new Error();
+    }
+  } catch {
+    throw new ApiError(
+      422,
+      "The request body must be a JSON object. Send Content-Type: application/json.",
+    );
+  }
+  assertKnownFields(body as Body, accepts, "the request body");
+  return body as Body;
+}
+
+function optionalString(body: Body, field: string): string | null {
+  const v = body[field];
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "string" || v.trim() === "") {
+    throw new ApiError(
+      422,
+      `"${field}" must be a non-empty string when present.`,
+    );
+  }
+  return v.trim();
+}
+
+function requireOneOf<T extends string>(
+  body: Body,
+  field: string,
+  choices: readonly T[],
+  fallback?: T,
+): T {
+  const v = body[field] ?? fallback;
+  if (
+    typeof v !== "string" || !(choices as readonly string[]).includes(v)
+  ) {
+    throw new ApiError(
+      422,
+      `"${field}" must be one of: ${choices.join(", ")}.`,
+    );
+  }
+  return v as T;
+}
+
+function requireInt(
+  body: Body,
+  field: string,
+  opts: { min?: number } = {},
+): number {
+  const v = body[field];
+  if (
+    typeof v !== "number" || !Number.isInteger(v) ||
+    (opts.min !== undefined && v < opts.min)
+  ) {
+    throw new ApiError(
+      422,
+      `"${field}" is required and must be an integer${
+        opts.min !== undefined ? ` >= ${opts.min}` : ""
+      }.`,
+    );
+  }
+  return v;
+}
+
+function optionalInt(
+  body: Body,
+  field: string,
+  opts: { min?: number } = {},
+): number | null {
+  if (body[field] === undefined || body[field] === null) return null;
+  return requireInt(body, field, opts);
+}
+
+function optionalNumber(
+  body: Body,
+  field: string,
+  opts: { min?: number } = {},
+): number | null {
+  const v = body[field];
+  if (v === undefined || v === null) return null;
+  if (
+    typeof v !== "number" || !Number.isFinite(v) ||
+    (opts.min !== undefined && v < opts.min)
+  ) {
+    throw new ApiError(
+      422,
+      `"${field}" must be a number${
+        opts.min !== undefined ? ` >= ${opts.min}` : ""
+      } when present.`,
+    );
+  }
+  return v;
+}
+
+// Ids in a path. Number("notanid") is NaN, and a NaN reaching Postgres as a
+// bigint throws where the handler can only answer "internal error" — a 500 at
+// exactly the moment the caller most needs a prompt telling it what to send.
+export function requireIdParam(value: string, what: string): number {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id < 1) {
+    throw new ApiError(
+      422,
+      `"${value}" is not a valid ${what} id. Ids are positive whole numbers.`,
+    );
+  }
+  return id;
+}
 
 // deno-lint-ignore no-explicit-any
 async function sessionByPublicId(publicId: string): Promise<any> {

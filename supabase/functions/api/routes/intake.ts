@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
+import { requireNotFuture } from "../lib/dates.ts";
 import { ApiError } from "../lib/errors.ts";
 import {
   foodMacros,
@@ -8,7 +9,6 @@ import {
   sumMacros,
 } from "../lib/nutrition.ts";
 import { resolveFoodId, resolveMealId } from "../lib/resolve.ts";
-import { requireNotFuture } from "../lib/validate.ts";
 import {
   body,
   dayParam,

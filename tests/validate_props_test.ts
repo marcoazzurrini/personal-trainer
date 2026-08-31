@@ -7,10 +7,8 @@ import {
   optionalRequestId,
   optionalTimestamp,
 } from "../supabase/functions/api/lib/schema.ts";
-import {
-  requireIdParam,
-  requireNotFuture,
-} from "../supabase/functions/api/lib/validate.ts";
+import { requireNotFuture } from "../supabase/functions/api/lib/dates.ts";
+import { requireIdParam } from "../supabase/functions/api/routes/logpage.ts";
 import {
   docUrl,
   isDocName,
@@ -22,10 +20,11 @@ import { ApiError } from "../supabase/functions/api/lib/errors.ts";
 // passes through these few shapes, so a wrong edge here is a wrong edge on
 // every route at once.
 //
-// They live in schema.ts now. What stayed in validate.ts is what a schema
-// cannot express — requireNotFuture compares against a date read from
-// Postgres — plus the helpers the log page still validates with, and both are
-// held to the same laws here as before.
+// They live in schema.ts now. What a schema cannot express lives where the
+// rule belongs — requireNotFuture compares against a date read from Postgres,
+// so it sits with the calendar in dates.ts, and the helpers the log page
+// still validates with sit in the log page — and both are held to the same
+// laws here as before.
 
 // deno-lint-ignore no-explicit-any
 function issues(schema: any, value: unknown): string[] {

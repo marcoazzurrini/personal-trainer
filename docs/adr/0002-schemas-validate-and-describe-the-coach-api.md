@@ -85,3 +85,8 @@ The Markdown under `docs/` is unaffected and is not replaced. A schema can say
 label for a number with no good source, or that a confident invention is the
 single unforgivable failure of that endpoint family. That judgment is the actual
 contract, and it still lives in prose.
+
+Epilogue: `lib/validate.ts` is gone. Both reasons held, but neither needed a
+file of its own — the log page's validators moved into `routes/logpage.ts`, the
+future checks joined the calendar in `lib/dates.ts`, and every sentence moved
+unchanged.
