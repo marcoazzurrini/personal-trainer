@@ -6,10 +6,10 @@ in `tasks/session-generation` (writing today's session) and `tasks/logging`
 
 A set is **written with targets or actuals, never both** in one write. Targets
 mean "what was asked before the work"; actuals mean what happened. Targets are
-frozen once created and can never be edited; actuals attach later — through
-`PATCH /sets/:id` or the log page — so a mature planned set carries both, the
-frozen ask beside what actually happened. The rule guards the write, not the
-row: a target authored after the work would always match what was done.
+frozen once created and can never be edited; actuals attach later, through
+`PATCH /sets/:id`, so a mature planned set carries both, the frozen ask beside
+what actually happened. The rule guards the write, not the row: a target
+authored after the work would always match what was done.
 
 A session is a training bout on a date, and nothing more. It is not owned by a
 plan: **each set says which plan it serves**, so one afternoon of sprints and then
@@ -62,9 +62,6 @@ POST /sessions
   ]
 }
 ```
-
-The response carries `public_id`; the log page for the person is
-`<API base URL>/s/<public_id>`.
 
 Retro-logged session (a workout that already happened): same endpoint, past
 `date`, sets carrying actuals — and no targets.
@@ -123,6 +120,8 @@ necessary in the first place.
 - `kind` — `warmup` | `working`. Defaults to `working`, so it is only ever written
   to mark a warmup.
 - `overall_feel` (session) — free text, not an enum. Write what the person said.
-- Durations are seconds and distances are metres, always. A 28:30 run is
-  `"duration_s": 1710`; the log page does that conversion for the person, the API
-  does not.
+- Durations are seconds and distances are metres, always. A person says "28:30";
+  the field is `"duration_s": 1710`. **You do that conversion** — 28 × 60 + 30 —
+  because nothing between the conversation and the column does it. The API takes
+  the number it is given, so `2830` written there is accepted and records a run
+  that was never run.

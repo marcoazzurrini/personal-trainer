@@ -245,10 +245,10 @@ function assertMatchesDocument(
   status: number,
   body: unknown,
 ): void {
-  // Surfaces deliberately outside the document — the log page, the Withings
-  // webhook, the uptime probe, the document itself — match nothing here, and
-  // that is the exemption: the document is the contract, and what it does not
-  // describe is not checked against it.
+  // Surfaces deliberately outside the document — the Withings webhook, the
+  // uptime probe, the document itself — match nothing here, and that is the
+  // exemption: the document is the contract, and what it does not describe is
+  // not checked against it.
   const route = matchDeclared(method, path);
   if (route === null) return;
   const schema = route.schemaFor.get(String(status));

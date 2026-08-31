@@ -129,13 +129,10 @@ When more than one line is running, the rationale says what each was owed and wh
 served the one it did — that is the part a later conversation cannot reconstruct from
 the sets.
 
-The response carries `public_id`. Hand the person the log page link:
-`<API base URL>/s/<public_id>`.
-
 **Targets are frozen once created.** They are the record of what was asked before the work
-happened, and that record is what makes the effort reports interpretable afterwards. If
-the person reports mid-workout changes in chat rather than on the page, log them as
-actuals (`logging`) — never edit the ask.
+happened, and that record is what makes the effort reports interpretable afterwards. When
+the person comes back and reports what they actually did, log it as actuals (`logging`) —
+never edit the ask.
 
 **Iterating on a plan is delete-and-recreate, not supersede.** While nothing has been
 performed, the session is a draft: if Marco wants it different, `DELETE /sessions/:id`

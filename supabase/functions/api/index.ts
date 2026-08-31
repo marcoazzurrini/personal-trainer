@@ -11,7 +11,6 @@ import { exercises, muscles } from "./routes/exercises.ts";
 import { foods } from "./routes/foods.ts";
 import { days, intake } from "./routes/intake.ts";
 import { issues } from "./routes/issues.ts";
-import { logPage } from "./routes/logpage.ts";
 import { meals } from "./routes/meals.ts";
 import { mesocycles } from "./routes/mesocycles.ts";
 import { nutritionEvents } from "./routes/nutrition_events.ts";
@@ -53,12 +52,6 @@ app.get("/health", async (c) => {
   const withings = await catchUpIfDue();
   return c.json({ status: "ok", ...(withings ? { withings } : {}) });
 });
-
-// The log page namespace is tokenless like /health: the unguessable
-// public_id is its auth (21 chars of CSPRNG over 62 symbols, ~125 bits), and
-// the coach token never reaches a browser. Its writes carry no rate limit —
-// the entropy is the defense; revisit only if a session URL ever leaks.
-app.route("/s", logPage);
 
 // Withings cannot send our bearer token, so its two routes are registered here,
 // ahead of the middleware. They answer without calling next(), which is what
@@ -161,12 +154,12 @@ app.use(async (c, next) => {
 // Content-Type says. The validator skips silently when the header is not
 // application/json — the request reaches the handler with every field
 // undefined, which is the same silent-success failure assertKnownFields
-// exists to prevent, arriving by a different door.
+// existed to prevent, arriving by a different door.
 //
 // So the guarantee is restored here, once, ahead of every schema. It sits
-// below the token middleware on purpose: the log page, the health ping and
-// the Withings webhook are registered above it and keep their own handling —
-// the webhook in particular is form-encoded and must stay untouched.
+// below the token middleware on purpose: the health ping and the Withings
+// webhook are registered above it and keep their own handling — the webhook
+// in particular is form-encoded and must stay untouched.
 //
 // A body-less POST passes: /withings/sync is reached from a terminal with no
 // body at all, and that is deliberate.

@@ -89,11 +89,11 @@ disagree, classify by measured growth. When unsure, ask rather than guess.
   `duration` (plank, a run logged by time), `distance_duration` (a sprint, an
   interval, a tempo run — either or both). A property of the exercise, never a
   per-set choice: a back squat is never measured in metres. It decides which
-  fields a set may carry (`reference/sessions`), which units its weekly dose may
-  be stated in (`reference/planning`), and which inputs the log page renders.
-  Getting it wrong makes the exercise unloggable, which is at least loud — and
-  recoverable exactly until the first set is logged (`PATCH /exercises/:ref`); after
-  that, a new exercise takes over the old one's aliases.
+  fields a set may carry (`reference/sessions`) and which units its weekly dose may
+  be stated in (`reference/planning`). Getting it wrong makes the exercise
+  unloggable, which is at least loud — and recoverable exactly until the first set
+  is logged (`PATCH /exercises/:ref`); after that, a new exercise takes over the old
+  one's aliases.
 - `stimulus_type` (exercise) — `strength` | `power` | `conditioning`. Only `strength`
   exercises count in `GET /weekly-volume` — see `reference/tracking`. It is
   independent of `measure`: a sled push is measured in metres and is still a

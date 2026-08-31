@@ -282,9 +282,9 @@ sessions.openapi(
   },
 );
 
-// Two shapes. Upcoming: sets with targets, for the log page. Retro: a past
-// date, sets with actuals and null targets. Set rows are created here —
-// logging fills them in rather than inserting.
+// Two shapes. Upcoming: sets with targets, the session about to be trained.
+// Retro: a past date, sets with actuals and null targets. Set rows are created
+// here — logging fills them in rather than inserting.
 sessions.openapi(
   createRoute({
     method: "post",
@@ -292,7 +292,7 @@ sessions.openapi(
     tags: ["Training"],
     summary: "Write a session",
     description:
-      "Two shapes. Upcoming: sets carrying targets, for the log page. Retro-logged: a past date and sets carrying actuals. Never both on one set — a target written after the work would always match what was done.",
+      "Two shapes. Upcoming: sets carrying targets, the session about to be trained. Retro-logged: a past date and sets carrying actuals. Never both on one set — a target written after the work would always match what was done.",
     request: {
       body: {
         content: {
@@ -381,8 +381,8 @@ sessions.openapi(
   },
 );
 
-// An unplanned set: actuals, null targets. Behind the log page's extra-row
-// and add-exercise actions, and available when logging in chat.
+// An unplanned set: actuals, null targets. The extra set, or the exercise
+// swapped in on the day, reported afterwards and appended to the session.
 sessions.openapi(
   createRoute({
     method: "post",

@@ -43,9 +43,6 @@ deleted.
 **Effort**: How hard a set was: `easy`, `hard`, or `failure`. Not a numeric
 scale. _Avoid_: RIR, RPE, intensity
 
-**Log page**: The browser page for filling in a session's actuals, reached by a
-session's unguessable `public_id`. Carries no coaching logic.
-
 ## Eating
 
 **Food**: A catalogue entry with per-100g macros and an honest `source`. A

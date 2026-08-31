@@ -8,7 +8,6 @@ import {
   optionalTimestamp,
 } from "../supabase/functions/api/http/schema.ts";
 import { requireNotFuture } from "../supabase/functions/api/rules/dates.ts";
-import { requireIdParam } from "../supabase/functions/api/routes/logpage.ts";
 import {
   docUrl,
   isDocName,
@@ -22,9 +21,8 @@ import { ApiError } from "../supabase/functions/api/http/errors.ts";
 //
 // They live in schema.ts now. What a schema cannot express lives where the
 // rule belongs — requireNotFuture compares against a date read from Postgres,
-// so it sits with the calendar in dates.ts, and the helpers the log page
-// still validates with sit in the log page — and both are held to the same
-// laws here as before.
+// so it sits with the calendar in dates.ts — and it is held to the same laws
+// here as before.
 
 // deno-lint-ignore no-explicit-any
 function issues(schema: any, value: unknown): string[] {
@@ -135,13 +133,9 @@ Deno.test("an id parameter accepts exactly the positive integers", () => {
   const schema = idParam("test");
   fc.assert(fc.property(fc.integer({ min: 1, max: 2_000_000_000 }), (n) => {
     assertEquals(accepted(schema, String(n)), n);
-    // The log page still validates with the original, which must not drift
-    // from the shape every other route now uses.
-    assertEquals(requireIdParam(String(n), "test"), n);
   }));
   for (const bad of ["0", "-3", "1.5", "banana", "", "NaN", "Infinity"]) {
     assert(issues(schema, bad).length > 0, bad);
-    assert(refused(() => requireIdParam(bad, "test")), bad);
   }
 });
 

@@ -144,8 +144,8 @@ export function errorResponse(err: unknown, c: Context): Response {
   // Numeric field overflow. Every measured column is a bounded numeric, so a
   // decimal point in the wrong place lands here — and without this it lands as
   // a 500, which tells the caller nothing it can act on. The same reasoning as
-  // requireIdParam: a malformed number deserves a prompt, not an internal
-  // error. Postgres carries no constraint name here, but its detail names the
+  // idParam: a malformed number deserves a prompt, not an internal error.
+  // Postgres carries no constraint name here, but its detail names the
   // precision and scale, which is exactly what the caller needs.
   // A null written into a column that cannot hold one. Reaching Postgres at
   // all means a validator accepted an explicit null for a required field —

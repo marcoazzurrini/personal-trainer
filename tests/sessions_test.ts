@@ -1,7 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
-  BASE,
   ensureCatalogue,
   lastTuesday,
   resetTraining,
@@ -200,17 +199,12 @@ Deno.test("a draft session is discardable; a performed one is not", async (t) =>
     const created = await api.post("/sessions", plan());
     assertEquals(created.status, 201, created.body.error);
     const id = created.body.session.id;
-    const publicId = created.body.session.public_id;
 
     const { status, body } = await api.delete(`/sessions/${id}`);
     assertEquals(status, 200);
     assertEquals(body.deleted.sets, 2);
 
     assertEquals((await api.get(`/sessions/${id}`)).status, 404);
-    // The log page link dies with the draft.
-    const page = await fetch(`${BASE}/s/${publicId}`);
-    await page.body?.cancel();
-    assertEquals(page.status, 404);
   });
 
   await t.step("one actual on record refuses the delete", async () => {
@@ -233,8 +227,8 @@ Deno.test("a draft session is discardable; a performed one is not", async (t) =>
   await t.step(
     "a started session is history even with no actuals",
     async () => {
-      // Starting the workout is commitment enough: the log page was opened, the
-      // warmup happened, the plan was the plan. No silent discard after that.
+      // Starting the workout is commitment enough: the session was under way,
+      // the warmup happened, the plan was the plan. No silent discard after that.
       const created = await api.post("/sessions", plan());
       const id = created.body.session.id;
       await api.patch(`/sessions/${id}`, {

@@ -55,9 +55,9 @@ const immutableTarget = () =>
   });
 
 // One set, sent as it's entered. Flat, not nested under the session: a set id
-// is unique on its own, and patching a known id is idempotent — the log page
-// resends after being offline. Targets are immutable: once written they are
-// the record of what was asked, so this endpoint never touches them.
+// is unique on its own, and patching a known id is idempotent — a resend lands
+// on the same row. Targets are immutable: once written they are the record of
+// what was asked, so this endpoint never touches them.
 sets.openapi(
   createRoute({
     method: "patch",

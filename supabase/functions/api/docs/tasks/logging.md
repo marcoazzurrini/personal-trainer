@@ -1,9 +1,10 @@
 # Logging
 
-Recording facts the person reports in chat. The log page is the primary way to capture a
-live workout; chat logging covers everything the page doesn't. Payload shapes are in
-`reference/sessions` (sessions, sets, corrections) and `reference/tracking` (user
-context, bodyweight).
+Recording facts the person reports in chat, which is the only way anything gets logged.
+The session is planned in one conversation, the person trains away from it, and
+afterwards they say what they did — that report is how actuals reach the record. Payload
+shapes are in `reference/sessions` (sessions, sets, corrections) and `reference/tracking`
+(user context, bodyweight).
 
 ## A workout that never got logged (retro session)
 
@@ -13,9 +14,9 @@ session happened, and `sets` carrying actuals.
 **Never invent targets for a retro session.** A target means "what was asked before the
 work"; a forgotten session had no ask. The API rejects a **new** set written with both
 targets and actuals, and the rejection is protecting the distinction — a planned set
-acquires its actuals later through `PATCH /sets/:id` or the log page, but a target
-authored after the work would always match what was done, and you could no longer tell
-a session that went to plan from one that didn't.
+acquires its actuals later through `PATCH /sets/:id`, but a target authored after the
+work would always match what was done, and you could no longer tell a session that went
+to plan from one that didn't.
 
 ## What a set records
 

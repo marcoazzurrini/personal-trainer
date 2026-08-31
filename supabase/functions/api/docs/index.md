@@ -92,7 +92,7 @@ that family; the task documents point at the right one at the right moment.
 | Endpoint                            | Covers                                                                    |
 | ----------------------------------- | ------------------------------------------------------------------------- |
 | `GET /docs/reference/planning`      | Blocks, mesocycles, revisions, decisions                                  |
-| `GET /docs/reference/sessions`      | Sessions and sets: targets vs actuals, corrections, the log page          |
+| `GET /docs/reference/sessions`      | Sessions and sets: targets vs actuals, corrections, field values          |
 | `GET /docs/reference/exercises`     | The exercise catalogue: creating exercises and muscles, history, `volume_factor` |
 | `GET /docs/reference/tracking`      | Training state, weekly progress reads, user context, bodyweight           |
 | `GET /docs/reference/nutrition`     | Foods, meals, intake, corrections, body fat, expenditure, targets, events |

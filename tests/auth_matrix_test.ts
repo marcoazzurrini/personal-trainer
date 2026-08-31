@@ -13,10 +13,10 @@ import { assert, assertEquals } from "@std/assert";
 const BASE = Deno.env.get("API_URL") ??
   "http://127.0.0.1:54321/functions/v1/api";
 
-// The three tokenless surfaces, each with its own auth story: /health is the
-// uptime probe, /s is guarded by the public_id's entropy, /withings (the
-// webhook half) is guarded by dropping anything that names the wrong account.
-const PUBLIC_MOUNTS = ["/s", "/withings"];
+// The tokenless surfaces, each with its own auth story: /health is the uptime
+// probe, and /withings (the webhook half) is guarded by dropping anything that
+// names the wrong account.
+const PUBLIC_MOUNTS = ["/withings"];
 
 // Routes registered directly rather than mounted, on the same public side of
 // the line. /health is the uptime probe. The reference pair is public because
