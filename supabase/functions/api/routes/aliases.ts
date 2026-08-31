@@ -18,7 +18,13 @@ interface Aliased {
   name?: string;
 }
 
-interface AliasSurface {
+// Body is the shape the entity answers with, and it is a type parameter so
+// that the reload and the declared schema are checked against each other.
+// Without it both sides widen to unknown, the handler needs a cast to return
+// anything at all, and the response declaration stops catching the drift it
+// was added to catch — which ADR-0002 records as the reason for declaring
+// responses in the first place.
+interface AliasSurface<Body> {
   tag: string;
   aliasTable: string;
   foreignKey: string;
@@ -28,17 +34,17 @@ interface AliasSurface {
   // The whole response body, reloaded after the write — { exercise: … },
   // { food: … }, { meal: … }. The key is the caller's to choose, which is
   // why it hands back the envelope rather than the row.
-  respond: (id: number) => Promise<Record<string, unknown>>;
-  responseSchema: z.ZodType;
+  respond: (id: number) => Promise<Body>;
+  responseSchema: z.ZodType<Body>;
 }
 
 // Both routes answer with the entity as it now stands rather than with the
 // alias that changed: the caller's next move needs the full list of names,
 // and a second GET to discover it is a round trip the model should not have
 // to spend.
-export function addAliasRoute(
+export function addAliasRoute<Body>(
   router: OpenAPIHono,
-  surface: AliasSurface & {
+  surface: AliasSurface<Body> & {
     created: string;
     // Refused when neither field arrives. Foods and exercises do not phrase
     // this alike and neither may change.
@@ -84,8 +90,7 @@ export function addAliasRoute(
           (${sql(surface.foreignKey)}, alias) values (${id}, ${alias})`;
         }
       });
-      // deno-lint-ignore no-explicit-any
-      return c.json(await surface.respond(id) as any, 201);
+      return c.json(await surface.respond(id), 201);
     },
   );
 }
@@ -94,9 +99,9 @@ export function addAliasRoute(
 // how a spoken name gets moved to the thing that should own it. Aliases are
 // globally unique, so without this a retired food would hold "il solito
 // yogurt" forever and no replacement could ever claim it.
-export function releaseAliasRoute(
+export function releaseAliasRoute<Body>(
   router: OpenAPIHono,
-  surface: AliasSurface & {
+  surface: AliasSurface<Body> & {
     summary: string;
     description?: string;
     removed: string;
@@ -138,8 +143,7 @@ export function releaseAliasRoute(
       if (rows.length === 0) {
         throw new ApiError(404, surface.notAnAlias(alias, entity));
       }
-      // deno-lint-ignore no-explicit-any
-      return c.json(await surface.respond(entity.id) as any);
+      return c.json(await surface.respond(entity.id));
     },
   );
 }

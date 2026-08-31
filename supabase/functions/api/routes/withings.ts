@@ -126,11 +126,26 @@ withingsAdmin.openapi(
           "application/json": {
             schema: z.object({
               withings: z.object({
-                scanned: z.int(),
+                range: z.string().meta({
+                  description: "The window asked for, as it was logged.",
+                }),
+                fetched: z.int().meta({
+                  description: "Measure groups Withings returned.",
+                }),
                 written: z.int(),
-                from: z.string().nullable(),
-                to: z.string().nullable(),
-              }).loose(),
+                duplicate: z.int().meta({
+                  description:
+                    "Already present and identical — a redelivery, which is free.",
+                }),
+                ignored: z.int().meta({
+                  description:
+                    "Not a weight measurement: an objective, or a group without one.",
+                }),
+                refused: z.int().meta({
+                  description:
+                    "Rejected by the bodyweight guards. Never fatal.",
+                }),
+              }),
             }),
           },
         },
@@ -152,8 +167,7 @@ withingsAdmin.openapi(
       }
     }
     try {
-      // deno-lint-ignore no-explicit-any
-      return c.json({ withings: await catchUp(since) as any });
+      return c.json({ withings: await catchUp(since) });
     } catch (err) {
       if (err instanceof WithingsError) throw new ApiError(502, err.message);
       throw err;
