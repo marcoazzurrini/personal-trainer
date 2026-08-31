@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  daysBefore,
   lastFinishedSunday,
   resetNutrition,
   seedCut,
@@ -280,5 +281,43 @@ Deno.test("the estimate holds rather than extrapolating", async (t) => {
     const { body } = await api.get("/nutrition-state");
     assertEquals(body.expenditure.status, "stale");
     assert(body.adherence.days_logged_last_7 === 0);
+  });
+});
+
+// The two weekly means once disagreed about which days counted: mean_kcal
+// excluded days flagged incomplete and mean_protein_g did not, so a day Marco
+// had said he did not track was thrown out of one number and averaged into the
+// other. In practice a flagged day is under-logged, so the protein mean read
+// low and a shortfall that never happened looked real. This fixture doubles a
+// day rather than starving one — seedCut has already logged every day, and a
+// doubled day puts an exact delta through the same arithmetic.
+Deno.test("a flagged day leaves both weekly means", async (t) => {
+  await resetNutrition();
+  // Two weeks at 2,200 kcal of a 5 g/100 g food: 110 g of protein a day.
+  await seedCut({ days: 14, kcal: 2200, startWeightKg: 82, kgPerWeek: -0.5 });
+  const day = daysBefore(lastFinishedSunday(), 3);
+
+  await t.step("a doubled day moves both while it still counts", async () => {
+    await api.post("/intake", {
+      day,
+      food: "Seed Food",
+      grams: 2200,
+      request_id: uuid(),
+    });
+    const { body } = await api.get("/nutrition/weekly?weeks=1");
+    assertEquals(body.weeks[0].mean_kcal, 2514); // (6 x 2200 + 4400) / 7
+    assertEquals(body.weeks[0].mean_protein_g, 126); // (6 x 110 + 220) / 7
+  });
+
+  await t.step("flagging it removes it from both", async () => {
+    const flagged = await api.post(`/days/${day}/flags`, {
+      flag: "incomplete",
+    });
+    assertEquals(flagged.status, 201);
+
+    const { body } = await api.get("/nutrition/weekly?weeks=1");
+    assertEquals(body.weeks[0].days_flagged, 1);
+    assertEquals(body.weeks[0].mean_kcal, 2200);
+    assertEquals(body.weeks[0].mean_protein_g, 110);
   });
 });

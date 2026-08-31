@@ -110,18 +110,8 @@ nutritionWeekly.openapi(
       (select count(distinct i.day)::int from intake_entries i
        where i.day >= w.week_start and i.day <= w.week_start + 6)
         as days_logged,
-      (select avg(d.kcal)::float8 from (
-         select i.day, sum(i.kcal) as kcal from intake_entries i
-         where i.day >= w.week_start and i.day <= w.week_start + 6
-           and not exists (select 1 from day_flags f
-                           where f.day = i.day and f.flag = 'incomplete')
-         group by i.day) d)
-        as mean_kcal,
-      (select avg(d.protein)::float8 from (
-         select i.day, sum(i.protein_g) as protein from intake_entries i
-         where i.day >= w.week_start and i.day <= w.week_start + 6
-         group by i.day) d)
-        as mean_protein_g,
+      intake.mean_kcal,
+      intake.mean_protein_g,
       (select count(*)::int from daily_bodyweight b
        where b.day >= w.week_start and b.day <= w.week_start + 6)
         as weigh_ins,
@@ -148,6 +138,28 @@ nutritionWeekly.openapi(
       select (${end}::date - 6 - (g * 7))::date as week_start
       from generate_series(0, ${weeks - 1}) g
     ) w
+    -- Both means are averaged over one filtered set of days, so they cannot
+    -- come to disagree about which days count. A day flagged incomplete is
+    -- unusable, not unusable-for-energy: Marco has said he did not track it,
+    -- so its partial protein understates the week exactly as its partial kcal
+    -- does, and excluding it from one mean but not the other would report a
+    -- protein shortfall that never happened.
+    --
+    -- avg ignores nulls, so a day carrying no protein at all leaves
+    -- mean_protein_g alone rather than dragging it toward zero — the same
+    -- floor-not-total rule sumMacros applies inside a single day.
+    left join lateral (
+      select avg(d.kcal)::float8 as mean_kcal,
+        avg(d.protein)::float8 as mean_protein_g
+      from (
+        select i.day, sum(i.kcal) as kcal, sum(i.protein_g) as protein
+        from intake_entries i
+        where i.day >= w.week_start and i.day <= w.week_start + 6
+          and not exists (select 1 from day_flags f
+                          where f.day = i.day and f.flag = 'incomplete')
+        group by i.day
+      ) d
+    ) intake on true
     -- The target in force at the week's end: what Marco was eating to by the
     -- time the week was over. target_changed flags the weeks where one
     -- superseded another mid-week and the comparison is therefore muddy.
