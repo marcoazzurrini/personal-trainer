@@ -49,8 +49,9 @@ may not ask the database anything.
 ## Consequences
 
 `tests/rules_purity_test.ts` walks every import specifier under `rules/`,
-resolves the relative ones, and fails naming the file and line that reached
-`db.ts`. Without it the boundary would last about a month; the first author who
+resolves the relative ones, follows them onward, and fails naming the whole
+chain that reached `db.ts` — the hop through a helper in `record/` is how the
+rule would actually break, not a direct `import { sql }`. Without it the boundary would last about a month; the first author who
 needs one more number would fetch it rather than take a parameter, and the
 suite would stay green while the folder's name quietly stopped being true. The
 test asserts that one rule and nothing more, which is why it says nothing about
