@@ -54,13 +54,20 @@ export async function writeOnce<Found extends object, Replayed, Created>(
     write: () => Created | Promise<Created>;
   },
 ): Promise<Written<Replayed, Created>> {
-  // Two retries racing each other are not settled here but by the unique
-  // constraint every request_id column carries: the loser's insert fails
-  // rather than duplicating. This lookup catches the ordinary case, a lost
-  // response retried after the first call finished.
+  // Two retries racing each other are not settled here but in the database,
+  // where every one of these tables refuses the second write. Most carry a
+  // plain unique request_id; two do not, and both still refuse. coach_issues
+  // keys on it outright, and intake_entries indexes (request_id, food_id)
+  // nulls not distinct, because one request logging a saved meal legitimately
+  // writes a row per item — there the loser collides item by item and
+  // sql.begin rolls the whole retry back. This lookup catches the ordinary
+  // case instead: a lost response retried after the first call finished.
+  //
+  // limit 1 because one id can match several rows, for the meal reason above,
+  // and any of them proves the write happened — which is all this asks.
   const [found] = await sql<Found[]>`
     select ${spec.select} from ${sql(spec.table)}
-    where request_id = ${spec.requestId}`;
+    where request_id = ${spec.requestId} limit 1`;
   if (found !== undefined) {
     return { body: await spec.replay(found), status: 200 };
   }

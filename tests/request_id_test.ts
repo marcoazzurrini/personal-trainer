@@ -2,10 +2,13 @@ import { assert, assertEquals } from "@std/assert";
 import {
   api,
   type ApiResponse,
+  daysBefore,
   ensureCatalogue,
+  lastFinishedSunday,
   lastMonday,
   resetNutrition,
   resetTraining,
+  seedWeighIns,
   today,
   uuid,
 } from "./helpers.ts";
@@ -283,6 +286,28 @@ Deno.test("resending a request_id replays the original result", async (t) => {
     fat_100g: 3,
     source: "estimate",
   });
+  await api.post("/foods", {
+    name: "Replay Food Two",
+    kcal_100g: 168,
+    protein_100g: 20,
+    carbs_100g: 4,
+    fat_100g: 8,
+    source: "estimate",
+  });
+  // Two items, so logging it writes two rows from one request_id. That is the
+  // case intake_entries_request_food_key exists for, and the one a plain
+  // unique request_id could not express.
+  await api.post("/meals", {
+    name: "Replay Day Meal",
+    items: [
+      { food: "Replay Food", grams: 50 },
+      { food: "Replay Food Two", grams: 60 },
+    ],
+  });
+  // The provisional path: a goal and an explicit kcal figure, which is what
+  // onboarding has before there is enough history to solve for one. It needs a
+  // bodyweight and nothing else.
+  await seedWeighIns([daysBefore(lastFinishedSunday(), 1)], 82);
 
   // `created` is what the first call answers. It is 201 wherever a row is
   // created, and 200 on the one route that revises a plan rather than making
@@ -331,11 +356,39 @@ Deno.test("resending a request_id replays the original result", async (t) => {
       },
       identity: (b) => b.meal.id,
     },
+    // The only site that replays a different entity than it wrote. A logged
+    // day is answered with the whole day, so identity is the day's entries
+    // rather than a row id: a retry that got through would show up as four
+    // entries where the first call left two, which is what "indistinguishable
+    // from eating twice" means when it happens.
+    {
+      label: "intake",
+      path: "/intake",
+      body: { meal: "Replay Day Meal" },
+      identity: (b) => b.entries.map((e: { id: number }) => e.id),
+    },
     {
       label: "nutrition events",
       path: "/nutrition-events",
       body: { kind: "creatine_start" },
       identity: (b) => b.event.id,
+    },
+    // The only site whose replay is a different shape from its creation: 201
+    // carries the computation blocks that justified the target, 200 answers
+    // with the row alone. identity reads through target, which is the half
+    // both shapes share — asserting on computation would fail against the
+    // replay by design rather than by regression.
+    {
+      label: "nutrition targets",
+      path: "/nutrition-targets",
+      body: {
+        goal: "cut",
+        rate_pct_bw_week: -0.5,
+        kcal_target: 2300,
+        protein_g_target: 180,
+        decision: "Provisional, for the replay inventory.",
+      },
+      identity: (b) => b.target.id,
     },
     {
       label: "sessions",
