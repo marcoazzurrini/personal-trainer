@@ -161,6 +161,11 @@ function optionalNumber(
 // Ids in a path. Number("notanid") is NaN, and a NaN reaching Postgres as a
 // bigint throws where the handler can only answer "internal error" — a 500 at
 // exactly the moment the caller most needs a prompt telling it what to send.
+//
+// Exported, alone among these helpers, so the property suite can hold it to the
+// same law as schema.ts's idParam: two implementations of one rule, and the
+// drift between them would be silent. It goes private when the log page
+// validates with schemas.
 export function requireIdParam(value: string, what: string): number {
   const id = Number(value);
   if (!Number.isInteger(id) || id < 1) {
