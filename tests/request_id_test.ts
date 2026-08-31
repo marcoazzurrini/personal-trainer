@@ -485,4 +485,50 @@ Deno.test("resending a request_id replays the original result", async (t) => {
       );
     });
   }
+
+  // The one retry the inventory above cannot state, because it sends a body
+  // twice unchanged and this failure needs the body to move.
+  //
+  // POST /bodyfat defaults day to Rome's today and dedupes on (day, method),
+  // and those two together hide whether the request_id is honoured at all: a
+  // same-day retry is caught by the natural key either way, so the entry above
+  // passes with the preamble removed. Only a retry that crosses midnight tells
+  // them apart — it lands on a free (day, method), and nothing but the
+  // request_id can still recognise it as the call already answered.
+  await t.step("body fat, retried after the day moved", async () => {
+    const id = uuid();
+    const recorded = daysBefore(today(), 3);
+
+    const first = await api.postRaw("/bodyfat", {
+      percent: 18.5,
+      method: "dxa",
+      day: recorded,
+      request_id: id,
+    });
+    assertEquals(first.status, 201, `first call: ${first.body.error}`);
+
+    // The same call arriving again with the day underneath it moved on.
+    const again = await api.postRaw("/bodyfat", {
+      percent: 18.5,
+      method: "dxa",
+      day: daysBefore(today(), 2),
+      request_id: id,
+    });
+    assertEquals(
+      again.status,
+      200,
+      `a retry whose day had moved answered ${again.status} instead of ` +
+        `replaying the original: ${again.body.error}`,
+    );
+    assertEquals(
+      again.body.bodyfat_estimate.id,
+      first.body.bodyfat_estimate.id,
+      "the retry wrote a second estimate rather than replaying the first",
+    );
+    assertEquals(
+      again.body.bodyfat_estimate.day,
+      recorded,
+      "the replay carried the day the retry arrived on, not the day it recorded",
+    );
+  });
 });
