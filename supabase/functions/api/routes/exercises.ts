@@ -3,7 +3,8 @@ import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { resolveExercise, resolveExerciseId } from "../record/resolve.ts";
 import { MEASURES } from "../rules/training.ts";
-import { body, oneOf, optionalText, text } from "../http/schema.ts";
+import { aliasList, body, oneOf, optionalText, text } from "../http/schema.ts";
+import { addAliasRoute, releaseAliasRoute } from "./aliases.ts";
 
 const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
 const SYSTEMIC_FATIGUE_LEVELS = ["normal", "high"] as const;
@@ -71,13 +72,6 @@ interface MuscleEntry {
   muscle: string;
   volumeFactor: number;
 }
-
-const aliasesError = () => '"aliases" must be an array of non-empty strings.';
-const aliasList = () =>
-  z.array(
-    z.string({ error: aliasesError }).trim().min(1, { error: aliasesError }),
-    { error: aliasesError },
-  ).optional();
 
 function selectExercise(id?: number) {
   return sql<ExerciseRow[]>`
@@ -493,96 +487,31 @@ exercises.openapi(
 
 // A synonym never becomes a second exercise row — that splits the lift's
 // history in two. Same rule and same surface as foods.
-exercises.openapi(
-  createRoute({
-    method: "post",
-    path: "/{ref}/aliases",
-    tags: ["Exercises"],
-    summary: "Add a synonym",
-    request: {
-      params: z.object({ ref: ref() }),
-      body: {
-        content: {
-          "application/json": {
-            schema: body({ alias: text().optional(), aliases: aliasList() }),
-          },
-        },
-      },
-    },
-    responses: {
-      201: {
-        description: "The exercise, with the alias now among its names.",
-        content: {
-          "application/json": { schema: z.object({ exercise: Exercise }) },
-        },
-      },
-      409: { description: "That alias already points at something." },
-      422: { description: "Neither alias nor aliases was sent." },
-    },
-  }),
-  async (c) => {
-    const e = await resolveExercise(c.req.valid("param").ref);
-    const b = c.req.valid("json");
-    const aliases = b.alias !== undefined ? [b.alias] : (b.aliases ?? []);
-    if (aliases.length === 0) {
-      throw new ApiError(
-        422,
-        'Send "alias" (a string) or "aliases" (an array of non-empty strings).',
-      );
-    }
-    await sql.begin(async (tx) => {
-      for (const alias of aliases) {
-        await tx`
-        insert into exercise_aliases (exercise_id, alias)
-        values (${e.id}, ${alias})`;
-      }
-    });
-    const [updated] = await selectExercise(e.id);
-    return c.json({ exercise: updated }, 201);
-  },
-);
+const aliasSurface = {
+  tag: "Exercises",
+  aliasTable: "exercise_aliases",
+  foreignKey: "exercise_id",
+  ref,
+  resolve: resolveExercise,
+  respond: async (id: number) => ({ exercise: (await selectExercise(id))[0] }),
+  responseSchema: z.object({ exercise: Exercise }),
+};
 
-// An alias is a pointer, not a fact — removing one loses nothing, and it is
-// how a spoken name moves to the exercise that should own it. Aliases are
-// globally unique, so without this a retired exercise would hold its names
-// forever and no replacement could ever claim them.
-exercises.openapi(
-  createRoute({
-    method: "delete",
-    path: "/{ref}/aliases/{alias}",
-    tags: ["Exercises"],
-    summary: "Release a synonym",
-    request: {
-      params: z.object({ ref: ref(), alias: z.string().min(1) }),
-    },
-    responses: {
-      200: {
-        description: "The exercise, without that name.",
-        content: {
-          "application/json": { schema: z.object({ exercise: Exercise }) },
-        },
-      },
-      404: { description: "That alias does not point at that exercise." },
-    },
-  }),
-  async (c) => {
-    const { ref: reference, alias: rawAlias } = c.req.valid("param");
-    const e = await resolveExercise(reference);
-    const alias = decodeURIComponent(rawAlias);
-    const rows = await sql`
-    delete from exercise_aliases
-    where exercise_id = ${e.id} and lower(alias) = lower(${alias})
-    returning id`;
-    if (rows.length === 0) {
-      throw new ApiError(
-        404,
-        `"${alias}" is not an alias of "${e.name}". GET /exercises lists each exercise's aliases.`,
-      );
-    }
-    const [updated] = await selectExercise(e.id);
-    return c.json({ exercise: updated });
-  },
-);
+addAliasRoute(exercises, {
+  ...aliasSurface,
+  created: "The exercise, with the alias now among its names.",
+  neither:
+    'Send "alias" (a string) or "aliases" (an array of non-empty strings).',
+});
+
+releaseAliasRoute(exercises, {
+  ...aliasSurface,
+  summary: "Release a synonym",
+  removed: "The exercise, without that name.",
+  notAnAliasResponse: "That alias does not point at that exercise.",
+  notAnAlias: (alias, e) =>
+    `"${alias}" is not an alias of "${e.name}". GET /exercises lists each exercise's aliases.`,
+});
 
 // Only an exercise nothing has ever referenced — a typo'd duplicate caught
 // before it was logged or planned. Once it is in the record, deleting it

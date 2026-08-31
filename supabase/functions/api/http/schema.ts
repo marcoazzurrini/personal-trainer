@@ -64,6 +64,19 @@ export function optionalText() {
   return z.string({ error }).trim().min(1, { error }).nullish();
 }
 
+// Every aliasable thing takes its synonyms the same way, so the shape and its
+// refusal are written once. This is the one factory that names its field
+// instead of reading it off the issue: an element's path is "aliases.1", and
+// an index is not what the caller has to fix.
+const aliasesError = () => '"aliases" must be an array of non-empty strings.';
+
+export function aliasList() {
+  return z.array(
+    z.string({ error: aliasesError }).trim().min(1, { error: aliasesError }),
+    { error: aliasesError },
+  ).optional();
+}
+
 // ---------------------------------------------------------------- numbers
 
 export function number(opts: { min?: number } = {}) {

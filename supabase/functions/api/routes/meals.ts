@@ -3,7 +3,15 @@ import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { foodMacros, scaleFood, sumMacros } from "../rules/nutrition.ts";
 import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
-import { body, macroTotals, number, requestId, text } from "../http/schema.ts";
+import {
+  aliasList,
+  body,
+  macroTotals,
+  number,
+  requestId,
+  text,
+} from "../http/schema.ts";
+import { releaseAliasRoute } from "./aliases.ts";
 
 // Meals are routines, not history. "il mio solito yogurt" is a name, a list of
 // foods and their amounts — saved so that logging it costs seconds.
@@ -55,13 +63,6 @@ const ref = () =>
     description: "A meal id, its name, or any of its aliases.",
     example: "colazione",
   });
-
-const aliasesError = () => '"aliases" must be an array of non-empty strings.';
-const aliasList = () =>
-  z.array(
-    z.string({ error: aliasesError }).trim().min(1, { error: aliasesError }),
-    { error: aliasesError },
-  ).optional();
 
 // food is an id, a name, or an alias, so it is deliberately either a number or
 // a string here and the resolver decides what it meant.
@@ -348,41 +349,19 @@ meals.openapi(
 // a routine abandoned is still a routine that was followed. Retiring one means
 // taking its aliases away — it keeps its name and its history, and stops
 // answering to the word Marco says out loud.
-meals.openapi(
-  createRoute({
-    method: "delete",
-    path: "/{ref}/aliases/{alias}",
-    tags: ["Nutrition"],
-    summary: "Retire a meal's spoken name",
-    description:
-      "Meals are never deleted — a logged meal is what its intake rows point at. Retiring one means taking its aliases away: it keeps its name and its history and stops answering to the word said out loud.",
-    request: {
-      params: z.object({ ref: ref(), alias: z.string().min(1) }),
-    },
-    responses: {
-      200: {
-        description: "The meal, without that name.",
-        content: {
-          "application/json": { schema: z.object({ meal: MealDetail }) },
-        },
-      },
-      404: { description: "That alias does not point at that meal." },
-    },
-  }),
-  async (c) => {
-    const { ref: reference, alias: rawAlias } = c.req.valid("param");
-    const id = await resolveMealId(reference);
-    const alias = decodeURIComponent(rawAlias);
-    const rows = await sql`
-    delete from meal_aliases
-    where meal_id = ${id} and lower(alias) = lower(${alias})
-    returning id`;
-    if (rows.length === 0) {
-      throw new ApiError(
-        404,
-        `"${alias}" is not an alias of that meal. GET /meals/${id} lists its aliases.`,
-      );
-    }
-    return c.json({ meal: await mealDetail(id) });
-  },
-);
+releaseAliasRoute(meals, {
+  tag: "Nutrition",
+  aliasTable: "meal_aliases",
+  foreignKey: "meal_id",
+  ref,
+  resolve: async (r: string) => ({ id: await resolveMealId(r) }),
+  respond: async (id: number) => ({ meal: await mealDetail(id) }),
+  responseSchema: z.object({ meal: MealDetail }),
+  summary: "Retire a meal's spoken name",
+  description:
+    "Meals are never deleted — a logged meal is what its intake rows point at. Retiring one means taking its aliases away: it keeps its name and its history and stops answering to the word said out loud.",
+  removed: "The meal, without that name.",
+  notAnAliasResponse: "That alias does not point at that meal.",
+  notAnAlias: (alias, m) =>
+    `"${alias}" is not an alias of that meal. GET /meals/${m.id} lists its aliases.`,
+});

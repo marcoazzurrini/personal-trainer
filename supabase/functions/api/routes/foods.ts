@@ -4,6 +4,7 @@ import { ApiError } from "../http/errors.ts";
 import { checkEnergy, checkMacroMass } from "../rules/nutrition.ts";
 import { resolveFoodId } from "../record/resolve.ts";
 import {
+  aliasList,
   body,
   number,
   oneOf,
@@ -12,6 +13,7 @@ import {
   requestId,
   text,
 } from "../http/schema.ts";
+import { addAliasRoute, releaseAliasRoute } from "./aliases.ts";
 
 // The registry the coach fills as it goes. A food is sourced once — from a
 // label, CREA, USDA or Open Food Facts — and saved, so it is never searched
@@ -57,13 +59,6 @@ const energyCheck = () =>
     description:
       "Send only when the food carries energy its macros do not name — alcohol, polyols. Requires a source_note saying what.",
   });
-
-const aliasesError = () => '"aliases" must be an array of non-empty strings.';
-const aliasList = () =>
-  z.array(
-    z.string({ error: aliasesError }).trim().min(1, { error: aliasesError }),
-    { error: aliasesError },
-  ).optional();
 
 // One shape for every food read; the caller supplies only the filter.
 // deno-lint-ignore no-explicit-any
@@ -416,89 +411,30 @@ foods.openapi(
 
 // A synonym never becomes a second food row — that splits the food's history
 // exactly the way a duplicate exercise splits a lift's.
-foods.openapi(
-  createRoute({
-    method: "post",
-    path: "/{ref}/aliases",
-    tags: ["Nutrition"],
-    summary: "Add a synonym",
-    request: {
-      params: z.object({ ref: ref() }),
-      body: {
-        content: {
-          "application/json": {
-            schema: body({ alias: text().optional(), aliases: aliasList() }),
-          },
-        },
-      },
-    },
-    responses: {
-      201: {
-        description: "The food, with the alias now among its names.",
-        content: { "application/json": { schema: z.object({ food: Food }) } },
-      },
-      409: { description: "That alias already points at something." },
-      422: { description: "Neither alias nor aliases was sent." },
-    },
-  }),
-  async (c) => {
-    const id = await resolveFoodId(c.req.valid("param").ref);
-    const b = c.req.valid("json");
-    const aliases = b.alias !== undefined ? [b.alias] : (b.aliases ?? []);
-    if (aliases.length === 0) {
-      throw new ApiError(
-        422,
-        'Send "alias" (a string) or "aliases" (an array of strings).',
-      );
-    }
-    await sql.begin(async (tx) => {
-      for (const alias of aliases) {
-        await tx`
-        insert into food_aliases (food_id, alias) values (${id}, ${alias})`;
-      }
-    });
-    return c.json({ food: await foodById(id) }, 201);
-  },
-);
+const aliasSurface = {
+  tag: "Nutrition",
+  aliasTable: "food_aliases",
+  foreignKey: "food_id",
+  ref,
+  resolve: async (r: string) => ({ id: await resolveFoodId(r) }),
+  respond: async (id: number) => ({ food: await foodById(id) }),
+  responseSchema: z.object({ food: Food }),
+};
 
-// An alias is a pointer, not a fact — removing one loses nothing and is how a
-// spoken name gets moved to the food that should own it. Aliases are globally
-// unique, so without this a retired food would hold "il solito yogurt"
-// forever and no replacement could ever claim it.
-foods.openapi(
-  createRoute({
-    method: "delete",
-    path: "/{ref}/aliases/{alias}",
-    tags: ["Nutrition"],
-    summary: "Release a synonym",
-    request: {
-      params: z.object({ ref: ref(), alias: z.string().min(1) }),
-    },
-    responses: {
-      200: {
-        description: "The food, without that name.",
-        content: { "application/json": { schema: z.object({ food: Food }) } },
-      },
-      404: { description: "That alias does not point at that food." },
-    },
-  }),
-  async (c) => {
-    const { ref: reference, alias: rawAlias } = c.req.valid("param");
-    const id = await resolveFoodId(reference);
-    const alias = decodeURIComponent(rawAlias);
-    const rows = await sql`
-    delete from food_aliases
-    where food_id = ${id} and lower(alias) = lower(${alias})
-    returning id`;
-    if (rows.length === 0) {
-      throw new ApiError(
-        404,
-        `"${alias}" is not an alias of that food. GET /foods/${id} lists its aliases.`,
-      );
-    }
-    return c.json({ food: await foodById(id) });
-  },
-);
+addAliasRoute(foods, {
+  ...aliasSurface,
+  created: "The food, with the alias now among its names.",
+  neither: 'Send "alias" (a string) or "aliases" (an array of strings).',
+});
+
+releaseAliasRoute(foods, {
+  ...aliasSurface,
+  summary: "Release a synonym",
+  removed: "The food, without that name.",
+  notAnAliasResponse: "That alias does not point at that food.",
+  notAnAlias: (alias, f) =>
+    `"${alias}" is not an alias of that food. GET /foods/${f.id} lists its aliases.`,
+});
 
 // Only a food nothing has ever used — a typo'd duplicate, a mis-sourced row
 // caught before it was logged. Once a food is in the record, deleting it would
