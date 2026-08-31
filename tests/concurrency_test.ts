@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  daysAgo,
   ensureCatalogue,
   lastMonday,
   resetNutrition,
@@ -112,7 +113,11 @@ Deno.test("a session retry racing its original writes one session", async () => 
 
 Deno.test("one weigh-in arriving twice at once is one row", async (t) => {
   await resetNutrition();
-  const instant = `${today()}T05:30:00Z`;
+  // Yesterday's morning, not today's. 05:30Z is 07:30 in Rome, so on today's
+  // date it is still ahead of any run started before breakfast, and a
+  // measurement in the future is refused — which failed this race as a 422
+  // rather than the collision it means to check.
+  const instant = `${daysAgo(1)}T05:30:00Z`;
 
   await t.step("the same value lands as create plus dedupe", async () => {
     const body = { value_kg: 82.4, measured_at: instant };
