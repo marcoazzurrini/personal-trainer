@@ -175,7 +175,7 @@ nutritionWeekly.openapi(
 
     const byDay = new Map(trend.map((p) => [p.day, p]));
 
-    const enriched = rows.map((row) => {
+    const enriched: z.infer<typeof Week>[] = rows.map((row) => {
       const start = byDay.get(row.week_start);
       const finish = byDay.get(row.week_end);
       const trendStart = start?.trend_kg ?? null;
@@ -231,7 +231,7 @@ nutritionWeekly.openapi(
         },
         events: row.events,
       };
-    }) as z.infer<typeof Week>[];
+    });
 
     return c.json({
       weeks: enriched,

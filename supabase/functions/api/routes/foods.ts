@@ -384,12 +384,13 @@ foods.openapi(
       (k) => k in fields && !sameValue(fields[k], before[k]),
     );
 
-    const rewritten: { day: string }[] = await sql.begin(async (tx) => {
-      await tx`update foods set ${tx(fields)} where id = ${id}`;
-      if (!macrosChanged) return [];
-      // Recomputed in one statement from each entry's own grams, so a row that
-      // recorded 200 g still records 200 g — only what 200 g means changes.
-      return await tx`
+    const rewritten = await sql.begin(
+      async (tx): Promise<{ day: string }[]> => {
+        await tx`update foods set ${tx(fields)} where id = ${id}`;
+        if (!macrosChanged) return [];
+        // Recomputed in one statement from each entry's own grams, so a row that
+        // recorded 200 g still records 200 g — only what 200 g means changes.
+        return await tx<{ day: string }[]>`
       update intake_entries i set
         kcal = round(f.kcal_100g * i.grams / 100, 1),
         protein_g = round(f.protein_100g * i.grams / 100, 1),
@@ -398,8 +399,9 @@ foods.openapi(
         fiber_g = round(f.fiber_100g * i.grams / 100, 1)
       from foods f
       where f.id = i.food_id and i.food_id = ${id}
-      returning i.id, i.day` as unknown as { day: string }[];
-    });
+      returning i.id, i.day`;
+      },
+    );
 
     const days = rewritten.map((r) => r.day).sort();
     return c.json({

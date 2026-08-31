@@ -28,12 +28,13 @@ const at = (iss: Issue) => `"${iss.path?.join(".") ?? ""}"`;
 // required field from an optional one once an issue exists — an optional field
 // only ever errors when it is present, so the distinction lives in which
 // factory was used, not in the issue.
+//
+// Ids in a path are quoted back to the caller by value rather than by field
+// name, which is the one place a message needs the input that failed. That
+// works without asking for it: Zod strips `input` from the issue it hands out
+// unless a parse is given `reportInput`, but it strips it *after* calling this
+// map, so the sentence below sees the value either way.
 z.config({
-  // Ids in a path are quoted back to the caller by value rather than by field
-  // name, which is the one place a message needs the input that failed. Zod
-  // withholds it by default to keep sensitive values out of logs; nothing
-  // reads it here except the sentence that names the bad id.
-  reportInput: true,
   customError: (iss: Issue) => {
     switch (iss.code) {
       case "invalid_type":
@@ -47,8 +48,7 @@ z.config({
     }
     return undefined;
   },
-  // deno-lint-ignore no-explicit-any
-} as any);
+});
 
 // ---------------------------------------------------------------- strings
 
@@ -120,7 +120,7 @@ export function optionalInt(opts: { min?: number } = {}) {
 export function oneOf<T extends string>(choices: readonly [T, ...T[]]) {
   const error = (iss: Issue) =>
     `${at(iss)} must be one of: ${choices.join(", ")}.`;
-  return z.enum(choices as unknown as [T, ...T[]], { error });
+  return z.enum(choices, { error });
 }
 
 // ------------------------------------------------------------------ dates
@@ -300,6 +300,5 @@ export function body<T extends z.ZodRawShape>(
         "a guessed or misspelled name lets the call answer 200 while the record " +
         "says something other than what was meant.";
     },
-    // deno-lint-ignore no-explicit-any
-  } as any);
+  });
 }

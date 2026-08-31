@@ -83,11 +83,10 @@ export interface ActiveTransient {
 export async function activeTransients(
   asOf: string,
 ): Promise<ActiveTransient[]> {
-  const rows = await sql`
+  return await sql<ActiveTransient[]>`
     select id, day, kind, note from nutrition_events
     where day >= ${addDays(asOf, -TRANSIENT_WINDOW_DAYS)} and day <= ${asOf}
     order by day desc, id desc`;
-  return rows as unknown as ActiveTransient[];
 }
 
 export interface ExpenditureRead extends Expenditure {
@@ -189,7 +188,7 @@ export interface ActiveTarget {
 export async function activeTarget(
   asOf: string,
 ): Promise<ActiveTarget | null> {
-  const [row] = await sql`
+  const [row] = await sql<ActiveTarget[]>`
     select id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
       protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
       created_at
@@ -197,7 +196,7 @@ export async function activeTarget(
     where effective_from <= ${asOf}
     order by effective_from desc, id desc
     limit 1`;
-  return (row as unknown as ActiveTarget) ?? null;
+  return row ?? null;
 }
 
 /** Trend slope over the last n days, in kg/week — the rate to compare a target against. */
