@@ -2,40 +2,87 @@ import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { TRACKS } from "../rules/training.ts";
 
-// Exercises resolve by id, name, or alias, case-insensitively, server-side.
-export async function resolveExerciseId(ref: unknown): Promise<number> {
+// Exercises, foods and meals resolve the same way — id, name, or alias,
+// case-insensitively, server-side — so voice-to-text phrasing ("il solito
+// yogurt") never has to be matched by the caller. Shared because the rule is
+// one rule: a synonym that creates a second row splits a food's history the
+// way a duplicate exercise splits a lift's.
+interface Namespace {
+  table: string;
+  aliasTable: string;
+  foreignKey: string;
+  // The refusals, written per namespace rather than filled from one template.
+  // Only the rule is shared, not the prose: the client is a model, and the
+  // sentence telling it how to add a food it could not find is not the
+  // sentence telling it how to add an exercise.
+  noSuchId: (ref: number) => string;
+  unknownName: (name: string) => string;
+  missingRef: string;
+}
+
+async function resolveNamed(ns: Namespace, ref: unknown): Promise<number> {
   if (typeof ref === "number" && Number.isInteger(ref)) {
-    const [row] = await sql`select id from exercises where id = ${ref}`;
+    const [row] = await sql`
+      select id from ${sql(ns.table)} where id = ${ref}`;
     if (row) return row.id;
-    throw new ApiError(
-      422,
-      `No exercise with id ${ref}. GET /exercises lists the catalogue.`,
-    );
+    throw new ApiError(422, ns.noSuchId(ref));
   }
   if (typeof ref === "string" && ref.trim() !== "") {
     const name = ref.trim();
-    // Ranked like resolveNamed below, and for the same reason: a bare union
-    // with limit 1 left a name/alias collision to whichever row the planner
-    // produced first, which is a different exercise on a different day.
+    // Ranked rather than relying on union order: a canonical name always wins
+    // over an alias that happens to spell the same thing. A bare union with
+    // limit 1 left the collision to whichever row the planner produced first,
+    // which is a different exercise on a different day.
     const [row] = await sql`
-      select e.id, 1 as rank from exercises e
-      where lower(e.name) = lower(${name})
+      select id, 1 as rank from ${sql(ns.table)}
+      where lower(name) = lower(${name})
       union all
-      select a.exercise_id as id, 2 as rank from exercise_aliases a
-      where lower(a.alias) = lower(${name})
+      select ${sql(ns.foreignKey)} as id, 2 as rank from ${sql(ns.aliasTable)}
+      where lower(alias) = lower(${name})
       order by rank
       limit 1`;
     if (row) return row.id;
-    if (/^\d+$/.test(name)) return resolveExerciseId(Number(name));
-    throw new ApiError(
-      422,
-      `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`,
-    );
+    if (/^\d+$/.test(name)) return resolveNamed(ns, Number(name));
+    throw new ApiError(422, ns.unknownName(name));
   }
-  throw new ApiError(
-    422,
+  throw new ApiError(422, ns.missingRef);
+}
+
+const EXERCISES: Namespace = {
+  table: "exercises",
+  aliasTable: "exercise_aliases",
+  foreignKey: "exercise_id",
+  noSuchId: (ref) =>
+    `No exercise with id ${ref}. GET /exercises lists the catalogue.`,
+  unknownName: (name) =>
+    `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`,
+  missingRef:
     '"exercise" is required: an exercise id, canonical name, or alias.',
-  );
+};
+
+const FOODS: Namespace = {
+  table: "foods",
+  aliasTable: "food_aliases",
+  foreignKey: "food_id",
+  noSuchId: (ref) =>
+    `No food with id ${ref}. GET /foods?q=<search> lists them.`,
+  unknownName: (name) =>
+    `Unknown food "${name}". GET /foods?q=<search> lists what exists — use the id, canonical name, or an alias. A food that genuinely does not exist yet is sourced (label, CREA, USDA, Open Food Facts) and saved with POST /foods — never invented. A synonym of a food that exists gets an alias instead: POST /foods/:ref/aliases.`,
+  missingRef: '"food" is required: a food id, canonical name, or alias.',
+};
+
+const MEALS: Namespace = {
+  table: "meals",
+  aliasTable: "meal_aliases",
+  foreignKey: "meal_id",
+  noSuchId: (ref) => `No meal with id ${ref}. GET /meals lists them.`,
+  unknownName: (name) =>
+    `Unknown meal "${name}". GET /meals lists what exists — use the id, canonical name, or an alias. A meal that has become a routine is saved with POST /meals. A one-off variation on a saved meal is not a new meal — log the meal and log the difference as a separate entry.`,
+  missingRef: '"meal" is required: a meal id, canonical name, or alias.',
+};
+
+export function resolveExerciseId(ref: unknown): Promise<number> {
+  return resolveNamed(EXERCISES, ref);
 }
 
 // The whole exercise row, for the callers that need its name or its measure
@@ -57,77 +104,12 @@ export async function resolveExercise(
   };
 }
 
-// Foods and meals resolve the same way exercises do — id, name, or alias,
-// case-insensitively, server-side — so voice-to-text phrasing ("il solito
-// yogurt") never has to be matched by the caller. Shared because the rule is
-// one rule: a synonym that creates a second row splits a food's history the
-// way a duplicate exercise splits a lift's.
-interface Namespace {
-  table: string;
-  aliasTable: string;
-  foreignKey: string;
-  label: string; // "food" / "meal", for the error messages
-  listPath: string;
-  createHint: string;
-}
-
-async function resolveNamed(ns: Namespace, ref: unknown): Promise<number> {
-  if (typeof ref === "number" && Number.isInteger(ref)) {
-    const [row] = await sql`
-      select id from ${sql(ns.table)} where id = ${ref}`;
-    if (row) return row.id;
-    throw new ApiError(
-      422,
-      `No ${ns.label} with id ${ref}. ${ns.listPath} lists them.`,
-    );
-  }
-  if (typeof ref === "string" && ref.trim() !== "") {
-    const name = ref.trim();
-    // Ranked rather than relying on union order: a canonical name always wins
-    // over an alias that happens to spell the same thing.
-    const [row] = await sql`
-      select id, 1 as rank from ${sql(ns.table)}
-      where lower(name) = lower(${name})
-      union all
-      select ${sql(ns.foreignKey)} as id, 2 as rank from ${sql(ns.aliasTable)}
-      where lower(alias) = lower(${name})
-      order by rank
-      limit 1`;
-    if (row) return row.id;
-    if (/^\d+$/.test(name)) return resolveNamed(ns, Number(name));
-    throw new ApiError(
-      422,
-      `Unknown ${ns.label} "${name}". ${ns.listPath} lists what exists — use the id, canonical name, or an alias. ${ns.createHint}`,
-    );
-  }
-  throw new ApiError(
-    422,
-    `"${ns.label}" is required: a ${ns.label} id, canonical name, or alias.`,
-  );
-}
-
 export function resolveFoodId(ref: unknown): Promise<number> {
-  return resolveNamed({
-    table: "foods",
-    aliasTable: "food_aliases",
-    foreignKey: "food_id",
-    label: "food",
-    listPath: "GET /foods?q=<search>",
-    createHint:
-      "A food that genuinely does not exist yet is sourced (label, CREA, USDA, Open Food Facts) and saved with POST /foods — never invented. A synonym of a food that exists gets an alias instead: POST /foods/:ref/aliases.",
-  }, ref);
+  return resolveNamed(FOODS, ref);
 }
 
 export function resolveMealId(ref: unknown): Promise<number> {
-  return resolveNamed({
-    table: "meals",
-    aliasTable: "meal_aliases",
-    foreignKey: "meal_id",
-    label: "meal",
-    listPath: "GET /meals",
-    createHint:
-      "A meal that has become a routine is saved with POST /meals. A one-off variation on a saved meal is not a new meal — log the meal and log the difference as a separate entry.",
-  }, ref);
+  return resolveNamed(MEALS, ref);
 }
 
 // A mesocycle reference: a numeric id, "current", or "current:<track>".
