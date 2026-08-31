@@ -107,17 +107,18 @@ nutritionWeekly.openapi(
     select
       w.week_start,
       (w.week_start + 6) as week_end,
-      (select count(distinct i.day)::int from intake_entries i
-       where i.day >= w.week_start and i.day <= w.week_start + 6)
+      (select count(*)::int from daily_intake d
+       where d.day >= w.week_start and d.day <= w.week_start + 6
+         and d.entries > 0)
         as days_logged,
       intake.mean_kcal,
       intake.mean_protein_g,
       (select count(*)::int from daily_bodyweight b
        where b.day >= w.week_start and b.day <= w.week_start + 6)
         as weigh_ins,
-      (select count(*)::int from day_flags f
-       where f.flag = 'incomplete'
-         and f.day >= w.week_start and f.day <= w.week_start + 6)
+      (select count(*)::int from daily_intake d
+       where d.day >= w.week_start and d.day <= w.week_start + 6
+         and d.incomplete)
         as days_flagged,
       coalesce((select json_agg(json_build_object(
                  'day', e.day, 'kind', e.kind, 'note', e.note) order by e.day)
@@ -147,18 +148,14 @@ nutritionWeekly.openapi(
     --
     -- avg ignores nulls, so a day carrying no protein at all leaves
     -- mean_protein_g alone rather than dragging it toward zero — the same
-    -- floor-not-total rule sumMacros applies inside a single day.
+    -- floor-not-total rule sumMacros applies inside a single day, and the
+    -- reason daily_intake does not coalesce its sums.
     left join lateral (
       select avg(d.kcal)::float8 as mean_kcal,
-        avg(d.protein)::float8 as mean_protein_g
-      from (
-        select i.day, sum(i.kcal) as kcal, sum(i.protein_g) as protein
-        from intake_entries i
-        where i.day >= w.week_start and i.day <= w.week_start + 6
-          and not exists (select 1 from day_flags f
-                          where f.day = i.day and f.flag = 'incomplete')
-        group by i.day
-      ) d
+        avg(d.protein_g)::float8 as mean_protein_g
+      from daily_intake d
+      where d.day >= w.week_start and d.day <= w.week_start + 6
+        and not d.incomplete
     ) intake on true
     -- The target in force at the week's end: what Marco was eating to by the
     -- time the week was over. target_changed flags the weeks where one

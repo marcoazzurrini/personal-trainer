@@ -33,18 +33,22 @@ interface IntakeWindow {
 }
 
 async function loadIntake(from: string, to: string): Promise<IntakeWindow> {
-  const rows = await sql`
-    select day, sum(kcal)::float8 as kcal
-    from intake_entries
-    where day >= ${from} and day <= ${to}
-    group by day`;
-  const flags = await sql`
-    select day from day_flags
-    where flag = 'incomplete' and day >= ${from} and day <= ${to}`;
-  return {
-    intakeByDay: new Map(rows.map((r) => [r.day, r.kcal])),
-    excludedDays: new Set(flags.map((f) => f.day)),
-  };
+  // One read where there were two, because daily_intake already knows both
+  // halves. A day it reports with a null kcal logged nothing, and stays out of
+  // intakeByDay rather than entering it as a zero the back-solve would treat
+  // as a fast.
+  const rows = await sql<
+    { day: string; kcal: number | null; incomplete: boolean }[]
+  >`
+    select day, kcal, incomplete from daily_intake
+    where day >= ${from} and day <= ${to}`;
+  const intakeByDay = new Map<string, number>();
+  const excludedDays = new Set<string>();
+  for (const row of rows) {
+    if (row.kcal !== null) intakeByDay.set(row.day, row.kcal);
+    if (row.incomplete) excludedDays.add(row.day);
+  }
+  return { intakeByDay, excludedDays };
 }
 
 export async function latestBodyfat(): Promise<number | null> {

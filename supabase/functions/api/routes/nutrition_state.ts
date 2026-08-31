@@ -207,23 +207,20 @@ nutritionState.openapi(
     // the API is a bare "2026-07-26". A coach reading that as an instant and
     // formatting it locally gets the wrong day either side of midnight.
     const recentDays = await sql<z.infer<typeof RecentDay>[]>`
+    -- kcal and protein_g stay null where nothing was logged, which is
+    -- daily_intake's rule rather than this query's: unknown is not zero, and
+    -- entries says which of the two a null means. The coalesces apply only to
+    -- the days the view has no row for at all.
     select d.day::date as day,
-      -- No coalesce: a day with no entries reports null, not 0. Unknown is
-      -- not zero — a floor of zeros under a hasty average reads as fasting.
-      -- entries: 0 already marks the day unlogged; kcal agrees with protein_g
-      -- instead of contradicting it in the same row.
-      (select sum(i.kcal)::float8 from intake_entries i
-       where i.day = d.day) as kcal,
-      (select sum(i.protein_g)::float8 from intake_entries i
-       where i.day = d.day) as protein_g,
-      (select count(*)::int from intake_entries i where i.day = d.day)
-        as entries,
-      exists (select 1 from day_flags fl
-              where fl.day = d.day and fl.flag = 'incomplete') as incomplete,
+      di.kcal,
+      di.protein_g,
+      coalesce(di.entries, 0) as entries,
+      coalesce(di.incomplete, false) as incomplete,
       (select w.value_kg from daily_bodyweight w where w.day = d.day)
         as weight_kg
     from generate_series(${today}::date - 13, ${today}::date - 1, interval '1 day')
       as d(day)
+    left join daily_intake di on di.day = d.day::date
     order by d.day`;
 
     const [adherence] = await sql<z.infer<typeof Adherence>[]>`

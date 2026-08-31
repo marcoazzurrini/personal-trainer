@@ -381,6 +381,33 @@ Deno.test("an unlogged day reads null, not zero", async () => {
   assertEquals(unloggedRow.kcal, null);
 });
 
+// A day can carry a flag having logged nothing, and that is the whole point of
+// the flag: "I ate, I did not write it down." It is also the one day that
+// exists in day_flags and not in intake_entries, which is why daily_intake
+// draws its days from both tables rather than grouping the entries alone.
+//
+// Group the entries alone and this day has no row in the view, the left join
+// below hands back null, and coalesce reports incomplete: false — turning "do
+// not trust this day" into "this day was fine" without anything going red. The
+// expenditure window would then take an untracked day as a real one, which is
+// the reading the flag exists to prevent.
+Deno.test("a day flagged with nothing logged still reports incomplete", async () => {
+  await resetNutrition();
+  const flagged = daysAgo(2);
+  await api.post(`/days/${flagged}/flags`, { flag: "incomplete" });
+
+  const { body } = await api.get("/nutrition-state");
+  const row = body.recent_days.find((r: { day: string }) => r.day === flagged);
+  assert(row !== undefined, `${flagged} is missing from recent_days entirely`);
+  assertEquals(
+    row.incomplete,
+    true,
+    "a flagged day with no entries reported as usable",
+  );
+  assertEquals(row.entries, 0);
+  assertEquals(row.kcal, null);
+});
+
 // A field name nobody reads is the same failure as a number nobody checks.
 //
 // The case that produced this guard: the coach reasoned its way to a "scale"
