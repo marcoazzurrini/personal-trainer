@@ -1,16 +1,9 @@
-import { Hono } from "@hono/hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
 import { foodMacros, scaleFood, sumMacros } from "../lib/nutrition.ts";
 import { resolveFoodId, resolveMealId } from "../lib/resolve.ts";
-import {
-  assertKnownFields,
-  type Body,
-  readJson,
-  requireNumber,
-  requireString,
-  requireUuid,
-} from "../lib/validate.ts";
+import { body, macroTotals, number, requestId, text } from "../lib/schema.ts";
 
 // Meals are routines, not history. "il mio solito yogurt" is a name, a list of
 // foods and their amounts — saved so that logging it costs seconds.
@@ -20,10 +13,77 @@ import {
 // logs write and nothing else. Same rule sets follow: a set copies its target
 // instead of pointing at one.
 
+export const meals = new OpenAPIHono();
+
+const Macros = z.object({
+  kcal: z.number(),
+  protein_g: z.number(),
+  carbs_g: z.number(),
+  fat_g: z.number(),
+  fiber_g: z.number().nullable(),
+});
+
+const MealItem = z.object({
+  food_id: z.int(),
+  food: z.string(),
+  brand: z.string().nullable(),
+  grams: z.number(),
+}).extend(Macros.shape);
+
+const MealDetail = z.object({
+  id: z.int(),
+  name: z.string(),
+  created_at: z.string(),
+  aliases: z.array(z.string()),
+  items: z.array(MealItem),
+  // Computed on every read, never stored — a sum that lives in a column is a
+  // sum that can go stale. Carries `unaccounted`, so a meal whose foods are
+  // silent about fibre says so rather than reporting a floor as a total.
+  totals: macroTotals(),
+});
+
+const MealSummary = z.object({
+  id: z.int(),
+  name: z.string(),
+  created_at: z.string(),
+  items: z.int(),
+  aliases: z.array(z.string()),
+});
+
+const ref = () =>
+  z.string().min(1).meta({
+    description: "A meal id, its name, or any of its aliases.",
+    example: "colazione",
+  });
+
+const aliasesError = () => '"aliases" must be an array of non-empty strings.';
+const aliasList = () =>
+  z.array(
+    z.string({ error: aliasesError }).trim().min(1, { error: aliasesError }),
+    { error: aliasesError },
+  ).optional();
+
+// food is an id, a name, or an alias, so it is deliberately either a number or
+// a string here and the resolver decides what it meant.
+const itemSchema = () =>
+  body({
+    food: z.union([z.string().min(1), z.number()]),
+    grams: number(),
+  }, 'an entry in "items"');
+
+const itemList = (message: string) =>
+  z.array(itemSchema(), { error: () => message }).min(1, {
+    error: () => message,
+  });
+
 // Totals are computed here, never stored — a meal's macros are a sum over its
 // items, and a sum that lives in a column is a sum that can go stale.
 async function mealDetail(id: number) {
-  const [meal] = await sql`
+  const [meal] = await sql<
+    Array<
+      Pick<z.infer<typeof MealDetail>, "id" | "name" | "created_at" | "aliases">
+    >
+  >`
     select m.id, m.name, m.created_at,
       coalesce(
         (select array_agg(a.alias order by a.alias)
@@ -49,44 +109,47 @@ async function mealDetail(id: number) {
     ...scaleFood(foodMacros(i), i.grams),
   }));
 
-  return { ...meal, items: detailed, totals: sumMacros(detailed) };
-}
-
-function parseAliases(value: unknown): string[] {
-  if (value === undefined || value === null) return [];
-  if (
-    !Array.isArray(value) ||
-    value.some((a) => typeof a !== "string" || a.trim() === "")
-  ) {
-    throw new ApiError(422, '"aliases" must be an array of non-empty strings.');
-  }
-  return (value as string[]).map((a) => a.trim());
+  return {
+    ...meal,
+    items: detailed as z.infer<typeof MealItem>[],
+    totals: sumMacros(detailed),
+  };
 }
 
 // Foods resolve before any transaction opens, so an unknown one fails with a
 // useful message instead of rolling back a half-written meal.
-async function parseItems(
-  entries: unknown[],
+async function resolveItems(
+  entries: ReadonlyArray<{ food: string | number; grams: number }>,
 ): Promise<{ foodId: number; grams: number }[]> {
   const items: { foodId: number; grams: number }[] = [];
   for (const entry of entries) {
-    if (typeof entry !== "object" || entry === null) {
-      throw new ApiError(422, 'Each entry in "items" must be an object.');
-    }
-    const item = entry as Body;
-    assertKnownFields(item, ["food", "grams"], 'an entry in "items"');
     items.push({
-      foodId: await resolveFoodId(item.food),
-      grams: requireNumber(item, "grams"),
+      foodId: await resolveFoodId(entry.food),
+      grams: entry.grams,
     });
   }
   return items;
 }
 
-export const meals = new Hono();
-
-meals.get("/", async (c) => {
-  const rows = await sql`
+meals.openapi(
+  createRoute({
+    method: "get",
+    path: "/",
+    tags: ["Nutrition"],
+    summary: "Saved meals",
+    responses: {
+      200: {
+        description: "Every meal with its aliases and item count, by name.",
+        content: {
+          "application/json": {
+            schema: z.object({ meals: z.array(MealSummary) }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const rows = await sql<z.infer<typeof MealSummary>[]>`
     select m.id, m.name, m.created_at,
       (select count(*)::int from meal_items mi where mi.meal_id = m.id) as items,
       coalesce(
@@ -95,56 +158,102 @@ meals.get("/", async (c) => {
         '{}'
       ) as aliases
     from meals m order by m.name`;
-  return c.json({ meals: rows });
-});
+    return c.json({ meals: rows });
+  },
+);
 
 // One call, one transaction: a meal arrives complete or not at all.
-meals.post("/", async (c) => {
-  const body = await readJson(c, ["name", "items", "aliases"]);
-  const requestId = requireUuid(body, "request_id");
-  if (requestId) {
-    const [existing] = await sql`
-      select id from meals where request_id = ${requestId}`;
-    if (existing) return c.json({ meal: await mealDetail(existing.id) });
-  }
+meals.openapi(
+  createRoute({
+    method: "post",
+    path: "/",
+    tags: ["Nutrition"],
+    summary: "Save a meal",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: body({
+              name: text(),
+              items: itemList(
+                'A meal is its items: "items" must be a non-empty array of {food, grams}, where food is a food id, name, or alias.',
+              ),
+              aliases: aliasList(),
+              request_id: requestId(),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: "The meal, with its items resolved and totals computed.",
+        content: {
+          "application/json": { schema: z.object({ meal: MealDetail }) },
+        },
+      },
+      200: {
+        description:
+          "The meal this request_id already saved. A retry, answered with the original result.",
+        content: {
+          "application/json": { schema: z.object({ meal: MealDetail }) },
+        },
+      },
+      409: { description: "A meal with that name already exists." },
+    },
+  }),
+  async (c) => {
+    const b = c.req.valid("json");
+    const [seen] = await sql`
+      select id from meals where request_id = ${b.request_id}`;
+    if (seen) return c.json({ meal: await mealDetail(seen.id) }, 200);
 
-  const name = requireString(body, "name");
+    const aliases = b.aliases ?? [];
+    const items = await resolveItems(b.items);
 
-  const aliases = parseAliases(body.aliases);
-
-  if (!Array.isArray(body.items) || body.items.length === 0) {
-    throw new ApiError(
-      422,
-      'A meal is its items: "items" must be a non-empty array of {food, grams}, where food is a food id, name, or alias.',
-    );
-  }
-
-  const items = await parseItems(body.items);
-
-  const id = await sql.begin(async (tx) => {
-    const [created] = await tx`
-      insert into meals (name, request_id) values (${name}, ${requestId})
+    const id = await sql.begin(async (tx) => {
+      const [created] = await tx`
+      insert into meals (name, request_id) values (${b.name}, ${b.request_id})
       returning id`;
-    for (const alias of aliases) {
-      await tx`
+      for (const alias of aliases) {
+        await tx`
         insert into meal_aliases (meal_id, alias)
         values (${created.id}, ${alias})`;
-    }
-    for (const { foodId, grams } of items) {
-      await tx`
+      }
+      for (const { foodId, grams } of items) {
+        await tx`
         insert into meal_items (meal_id, food_id, grams)
         values (${created.id}, ${foodId}, ${grams})`;
-    }
-    return created.id as number;
-  });
+      }
+      return created.id as number;
+    });
 
-  return c.json({ meal: await mealDetail(id) }, 201);
-});
+    return c.json({ meal: await mealDetail(id) }, 201);
+  },
+);
 
-meals.get("/:ref", async (c) => {
-  const id = await resolveMealId(c.req.param("ref"));
-  return c.json({ meal: await mealDetail(id) });
-});
+meals.openapi(
+  createRoute({
+    method: "get",
+    path: "/{ref}",
+    tags: ["Nutrition"],
+    summary: "One meal, by id, name or alias",
+    request: { params: z.object({ ref: ref() }) },
+    responses: {
+      200: {
+        description: "The meal, its items with resolved foods, and its totals.",
+        content: {
+          "application/json": { schema: z.object({ meal: MealDetail }) },
+        },
+      },
+      404: { description: "Nothing resolves to that reference." },
+    },
+  }),
+  async (c) => {
+    const id = await resolveMealId(c.req.valid("param").ref);
+    return c.json({ meal: await mealDetail(id) });
+  },
+);
 
 // Editing a routine. `items`, when sent, is the complete replacement list —
 // not a patch — because a partial edit of a recipe is ambiguous about what
@@ -155,72 +264,125 @@ meals.get("/:ref", async (c) => {
 // own macros and do not consult meal_items. That is the guarantee the whole
 // snapshot design exists to provide, and it holds by construction rather than
 // by this route remembering to be careful.
-meals.patch("/:ref", async (c) => {
-  const id = await resolveMealId(c.req.param("ref"));
-  const body = await readJson(c, ["name", "items", "aliases"]);
+meals.openapi(
+  createRoute({
+    method: "patch",
+    path: "/{ref}",
+    tags: ["Nutrition"],
+    summary: "Edit a routine",
+    description:
+      "`items`, when sent, is the complete replacement list rather than a patch — a partial edit of a recipe is ambiguous about what was meant to survive. Aliases are added, not replaced. Nothing already logged is touched.",
+    request: {
+      params: z.object({ ref: ref() }),
+      body: {
+        content: {
+          "application/json": {
+            schema: body({
+              name: text().optional(),
+              items: itemList(
+                '"items" must be a non-empty array of {food, grams} — the complete replacement list. A meal with no foods in it is not a meal; delete it instead.',
+              ).optional(),
+              aliases: aliasList(),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description:
+          "The meal as it now stands, and a note that nothing logged moved.",
+        content: {
+          "application/json": {
+            schema: z.object({ meal: MealDetail, note: z.string() }),
+          },
+        },
+      },
+      404: { description: "Nothing resolves to that reference." },
+      422: { description: "Nothing was sent." },
+    },
+  }),
+  async (c) => {
+    const id = await resolveMealId(c.req.valid("param").ref);
+    const b = c.req.valid("json");
 
-  const name = "name" in body ? requireString(body, "name") : null;
-  const aliases = parseAliases(body.aliases);
-  const hasItems = body.items !== undefined;
+    const name = b.name ?? null;
+    const aliases = b.aliases ?? [];
+    const hasItems = b.items !== undefined;
 
-  if (name === null && !hasItems && body.aliases === undefined) {
-    throw new ApiError(
-      422,
-      'Send at least one of "name", "aliases" (added, not replaced), or "items" (the complete replacement list).',
-    );
-  }
-
-  let items: { foodId: number; grams: number }[] = [];
-  if (hasItems) {
-    if (!Array.isArray(body.items) || body.items.length === 0) {
+    if (name === null && !hasItems && b.aliases === undefined) {
       throw new ApiError(
         422,
-        '"items" must be a non-empty array of {food, grams} — the complete replacement list. A meal with no foods in it is not a meal; delete it instead.',
+        'Send at least one of "name", "aliases" (added, not replaced), or "items" (the complete replacement list).',
       );
     }
-    items = await parseItems(body.items);
-  }
 
-  await sql.begin(async (tx) => {
-    if (name !== null) {
-      await tx`update meals set name = ${name} where id = ${id}`;
-    }
-    for (const alias of aliases) {
-      await tx`insert into meal_aliases (meal_id, alias) values (${id}, ${alias})`;
-    }
-    if (hasItems) {
-      await tx`delete from meal_items where meal_id = ${id}`;
-      for (const { foodId, grams } of items) {
-        await tx`
+    const items = hasItems ? await resolveItems(b.items!) : [];
+
+    await sql.begin(async (tx) => {
+      if (name !== null) {
+        await tx`update meals set name = ${name} where id = ${id}`;
+      }
+      for (const alias of aliases) {
+        await tx`insert into meal_aliases (meal_id, alias) values (${id}, ${alias})`;
+      }
+      if (hasItems) {
+        await tx`delete from meal_items where meal_id = ${id}`;
+        for (const { foodId, grams } of items) {
+          await tx`
           insert into meal_items (meal_id, food_id, grams)
           values (${id}, ${foodId}, ${grams})`;
+        }
       }
-    }
-  });
+    });
 
-  return c.json({
-    meal: await mealDetail(id),
-    note:
-      "Future logs of this meal use the new items. Everything already logged is untouched — intake entries carry the numbers they were logged with.",
-  });
-});
+    return c.json({
+      meal: await mealDetail(id),
+      note:
+        "Future logs of this meal use the new items. Everything already logged is untouched — intake entries carry the numbers they were logged with.",
+    });
+  },
+);
 
 // Meals are never deleted: a logged meal is what its intake rows point at, and
 // a routine abandoned is still a routine that was followed. Retiring one means
 // taking its aliases away — it keeps its name and its history, and stops
 // answering to the word Marco says out loud.
-meals.delete("/:ref/aliases/:alias", async (c) => {
-  const id = await resolveMealId(c.req.param("ref"));
-  const alias = decodeURIComponent(c.req.param("alias"));
-  const rows = await sql`
+meals.openapi(
+  createRoute({
+    method: "delete",
+    path: "/{ref}/aliases/{alias}",
+    tags: ["Nutrition"],
+    summary: "Retire a meal's spoken name",
+    description:
+      "Meals are never deleted — a logged meal is what its intake rows point at. Retiring one means taking its aliases away: it keeps its name and its history and stops answering to the word said out loud.",
+    request: {
+      params: z.object({ ref: ref(), alias: z.string().min(1) }),
+    },
+    responses: {
+      200: {
+        description: "The meal, without that name.",
+        content: {
+          "application/json": { schema: z.object({ meal: MealDetail }) },
+        },
+      },
+      404: { description: "That alias does not point at that meal." },
+    },
+  }),
+  async (c) => {
+    const { ref: reference, alias: rawAlias } = c.req.valid("param");
+    const id = await resolveMealId(reference);
+    const alias = decodeURIComponent(rawAlias);
+    const rows = await sql`
     delete from meal_aliases
     where meal_id = ${id} and lower(alias) = lower(${alias})
     returning id`;
-  if (rows.length === 0) {
-    throw new ApiError(
-      404,
-      `"${alias}" is not an alias of that meal. GET /meals/${id} lists its aliases.`,
-    );
-  }
-  return c.json({ meal: await mealDetail(id) });
-});
+    if (rows.length === 0) {
+      throw new ApiError(
+        404,
+        `"${alias}" is not an alias of that meal. GET /meals/${id} lists its aliases.`,
+      );
+    }
+    return c.json({ meal: await mealDetail(id) });
+  },
+);

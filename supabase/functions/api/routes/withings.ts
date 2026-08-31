@@ -1,4 +1,5 @@
 import { Hono } from "@hono/hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { ApiError } from "../lib/errors.ts";
 import {
   catchUp,
@@ -87,7 +88,7 @@ withingsWebhook.post("/notify", async (c) => {
 // this one is behind the token like every other endpoint. The split is the
 // point: only the two routes Withings calls are exposed, and the trigger that
 // can be aimed at Withings on demand is not.
-export const withingsAdmin = new Hono();
+export const withingsAdmin = new OpenAPIHono();
 
 // Runs the catch-up now, ignoring the throttle: what to reach for when a
 // notification is suspected lost.
@@ -102,22 +103,60 @@ export const withingsAdmin = new Hono();
 //
 // A query parameter rather than a body: this is the endpoint reached for in a
 // terminal at an awkward moment, and `curl -X POST` with no body should work.
-withingsAdmin.post("/sync", async (c) => {
-  const raw = c.req.query("since");
-  let since: number | undefined;
-  if (raw !== undefined) {
-    since = Number(raw);
-    if (!Number.isInteger(since) || since < 0) {
-      throw new ApiError(
-        422,
-        `"since" must be a whole number of seconds since the epoch, or 0 to re-import everything. Got "${raw}".`,
-      );
+withingsAdmin.openapi(
+  createRoute({
+    method: "post",
+    path: "/sync",
+    tags: ["Tracking"],
+    summary: "Run the Withings catch-up now",
+    description:
+      "Ignores the throttle. Takes no body — `curl -X POST` with nothing in it is the point, because this is the endpoint reached for in a terminal at an awkward moment.",
+    request: {
+      query: z.object({
+        since: z.string().optional().meta({
+          description:
+            "Epoch seconds, overriding the watermark. 0 re-imports the whole history, which is free because every write is deduped on its instant.",
+        }),
+      }),
+    },
+    responses: {
+      200: {
+        description: "What the catch-up found and wrote.",
+        content: {
+          "application/json": {
+            schema: z.object({
+              withings: z.object({
+                scanned: z.int(),
+                written: z.int(),
+                from: z.string().nullable(),
+                to: z.string().nullable(),
+              }).loose(),
+            }),
+          },
+        },
+      },
+      422: { description: "since was not a whole number of seconds." },
+      502: { description: "Withings could not be reached, or refused." },
+    },
+  }),
+  async (c) => {
+    const raw = c.req.query("since");
+    let since: number | undefined;
+    if (raw !== undefined) {
+      since = Number(raw);
+      if (!Number.isInteger(since) || since < 0) {
+        throw new ApiError(
+          422,
+          `"since" must be a whole number of seconds since the epoch, or 0 to re-import everything. Got "${raw}".`,
+        );
+      }
     }
-  }
-  try {
-    return c.json({ withings: await catchUp(since) });
-  } catch (err) {
-    if (err instanceof WithingsError) throw new ApiError(502, err.message);
-    throw err;
-  }
-});
+    try {
+      // deno-lint-ignore no-explicit-any
+      return c.json({ withings: await catchUp(since) as any });
+    } catch (err) {
+      if (err instanceof WithingsError) throw new ApiError(502, err.message);
+      throw err;
+    }
+  },
+);

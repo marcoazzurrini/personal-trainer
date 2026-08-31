@@ -1,6 +1,23 @@
 import type { Context } from "@hono/hono";
 import { ApiError } from "./errors.ts";
 
+// What is left of the hand-written validators, and why each piece stayed.
+//
+// The coach API validates with schemas now (lib/schema.ts), which say the
+// same sentences and describe themselves into /openapi.json. Two kinds of
+// check could not follow it there:
+//
+//   - the log page's, which is registered above the token middleware and was
+//     deliberately left alone — it is the one surface a browser talks to, its
+//     shapes are its own, and nothing is gained by describing them in a
+//     document the browser never reads;
+//   - requireNotFuture and requireNotFutureInstant, which compare a date
+//     against Rome's today read from Postgres. That is not a fact about a
+//     field, so no schema can hold it.
+//
+// Everything else — the string, number, date, timestamp and uuid helpers —
+// moved, and the sentences moved with them unchanged.
+
 export type Body = Record<string, unknown>;
 
 // request_id is universal, so no caller has to list it. Everything else a
@@ -18,7 +35,7 @@ const ALWAYS_ACCEPTED = "request_id";
 //
 // The accepted list doubles as the prompt: a caller that got the name wrong
 // is shown the names that exist, which is usually all it needed.
-export function assertKnownFields(
+function assertKnownFields(
   obj: Body,
   accepts: readonly string[],
   what: string,
@@ -60,17 +77,6 @@ export async function readJson(
   return body as Body;
 }
 
-export function requireString(body: Body, field: string): string {
-  const v = body[field];
-  if (typeof v !== "string" || v.trim() === "") {
-    throw new ApiError(
-      422,
-      `"${field}" is required and must be a non-empty string.`,
-    );
-  }
-  return v.trim();
-}
-
 export function optionalString(body: Body, field: string): string | null {
   const v = body[field];
   if (v === undefined || v === null) return null;
@@ -81,34 +87,6 @@ export function optionalString(body: Body, field: string): string | null {
     );
   }
   return v.trim();
-}
-
-export function requireNumber(body: Body, field: string): number {
-  const v = body[field];
-  if (typeof v !== "number" || !Number.isFinite(v)) {
-    throw new ApiError(422, `"${field}" is required and must be a number.`);
-  }
-  return v;
-}
-
-// Accepts an ISO 8601 timestamp string; returns it normalized to UTC ISO.
-// The offset (Z or ±hh:mm) is required: without one, Date.parse reads a
-// date-time in whatever zone the runtime happens to run in, and a bare date
-// as midnight UTC — either way the instant stored depends on something the
-// caller never said.
-export function optionalTimestamp(body: Body, field: string): string | null {
-  const v = body[field];
-  if (v === undefined || v === null) return null;
-  if (
-    typeof v !== "string" || Number.isNaN(Date.parse(v)) ||
-    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(v)
-  ) {
-    throw new ApiError(
-      422,
-      `"${field}" must be an ISO 8601 timestamp with an explicit offset, e.g. "2026-08-05T08:30:00Z".`,
-    );
-  }
-  return new Date(v).toISOString();
 }
 
 export function requireOneOf<T extends string>(
@@ -179,26 +157,6 @@ export function optionalNumber(
   return v;
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-export function requireDate(body: Body, field: string): string {
-  const v = body[field];
-  if (
-    typeof v !== "string" || !DATE_RE.test(v) || Number.isNaN(Date.parse(v))
-  ) {
-    throw new ApiError(
-      422,
-      `"${field}" is required and must be a calendar date like "2026-08-10".`,
-    );
-  }
-  return v;
-}
-
-export function optionalDate(body: Body, field: string): string | null {
-  if (body[field] === undefined || body[field] === null) return null;
-  return requireDate(body, field);
-}
-
 // Records describe what has already happened, so a future date is always a
 // typo — and the ones that matter are silent. latestBodyfat() and the head of
 // the trend series are both "the most recent row", so a year fat-fingered into
@@ -241,9 +199,6 @@ export function requireNotFutureInstant(
   return iso;
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 // Ids in a path. Number("notanid") is NaN, and a NaN reaching Postgres as a
 // bigint throws where the handler can only answer "internal error" — a 500 at
 // exactly the moment the caller most needs a prompt telling it what to send.
@@ -256,31 +211,4 @@ export function requireIdParam(value: string, what: string): number {
     );
   }
   return id;
-}
-
-export function optionalUuid(body: Body, field: string): string | null {
-  const v = body[field];
-  if (v === undefined || v === null) return null;
-  if (typeof v !== "string" || !UUID_RE.test(v)) {
-    throw new ApiError(
-      422,
-      `"${field}" must be a UUID when present (generate one per creating call).`,
-    );
-  }
-  return v.toLowerCase();
-}
-
-// Required on any creating POST that could otherwise write the same thing
-// twice. Retry safety is only a guarantee if the id is not optional: a call
-// that succeeds on the server and loses its response gets retried by a client
-// that has no way to know, and without the id the retry is a second row.
-export function requireUuid(body: Body, field: string): string {
-  const v = optionalUuid(body, field);
-  if (v === null) {
-    throw new ApiError(
-      422,
-      `"${field}" is required: a fresh UUID generated for this call. It is what makes a retry safe — resending the same id returns the original result instead of writing a second row. Reuse an id only to retry the exact same call.`,
-    );
-  }
-  return v;
 }

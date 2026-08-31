@@ -9,6 +9,7 @@
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4",
+    "@hono/zod-openapi": "jsr:@hono/zod-openapi@^1",
     "@std/assert": "jsr:@std/assert@^1",
     "fast-check": "npm:fast-check@^4.9.0",
     "postgres": "npm:postgres@^3.4"

@@ -73,6 +73,31 @@ export const constraintMessages: Record<string, string> = {
     'source must be one of: label, crea, usda, off, estimate. Use "estimate" honestly rather than dressing a guess as a lookup — a disclosed estimate is fine, an invented number is not.',
 };
 
+// Where a schema refusal becomes the envelope every other refusal uses.
+//
+// Zod hands back a list of issues; the contract is exactly { "error": "<a
+// sentence>" }, one key, checked on every call the test suite makes. So the
+// list is collapsed into one string rather than surfaced as an array — a
+// caller that has to decide what to do next reads prose, not a tree.
+//
+// Every issue is named, not just the first. A body with three wrong fields
+// fixed one round-trip at a time is three round-trips, and the client paying
+// for them is a model with a conversation to get through.
+//
+// 422 because that is what validate.ts threw: the request parsed, and was
+// refused on what it said.
+export function validationHook(
+  // deno-lint-ignore no-explicit-any
+  result: { success: boolean; error?: any },
+  c: Context,
+): Response | undefined {
+  if (result.success) return undefined;
+  const message = result.error.issues
+    .map((i: { message: string }) => i.message)
+    .join(" ");
+  return c.json({ error: message }, 422);
+}
+
 export function errorResponse(err: unknown, c: Context): Response {
   if (err instanceof ApiError) {
     return c.json({ error: err.message }, err.status);

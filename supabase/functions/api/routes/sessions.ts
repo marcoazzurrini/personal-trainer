@@ -1,4 +1,4 @@
-import { Hono } from "@hono/hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
 import {
@@ -8,22 +8,70 @@ import {
 } from "../lib/resolve.ts";
 import { assertEffort, assertSetMeasures } from "../lib/training.ts";
 import {
-  assertKnownFields,
-  type Body,
+  body,
+  date,
+  idParam,
+  oneOf,
   optionalInt,
   optionalNumber,
-  optionalString,
+  optionalText,
   optionalTimestamp,
-  readJson,
-  requireDate,
-  requireIdParam,
-  requireOneOf,
-  requireString,
-  requireUuid,
-} from "../lib/validate.ts";
+  requestId,
+  text,
+} from "../lib/schema.ts";
 
 const KINDS = ["warmup", "working"] as const;
 const EFFORTS = ["easy", "hard", "failure"] as const;
+
+export const sessions = new OpenAPIHono();
+
+// An exercise or mesocycle by id, name, or alias — the resolver decides.
+const reference = () => z.union([z.string().min(1), z.number()]).optional();
+
+const SetRow = z.object({
+  id: z.int(),
+  exercise: z.string(),
+  exercise_id: z.int(),
+  measure: z.string(),
+  mesocycle_id: z.int().nullable(),
+  position: z.int(),
+  kind: z.enum(KINDS),
+  target_weight_kg: z.number().nullable(),
+  target_reps: z.int().nullable(),
+  target_distance_m: z.number().nullable(),
+  target_duration_s: z.number().nullable(),
+  weight_kg: z.number().nullable(),
+  reps: z.int().nullable(),
+  distance_m: z.number().nullable(),
+  duration_s: z.number().nullable(),
+  effort: z.enum(EFFORTS).nullable(),
+  performed_at: z.string().nullable(),
+  notes: z.string().nullable(),
+});
+
+const SessionHeader = z.object({
+  id: z.int(),
+  public_id: z.string(),
+  date: z.string(),
+  rationale: z.string().nullable(),
+  notes: z.string().nullable(),
+  overall_feel: z.string().nullable(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+});
+
+const SessionDetail = SessionHeader.extend({ sets: z.array(SetRow) });
+
+// The set written by POST /sessions/{id}/sets: an unplanned set, so it never
+// carries targets and the row returned has none to show.
+const AppendedSet = SetRow.omit({
+  exercise: true,
+  measure: true,
+  target_weight_kg: true,
+  target_reps: true,
+  target_distance_m: true,
+  target_duration_s: true,
+});
 
 function newPublicId(): string {
   const alphabet =
@@ -33,14 +81,14 @@ function newPublicId(): string {
 }
 
 async function sessionDetail(id: number) {
-  const [session] = await sql`
+  const [session] = await sql<z.infer<typeof SessionHeader>[]>`
     select id, public_id, date, rationale, notes,
       overall_feel, started_at, completed_at
     from sessions where id = ${id}`;
   if (!session) throw new ApiError(404, `No session with id ${id}.`);
   // Each set says which plan it serves; the session says nothing, because a
   // session that sprints and then squats serves two.
-  const sets = await sql`
+  const sets = await sql<z.infer<typeof SetRow>[]>`
     select t.id, e.name as exercise, t.exercise_id, e.measure, t.mesocycle_id,
       t.position, t.kind,
       t.target_weight_kg::float8, t.target_reps,
@@ -74,45 +122,43 @@ interface NewSet {
 // What a set entry may carry. Named here rather than inferred, because a
 // nested object is where a guessed field is most likely to go unnoticed:
 // "target_rpe" on one set of fifteen answers 201 and is simply not there.
-const SET_ENTRY_FIELDS = [
-  "exercise",
-  "kind",
-  "mesocycle",
-  "target_weight_kg",
-  "target_reps",
-  "target_distance_m",
-  "target_duration_s",
-  "weight_kg",
-  "reps",
-  "distance_m",
-  "duration_s",
-  "effort",
-  "performed_at",
-  "notes",
-] as const;
+const setEntryShape = {
+  exercise: reference(),
+  kind: oneOf(KINDS).default("working"),
+  mesocycle: reference(),
+  target_weight_kg: optionalNumber({ min: 0 }),
+  target_reps: optionalInt({ min: 1 }),
+  target_distance_m: optionalNumber({ min: 0 }),
+  target_duration_s: optionalNumber({ min: 0 }),
+  weight_kg: optionalNumber({ min: 0 }),
+  reps: optionalInt({ min: 1 }),
+  distance_m: optionalNumber({ min: 0 }),
+  duration_s: optionalNumber({ min: 0 }),
+  effort: oneOf(EFFORTS).nullish(),
+  performed_at: optionalTimestamp(),
+  notes: optionalText(),
+};
+
+type SetEntry = z.infer<ReturnType<typeof setEntry>>;
+const setEntry = () => body(setEntryShape, 'an entry in "sets"');
 
 // One set entry of POST /sessions. Targets only (upcoming) or actuals only
 // (retro) — a target written after the work would always match what was done.
-async function parseNewSet(entry: unknown): Promise<NewSet> {
-  if (typeof entry === "object" && entry === null) {
-    throw new ApiError(422, 'Each entry in "sets" must be an object.');
-  }
-  const s = entry as Body;
-  assertKnownFields(s, SET_ENTRY_FIELDS, 'an entry in "sets"');
+async function parseNewSet(s: SetEntry): Promise<NewSet> {
   const exercise = await resolveExercise(s.exercise);
-  const kind = requireOneOf(s, "kind", KINDS, "working");
+  const kind = s.kind;
 
   const target = {
-    weightKg: optionalNumber(s, "target_weight_kg", { min: 0 }),
-    reps: optionalInt(s, "target_reps", { min: 1 }),
-    distanceM: optionalNumber(s, "target_distance_m", { min: 0 }),
-    durationS: optionalNumber(s, "target_duration_s", { min: 0 }),
+    weightKg: s.target_weight_kg ?? null,
+    reps: s.target_reps ?? null,
+    distanceM: s.target_distance_m ?? null,
+    durationS: s.target_duration_s ?? null,
   };
   const actual = {
-    weightKg: optionalNumber(s, "weight_kg", { min: 0 }),
-    reps: optionalInt(s, "reps", { min: 1 }),
-    distanceM: optionalNumber(s, "distance_m", { min: 0 }),
-    durationS: optionalNumber(s, "duration_s", { min: 0 }),
+    weightKg: s.weight_kg ?? null,
+    reps: s.reps ?? null,
+    distanceM: s.distance_m ?? null,
+    durationS: s.duration_s ?? null,
   };
   // What a set of this exercise must carry is the exercise's business, so
   // both sides are checked against its measure rather than against a rule
@@ -130,9 +176,7 @@ async function parseNewSet(entry: unknown): Promise<NewSet> {
       "A new set carries targets (upcoming session) or actuals (retro-logged), never both: targets written after the fact would always match what was done.",
     );
   }
-  const effort = s.effort === undefined || s.effort === null
-    ? null
-    : requireOneOf(s, "effort", EFFORTS);
+  const effort = s.effort ?? null;
   assertEffort(
     exercise.stimulus_type,
     exercise.name,
@@ -153,70 +197,156 @@ async function parseNewSet(entry: unknown): Promise<NewSet> {
     distanceM: actual.distanceM,
     durationS: actual.durationS,
     effort,
-    performedAt: optionalTimestamp(s, "performed_at"),
-    notes: optionalString(s, "notes"),
+    performedAt: s.performed_at ?? null,
+    notes: s.notes ?? null,
   };
 }
 
-export const sessions = new Hono();
-
-sessions.get("/", async (c) => {
-  const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-  const mesoParam = c.req.query("mesocycle");
-  const mesoId = mesoParam ? (await resolveMesocycle(mesoParam)).id : null;
-  // Filtering by plan asks which sessions contained work for it, because a
-  // session is no longer owned by one.
-  const rows = await sql`
+sessions.openapi(
+  createRoute({
+    method: "get",
+    path: "/",
+    tags: ["Training"],
+    summary: "Recent sessions",
+    request: {
+      query: z.object({
+        limit: z.string().optional().meta({
+          description: "How many, newest first. Default 20, capped at 100.",
+        }),
+        mesocycle: z.string().optional().meta({
+          description:
+            "Keep only sessions containing work for this plan — a session is no longer owned by one.",
+        }),
+      }),
+    },
+    responses: {
+      200: {
+        description: "Session headers, newest first. Sets are not included.",
+        content: {
+          "application/json": {
+            schema: z.object({ sessions: z.array(SessionHeader) }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
+    const mesoParam = c.req.query("mesocycle");
+    const mesoId = mesoParam ? (await resolveMesocycle(mesoParam)).id : null;
+    // Filtering by plan asks which sessions contained work for it, because a
+    // session is no longer owned by one.
+    const rows = await sql<z.infer<typeof SessionHeader>[]>`
     select id, public_id, date, rationale, notes,
       overall_feel, started_at, completed_at
     from sessions s
     ${
-    mesoId === null ? sql`` : sql`where exists (
+      mesoId === null ? sql`` : sql`where exists (
         select 1 from sets t
         where t.session_id = s.id and t.mesocycle_id = ${mesoId})`
-  }
+    }
     order by date desc, id desc
     limit ${limit}`;
-  return c.json({ sessions: rows });
-});
+    return c.json({ sessions: rows });
+  },
+);
 
-sessions.get("/:id", async (c) => {
-  const id = requireIdParam(c.req.param("id"), "session");
-  return c.json({ session: await sessionDetail(id) });
-});
+sessions.openapi(
+  createRoute({
+    method: "get",
+    path: "/{id}",
+    tags: ["Training"],
+    summary: "One session, with its sets",
+    request: { params: z.object({ id: idParam("session") }) },
+    responses: {
+      200: {
+        description: "The session and every set in it, in position order.",
+        content: {
+          "application/json": {
+            schema: z.object({ session: SessionDetail }),
+          },
+        },
+      },
+      404: { description: "No session carries that id." },
+    },
+  }),
+  async (c) => {
+    return c.json({ session: await sessionDetail(c.req.valid("param").id) });
+  },
+);
 
 // Two shapes. Upcoming: sets with targets, for the log page. Retro: a past
 // date, sets with actuals and null targets. Set rows are created here —
 // logging fills them in rather than inserting.
-sessions.post("/", async (c) => {
-  const body = await readJson(c, ["date", "rationale", "sets"]);
-  const requestId = requireUuid(body, "request_id");
-  if (requestId) {
-    const [existing] = await sql`
-      select id from sessions where request_id = ${requestId}`;
-    if (existing) return c.json({ session: await sessionDetail(existing.id) });
-  }
+sessions.openapi(
+  createRoute({
+    method: "post",
+    path: "/",
+    tags: ["Training"],
+    summary: "Write a session",
+    description:
+      "Two shapes. Upcoming: sets carrying targets, for the log page. Retro-logged: a past date and sets carrying actuals. Never both on one set — a target written after the work would always match what was done.",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: body({
+              date: date(),
+              rationale: text(),
+              sets: z.array(setEntry(), {
+                error: () =>
+                  '"sets" must be a non-empty array. Upcoming session: [{exercise, kind?, target_weight_kg, target_reps}] — or target_distance_m / target_duration_s for work measured that way. Retro-logged: the same fields without the target_ prefix, plus effort on rep-counted working sets.',
+              }).min(1, {
+                error: () =>
+                  '"sets" must be a non-empty array. Upcoming session: [{exercise, kind?, target_weight_kg, target_reps}] — or target_distance_m / target_duration_s for work measured that way. Retro-logged: the same fields without the target_ prefix, plus effort on rep-counted working sets.',
+              }),
+              request_id: requestId(),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: "The session that was written, with its sets.",
+        content: {
+          "application/json": {
+            schema: z.object({ session: SessionDetail }),
+          },
+        },
+      },
+      200: {
+        description:
+          "The session this request_id already wrote. A retry, answered with the original result.",
+        content: {
+          "application/json": {
+            schema: z.object({ session: SessionDetail }),
+          },
+        },
+      },
+      422: {
+        description:
+          "A set carrying both targets and actuals, or measures that do not fit the exercise.",
+      },
+    },
+  }),
+  async (c) => {
+    const b = c.req.valid("json");
+    const [seen] = await sql`
+      select id from sessions where request_id = ${b.request_id}`;
+    if (seen) return c.json({ session: await sessionDetail(seen.id) }, 200);
 
-  const date = requireDate(body, "date");
-  const rationale = requireString(body, "rationale");
+    const sets: NewSet[] = [];
+    for (const entry of b.sets) sets.push(await parseNewSet(entry));
 
-  if (!Array.isArray(body.sets) || body.sets.length === 0) {
-    throw new ApiError(
-      422,
-      '"sets" must be a non-empty array. Upcoming session: [{exercise, kind?, target_weight_kg, target_reps}] — or target_distance_m / target_duration_s for work measured that way. Retro-logged: the same fields without the target_ prefix, plus effort on rep-counted working sets.',
-    );
-  }
-  const sets: NewSet[] = [];
-  for (const entry of body.sets) sets.push(await parseNewSet(entry));
-
-  const id = await sql.begin(async (tx) => {
-    const [session] = await tx`
+    const id = await sql.begin(async (tx) => {
+      const [session] = await tx`
       insert into sessions (public_id, date, rationale, request_id)
-      values (${newPublicId()}, ${date}, ${rationale}, ${requestId})
+      values (${newPublicId()}, ${b.date}, ${b.rationale}, ${b.request_id})
       returning id`;
-    let position = 1;
-    for (const s of sets) {
-      await tx`
+      let position = 1;
+      for (const s of sets) {
+        await tx`
         insert into sets
           (session_id, exercise_id, mesocycle_id, position, kind,
            target_weight_kg, target_reps, target_distance_m,
@@ -228,63 +358,85 @@ sessions.post("/", async (c) => {
            ${s.targetDistanceM}, ${s.targetDurationS}, ${s.weightKg},
            ${s.reps}, ${s.distanceM}, ${s.durationS},
            ${s.effort}, ${s.performedAt}, ${s.notes})`;
-    }
-    return session.id as number;
-  });
+      }
+      return session.id as number;
+    });
 
-  return c.json({ session: await sessionDetail(id) }, 201);
-});
+    return c.json({ session: await sessionDetail(id) }, 201);
+  },
+);
 
 // An unplanned set: actuals, null targets. Behind the log page's extra-row
 // and add-exercise actions, and available when logging in chat.
-sessions.post("/:id/sets", async (c) => {
-  const sessionId = requireIdParam(c.req.param("id"), "session");
-  const [session] = await sql`select id from sessions where id = ${sessionId}`;
-  if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
+sessions.openapi(
+  createRoute({
+    method: "post",
+    path: "/{id}/sets",
+    tags: ["Training"],
+    summary: "Append an unplanned set",
+    description:
+      "Records what was done, so it carries actuals and never targets. Appends at the end of the session.",
+    request: {
+      params: z.object({ id: idParam("session") }),
+      body: {
+        content: {
+          "application/json": {
+            schema: body({ ...setEntryShape, request_id: requestId() }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: "The set that was appended.",
+        content: {
+          "application/json": { schema: z.object({ set: AppendedSet }) },
+        },
+      },
+      200: {
+        description:
+          "The set this request_id already appended. A retry, answered with the original row.",
+        content: {
+          "application/json": { schema: z.object({ set: AppendedSet }) },
+        },
+      },
+      404: { description: "No session carries that id." },
+      422: { description: "Targets were sent, or no measurement was." },
+    },
+  }),
+  async (c) => {
+    const sessionId = c.req.valid("param").id;
+    const [session] =
+      await sql`select id from sessions where id = ${sessionId}`;
+    if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
 
-  const body = await readJson(c, [
-    "exercise",
-    "kind",
-    "mesocycle",
-    "target_weight_kg",
-    "target_reps",
-    "target_distance_m",
-    "target_duration_s",
-    "weight_kg",
-    "reps",
-    "distance_m",
-    "duration_s",
-    "effort",
-    "performed_at",
-    "notes",
-  ]);
-  // Appends at max(position)+1, so there is no natural key to collide on:
-  // without the id a lost response becomes a duplicate set.
-  const requestId = requireUuid(body, "request_id");
-  const [duplicate] = await sql`
+    const b = c.req.valid("json");
+    // Appends at max(position)+1, so there is no natural key to collide on:
+    // without the id a lost response becomes a duplicate set.
+    const [duplicate] = await sql<z.infer<typeof AppendedSet>[]>`
     select id, session_id, exercise_id, mesocycle_id, position, kind,
       weight_kg::float8, reps, distance_m::float8, duration_s::float8,
       effort, performed_at, notes
-    from sets where request_id = ${requestId}`;
-  if (duplicate) return c.json({ set: duplicate });
+    from sets where request_id = ${b.request_id}`;
+    if (duplicate) return c.json({ set: duplicate }, 200);
 
-  const s = await parseNewSet(body);
-  if (
-    s.targetReps !== null || s.targetDistanceM !== null ||
-    s.targetDurationS !== null
-  ) {
-    throw new ApiError(
-      422,
-      "An unplanned set records what was done: send actuals, not targets.",
-    );
-  }
-  if (s.reps === null && s.distanceM === null && s.durationS === null) {
-    throw new ApiError(
-      422,
-      "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured.",
-    );
-  }
-  const [row] = await sql`
+    const s = await parseNewSet(b);
+    if (
+      s.targetReps !== null || s.targetDistanceM !== null ||
+      s.targetDurationS !== null
+    ) {
+      throw new ApiError(
+        422,
+        "An unplanned set records what was done: send actuals, not targets.",
+      );
+    }
+    if (s.reps === null && s.distanceM === null && s.durationS === null) {
+      throw new ApiError(
+        422,
+        "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured.",
+      );
+    }
+    const [row] = await sql<z.infer<typeof AppendedSet>[]>`
     insert into sets
       (session_id, exercise_id, mesocycle_id, position, kind, weight_kg, reps,
        distance_m, duration_s, effort, performed_at, notes, request_id)
@@ -293,48 +445,82 @@ sessions.post("/:id/sets", async (c) => {
        (select coalesce(max(position), 0) + 1 from sets where session_id = ${sessionId}),
        ${s.kind}, ${s.weightKg}, ${s.reps}, ${s.distanceM}, ${s.durationS},
        ${s.effort}, ${s.performedAt ?? new Date().toISOString()}, ${s.notes},
-       ${requestId})
+       ${b.request_id})
     returning id, session_id, exercise_id, mesocycle_id, position, kind,
       weight_kg::float8, reps, distance_m::float8, duration_s::float8,
       effort, performed_at, notes`;
-  return c.json({ set: row }, 201);
-});
+    return c.json({ set: row }, 201);
+  },
+);
 
 // Notes, how it felt, marking complete. Finishing a workout is a field
 // changing, not a separate action.
-sessions.patch("/:id", async (c) => {
-  const sessionId = requireIdParam(c.req.param("id"), "session");
-  const [session] = await sql`select id from sessions where id = ${sessionId}`;
-  if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
+sessions.openapi(
+  createRoute({
+    method: "patch",
+    path: "/{id}",
+    tags: ["Training"],
+    summary: "Session-level facts",
+    description:
+      "Finishing a workout is completed_at changing, not a separate action.",
+    request: {
+      params: z.object({ id: idParam("session") }),
+      body: {
+        content: {
+          "application/json": {
+            schema: body({
+              started_at: optionalTimestamp(),
+              completed_at: optionalTimestamp(),
+              overall_feel: optionalText(),
+              notes: optionalText(),
+              rationale: text().optional(),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: "The session as it now stands.",
+        content: {
+          "application/json": {
+            schema: z.object({ session: SessionDetail }),
+          },
+        },
+      },
+      404: { description: "No session carries that id." },
+      422: { description: "Nothing was sent." },
+    },
+  }),
+  async (c) => {
+    const sessionId = c.req.valid("param").id;
+    const [session] =
+      await sql`select id from sessions where id = ${sessionId}`;
+    if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
 
-  const body = await readJson(c, [
-    "started_at",
-    "completed_at",
-    "overall_feel",
-    "notes",
-    "rationale",
-  ]);
-  const fields: Record<string, unknown> = {};
-  if ("notes" in body) fields.notes = optionalString(body, "notes");
-  if ("overall_feel" in body) {
-    fields.overall_feel = optionalString(body, "overall_feel");
-  }
-  if ("rationale" in body) fields.rationale = requireString(body, "rationale");
-  if ("started_at" in body) {
-    fields.started_at = optionalTimestamp(body, "started_at");
-  }
-  if ("completed_at" in body) {
-    fields.completed_at = optionalTimestamp(body, "completed_at");
-  }
-  if (Object.keys(fields).length === 0) {
-    throw new ApiError(
-      422,
-      'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at".',
-    );
-  }
-  await sql`update sessions set ${sql(fields)} where id = ${sessionId}`;
-  return c.json({ session: await sessionDetail(sessionId) });
-});
+    const b = c.req.valid("json");
+    const fields: Record<string, unknown> = {};
+    for (
+      const f of [
+        "notes",
+        "overall_feel",
+        "rationale",
+        "started_at",
+        "completed_at",
+      ] as const
+    ) {
+      if (b[f] !== undefined) fields[f] = b[f];
+    }
+    if (Object.keys(fields).length === 0) {
+      throw new ApiError(
+        422,
+        'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at".',
+      );
+    }
+    await sql`update sessions set ${sql(fields)} where id = ${sessionId}`;
+    return c.json({ session: await sessionDetail(sessionId) });
+  },
+);
 
 // A planned session nobody has touched is a proposal, not history. Iterating
 // on a plan means discarding the draft and writing a better one — without
@@ -342,14 +528,45 @@ sessions.patch("/:id", async (c) => {
 // rows precisely because someone was careful about the plan. The moment any
 // set carries an actual, or the session was started or finished, it happened:
 // from then on it is history, and history is corrected, never deleted.
-sessions.delete("/:id", async (c) => {
-  const sessionId = requireIdParam(c.req.param("id"), "session");
-  const [session] = await sql`
+sessions.openapi(
+  createRoute({
+    method: "delete",
+    path: "/{id}",
+    tags: ["Training"],
+    summary: "Discard an untouched draft",
+    description:
+      "Only a planned session nothing has touched can be discarded. The moment any set carries an actual, or the session was started or finished, it happened — and history is corrected, never deleted.",
+    request: { params: z.object({ id: idParam("session") }) },
+    responses: {
+      200: {
+        description: "The draft that was discarded.",
+        content: {
+          "application/json": {
+            schema: z.object({
+              deleted: z.object({
+                id: z.int(),
+                date: z.string(),
+                sets: z.int(),
+              }),
+            }),
+          },
+        },
+      },
+      404: { description: "No session carries that id." },
+      409: {
+        description:
+          "The session is on the record. Corrections go through PATCH.",
+      },
+    },
+  }),
+  async (c) => {
+    const sessionId = c.req.valid("param").id;
+    const [session] = await sql`
     select id, date, started_at, completed_at
     from sessions where id = ${sessionId}`;
-  if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
+    if (!session) throw new ApiError(404, `No session with id ${sessionId}.`);
 
-  const [{ total, performed }] = await sql`
+    const [{ total, performed }] = await sql`
     select count(*)::int as total,
       count(*) filter (where
         weight_kg is not null or reps is not null or distance_m is not null
@@ -357,24 +574,29 @@ sessions.delete("/:id", async (c) => {
         or performed_at is not null)::int as performed
     from sets where session_id = ${sessionId}`;
 
-  if (
-    performed > 0 || session.started_at !== null ||
-    session.completed_at !== null
-  ) {
-    const why = performed > 0
-      ? `${performed} of its ${total} sets carry actuals`
-      : "it was started or finished";
-    throw new ApiError(
-      409,
-      `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
-    );
-  }
+    if (
+      performed > 0 || session.started_at !== null ||
+      session.completed_at !== null
+    ) {
+      const why = performed > 0
+        ? `${performed} of its ${total} sets carry actuals`
+        : "it was started or finished";
+      throw new ApiError(
+        409,
+        `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
+      );
+    }
 
-  await sql.begin(async (tx) => {
-    await tx`delete from sets where session_id = ${sessionId}`;
-    await tx`delete from sessions where id = ${sessionId}`;
-  });
-  return c.json({
-    deleted: { id: session.id, date: session.date, sets: total },
-  });
-});
+    await sql.begin(async (tx) => {
+      await tx`delete from sets where session_id = ${sessionId}`;
+      await tx`delete from sessions where id = ${sessionId}`;
+    });
+    return c.json({
+      deleted: {
+        id: session.id as number,
+        date: session.date as string,
+        sets: total as number,
+      },
+    });
+  },
+);

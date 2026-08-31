@@ -1,9 +1,13 @@
 import { assert, assertEquals } from "@std/assert";
 import fc from "fast-check";
 import {
-  assertKnownFields,
+  body,
+  idParam,
+  optionalNumber,
+  optionalRequestId,
   optionalTimestamp,
-  optionalUuid,
+} from "../supabase/functions/api/lib/schema.ts";
+import {
   requireIdParam,
   requireNotFuture,
 } from "../supabase/functions/api/lib/validate.ts";
@@ -15,8 +19,29 @@ import {
 import { ApiError } from "../supabase/functions/api/lib/errors.ts";
 
 // The gatekeepers, tested as laws. Every request the API accepts or refuses
-// passes through these few functions, so a wrong edge here is a wrong edge on
+// passes through these few shapes, so a wrong edge here is a wrong edge on
 // every route at once.
+//
+// They live in schema.ts now. What stayed in validate.ts is what a schema
+// cannot express — requireNotFuture compares against a date read from
+// Postgres — plus the helpers the log page still validates with, and both are
+// held to the same laws here as before.
+
+// deno-lint-ignore no-explicit-any
+function issues(schema: any, value: unknown): string[] {
+  const r = schema.safeParse(value);
+  return r.success ? [] : r.error.issues.map((i: { code: string }) => i.code);
+}
+
+// deno-lint-ignore no-explicit-any
+function accepted(schema: any, value: unknown): unknown {
+  const r = schema.safeParse(value);
+  assert(
+    r.success,
+    `expected acceptance, got ${JSON.stringify(r.error?.issues)}`,
+  );
+  return r.data;
+}
 
 function refused(fn: () => void): boolean {
   try {
@@ -28,10 +53,11 @@ function refused(fn: () => void): boolean {
   }
 }
 
-Deno.test("assertKnownFields refuses exactly the unknown keys", () => {
-  // Generated accept-lists against generated bodies: refused iff some key is
-  // outside accepts ∪ {request_id}. The exhaustive form of the guards suite's
-  // examples, including the empty body and the empty accept-list.
+Deno.test("a body refuses exactly the unknown keys", () => {
+  // Generated accept-lists against generated bodies: an unrecognized_keys
+  // issue is raised iff some key is outside accepts ∪ {request_id}. The
+  // exhaustive form of the guards suite's examples, including the empty body
+  // and the empty accept-list.
   const key = fc.constantFrom(
     "day",
     "grams",
@@ -48,12 +74,22 @@ Deno.test("assertKnownFields refuses exactly the unknown keys", () => {
       fc.uniqueArray(key, { maxLength: 5 }),
       fc.uniqueArray(key, { maxLength: 5 }),
       (accepts, keys) => {
-        const body = Object.fromEntries(keys.map((k) => [k, 1]));
-        const unknown = keys.some((k) =>
-          k !== "request_id" && !accepts.includes(k)
+        // Every accepted field is optional and permissive, so the only issue
+        // a well-formed value can raise is the one under test.
+        const shape = Object.fromEntries(
+          accepts.filter((k) => k !== "request_id").map((
+            k,
+          ) => [k, optionalNumber()]),
+        );
+        const schema = body(shape);
+        const value = Object.fromEntries(
+          keys.map((k) => [k, k === "request_id" ? crypto.randomUUID() : 1]),
+        );
+        const unknown = keys.some(
+          (k) => k !== "request_id" && !accepts.includes(k),
         );
         assertEquals(
-          refused(() => assertKnownFields(body, accepts, "the test body")),
+          issues(schema, value).includes("unrecognized_keys"),
           unknown,
         );
       },
@@ -75,9 +111,10 @@ Deno.test("the lexicographic future check agrees with the calendar", () => {
   }));
 });
 
-Deno.test("optionalUuid accepts any case and answers in one", () => {
+Deno.test("a request id accepts any case and answers in one", () => {
   // Retry safety depends on the same id comparing equal on the second send,
   // so the stored form must not depend on how the caller happened to case it.
+  const schema = optionalRequestId();
   fc.assert(
     fc.property(
       fc.uuid(),
@@ -85,22 +122,26 @@ Deno.test("optionalUuid accepts any case and answers in one", () => {
       (id, caps) => {
         const mixed = id.split("").map((ch, i) =>
           caps[i] ? ch.toUpperCase() : ch
-        )
-          .join("");
-        const out = optionalUuid({ f: mixed }, "f");
+        ).join("");
+        const out = accepted(schema, mixed);
         assertEquals(out, id.toLowerCase());
         // Idempotent: feeding the answer back changes nothing.
-        assertEquals(optionalUuid({ f: out! }, "f"), out);
+        assertEquals(accepted(schema, out), out);
       },
     ),
   );
 });
 
-Deno.test("requireIdParam accepts exactly the positive integers", () => {
+Deno.test("an id parameter accepts exactly the positive integers", () => {
+  const schema = idParam("test");
   fc.assert(fc.property(fc.integer({ min: 1, max: 2_000_000_000 }), (n) => {
+    assertEquals(accepted(schema, String(n)), n);
+    // The log page still validates with the original, which must not drift
+    // from the shape every other route now uses.
     assertEquals(requireIdParam(String(n), "test"), n);
   }));
   for (const bad of ["0", "-3", "1.5", "banana", "", "NaN", "Infinity"]) {
+    assert(issues(schema, bad).length > 0, bad);
     assert(refused(() => requireIdParam(bad, "test")), bad);
   }
 });
@@ -109,25 +150,24 @@ Deno.test("a valid timestamp round-trips to the same instant", () => {
   // Whatever offset the caller wrote, the stored UTC form names the same
   // moment. A timestamp with no offset at all is refused: it would name a
   // different instant depending on the runtime's zone.
+  const schema = optionalTimestamp();
   fc.assert(
     fc.property(
       fc.integer({ min: 0, max: 4_000_000_000_000 }),
       fc.integer({ min: -12, max: 12 }),
       (ms, offsetH) => {
         const iso = new Date(ms).toISOString();
-        assertEquals(optionalTimestamp({ t: iso }, "t"), iso);
+        assertEquals(accepted(schema, iso), iso);
         // The same instant written with an explicit offset.
         const sign = offsetH < 0 ? "-" : "+";
         const hh = String(Math.abs(offsetH)).padStart(2, "0");
         const local = new Date(ms + offsetH * 3_600_000).toISOString()
           .replace("Z", `${sign}${hh}:00`);
-        assertEquals(optionalTimestamp({ t: local }, "t"), iso);
+        assertEquals(accepted(schema, local), iso);
         // The same wall-clock text with the offset stripped, and the bare
         // date, both parse — that is the trap — but are refused.
-        assert(
-          refused(() => optionalTimestamp({ t: iso.replace("Z", "") }, "t")),
-        );
-        assert(refused(() => optionalTimestamp({ t: iso.slice(0, 10) }, "t")));
+        assert(issues(schema, iso.replace("Z", "")).length > 0);
+        assert(issues(schema, iso.slice(0, 10)).length > 0);
       },
     ),
   );

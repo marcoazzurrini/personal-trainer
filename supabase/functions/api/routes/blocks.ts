@@ -1,39 +1,100 @@
-import { Hono } from "@hono/hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import {
-  optionalDate,
-  readJson,
-  requireDate,
-  requireString,
-  requireUuid,
-} from "../lib/validate.ts";
+import { body, date, optionalDate, requestId, text } from "../lib/schema.ts";
 
-export const blocks = new Hono();
+export const blocks = new OpenAPIHono();
 
-blocks.get("/", async (c) => {
-  const rows = await sql`
-    select id, name, goal, started_on, ended_on from blocks order by started_on`;
-  return c.json({ blocks: rows });
+const Block = z.object({
+  id: z.int(),
+  name: z.string(),
+  goal: z.string(),
+  started_on: z.string(),
+  ended_on: z.string().nullable(),
 });
 
-blocks.post("/", async (c) => {
-  const body = await readJson(c, ["name", "goal", "started_on", "ended_on"]);
-  const requestId = requireUuid(body, "request_id");
+// The response schema doubles as the row type, so the columns a query selects
+// and the columns the document promises cannot drift apart.
+type BlockRow = z.infer<typeof Block>;
 
-  const [existing] = await sql`
+blocks.openapi(
+  createRoute({
+    method: "get",
+    path: "/",
+    tags: ["Planning"],
+    summary: "Every block, oldest first",
+    responses: {
+      200: {
+        description: "All blocks in start order.",
+        content: {
+          "application/json": {
+            schema: z.object({ blocks: z.array(Block) }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const rows = await sql<BlockRow[]>`
+    select id, name, goal, started_on, ended_on from blocks order by started_on`;
+    return c.json({ blocks: rows });
+  },
+);
+
+blocks.openapi(
+  createRoute({
+    method: "post",
+    path: "/",
+    tags: ["Planning"],
+    summary: "Open a block",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: body({
+              name: text(),
+              goal: text(),
+              started_on: date(),
+              ended_on: optionalDate(),
+              request_id: requestId(),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: "The block that was created.",
+        content: {
+          "application/json": { schema: z.object({ block: Block }) },
+        },
+      },
+      200: {
+        description:
+          "The block this request_id already created. A retry, answered with the original result rather than a second row.",
+        content: {
+          "application/json": { schema: z.object({ block: Block }) },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const b = c.req.valid("json");
+
+    const [existing] = await sql<BlockRow[]>`
     select id, name, goal, started_on, ended_on
-    from blocks where request_id = ${requestId}`;
-  if (existing) return c.json({ block: existing });
+    from blocks where request_id = ${b.request_id}`;
+    if (existing) return c.json({ block: existing }, 200);
 
-  const [row] = await sql`
+    const [row] = await sql<BlockRow[]>`
     insert into blocks (name, goal, started_on, ended_on, request_id)
     values (
-      ${requireString(body, "name")},
-      ${requireString(body, "goal")},
-      ${requireDate(body, "started_on")},
-      ${optionalDate(body, "ended_on")},
-      ${requestId}
+      ${b.name},
+      ${b.goal},
+      ${b.started_on},
+      ${b.ended_on ?? null},
+      ${b.request_id}
     )
     returning id, name, goal, started_on, ended_on`;
-  return c.json({ block: row }, 201);
-});
+    return c.json({ block: row }, 201);
+  },
+);

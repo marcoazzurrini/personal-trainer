@@ -1,14 +1,14 @@
-import { Hono } from "@hono/hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError } from "../lib/errors.ts";
 import {
+  body,
+  idParam,
+  oneOf,
   optionalDate,
-  optionalString,
-  readJson,
-  requireIdParam,
-  requireOneOf,
-  requireUuid,
-} from "../lib/validate.ts";
+  optionalText,
+  requestId,
+} from "../lib/schema.ts";
 import { activeTransients, romeToday } from "../lib/nutrition_read.ts";
 
 // The register of things that make bodyweight move for reasons that are not
@@ -23,48 +23,138 @@ const KINDS = [
   "other",
 ] as const;
 
-export const nutritionEvents = new Hono();
+export const nutritionEvents = new OpenAPIHono();
 
-nutritionEvents.get("/", async (c) => {
-  const rows = await sql`
+const Event = z.object({
+  id: z.int(),
+  day: z.string(),
+  kind: z.enum(KINDS),
+  note: z.string().nullable(),
+  created_at: z.string(),
+});
+
+type EventRow = z.infer<typeof Event>;
+
+// What the expenditure back-solve is actually damping on: the same rows, still
+// inside the window, without the bookkeeping column.
+const ActiveTransient = Event.omit({ created_at: true });
+
+nutritionEvents.openapi(
+  createRoute({
+    method: "get",
+    path: "/",
+    tags: ["Nutrition"],
+    summary: "Registered transients, and which are still damping",
+    responses: {
+      200: {
+        description:
+          "Every event ever registered under `events`, and under `active` those still inside the damping window as of today in Europe/Rome.",
+        content: {
+          "application/json": {
+            schema: z.object({
+              events: z.array(Event),
+              active: z.array(ActiveTransient),
+            }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const rows = await sql<EventRow[]>`
     select id, day, kind, note, created_at
     from nutrition_events order by day desc, id desc`;
-  return c.json({
-    events: rows,
-    active: await activeTransients(await romeToday()),
-  });
-});
+    return c.json({
+      events: rows,
+      active: await activeTransients(await romeToday()) as z.infer<
+        typeof ActiveTransient
+      >[],
+    });
+  },
+);
 
-nutritionEvents.post("/", async (c) => {
-  const body = await readJson(c, ["day", "kind", "note"]);
-  const requestId = requireUuid(body, "request_id");
-  if (requestId) {
-    const [existing] = await sql`
+nutritionEvents.openapi(
+  createRoute({
+    method: "post",
+    path: "/",
+    tags: ["Nutrition"],
+    summary: "Register a transient",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: body({
+              day: optionalDate(),
+              kind: oneOf(KINDS),
+              note: optionalText(),
+              request_id: requestId(),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: "The event that was registered.",
+        content: {
+          "application/json": { schema: z.object({ event: Event }) },
+        },
+      },
+      200: {
+        description:
+          "The event this request_id already registered. A retry, answered with the original result.",
+        content: {
+          "application/json": { schema: z.object({ event: Event }) },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const b = c.req.valid("json");
+    const [existing] = await sql<EventRow[]>`
       select id, day, kind, note, created_at
-      from nutrition_events where request_id = ${requestId}`;
-    if (existing) return c.json({ event: existing });
-  }
+      from nutrition_events where request_id = ${b.request_id}`;
+    if (existing) return c.json({ event: existing }, 200);
 
-  const kind = requireOneOf(body, "kind", KINDS);
-  const note = optionalString(body, "note");
-  const day = optionalDate(body, "day") ?? await romeToday();
+    const day = b.day ?? await romeToday();
 
-  const [row] = await sql`
+    const [row] = await sql<EventRow[]>`
     insert into nutrition_events (day, kind, note, request_id)
-    values (${day}, ${kind}, ${note}, ${requestId})
+    values (${day}, ${b.kind}, ${b.note ?? null}, ${b.request_id})
     returning id, day, kind, note, created_at`;
-  return c.json({ event: row }, 201);
-});
+    return c.json({ event: row }, 201);
+  },
+);
 
 // An event registered on the wrong day, or that turned out not to have
 // happened, actively distorts the estimate: it damps updates for two weeks
 // around a transient that never occurred. Registering one is a claim, and a
 // claim can be wrong.
-nutritionEvents.delete("/:id", async (c) => {
-  const id = requireIdParam(c.req.param("id"), "nutrition event");
-  const [row] = await sql`
+nutritionEvents.openapi(
+  createRoute({
+    method: "delete",
+    path: "/{id}",
+    tags: ["Nutrition"],
+    summary: "Withdraw a registered transient",
+    request: { params: z.object({ id: idParam("nutrition event") }) },
+    responses: {
+      200: {
+        description: "The event that was withdrawn.",
+        content: {
+          "application/json": {
+            schema: z.object({ deleted: ActiveTransient.omit({ id: true }) }),
+          },
+        },
+      },
+      404: { description: "No event carries that id." },
+    },
+  }),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const [row] = await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
     delete from nutrition_events where id = ${id}
     returning day, kind, note`;
-  if (!row) throw new ApiError(404, `No nutrition event with id ${id}.`);
-  return c.json({ deleted: row });
-});
+    if (!row) throw new ApiError(404, `No nutrition event with id ${id}.`);
+    return c.json({ deleted: row });
+  },
+);

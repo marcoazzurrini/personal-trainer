@@ -2,15 +2,38 @@
   "version": "5",
   "specifiers": {
     "jsr:@hono/hono@4": "4.13.0",
+    "jsr:@hono/hono@^4.8.3": "4.13.0",
+    "jsr:@hono/zod-openapi@1": "1.6.1",
+    "jsr:@hono/zod-validator@0.9": "0.9.0",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "npm:@asteasolutions/zod-to-openapi@^9.1.0": "9.1.0_zod@4.4.3",
     "npm:fast-check@^4.9.0": "4.9.0",
     "npm:lefthook@2.1.10": "2.1.10",
-    "npm:postgres@^3.4.0": "3.4.9"
+    "npm:openapi3-ts@^4.5.0": "4.6.1",
+    "npm:postgres@^3.4.0": "3.4.9",
+    "npm:zod@^4.2.1": "4.4.3"
   },
   "jsr": {
     "@hono/hono@4.13.0": {
       "integrity": "01944c68d43ec22e31b236923335ff8415bae8f32f76290d3a8387b9640c96af"
+    },
+    "@hono/zod-openapi@1.6.1": {
+      "integrity": "5aa89462543880a564fcc1d156f63e72013f055a3a6d516619bacd9a0bad47bb",
+      "dependencies": [
+        "jsr:@hono/hono@^4.8.3",
+        "jsr:@hono/zod-validator",
+        "npm:@asteasolutions/zod-to-openapi",
+        "npm:openapi3-ts",
+        "npm:zod"
+      ]
+    },
+    "@hono/zod-validator@0.9.0": {
+      "integrity": "32b1f3b4bea3d6e5c3aa427eea711fae470c767fe9b511a10ae8edd0f703bab9",
+      "dependencies": [
+        "jsr:@hono/hono@^4.8.3",
+        "npm:zod"
+      ]
     },
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
@@ -23,6 +46,13 @@
     }
   },
   "npm": {
+    "@asteasolutions/zod-to-openapi@9.1.0_zod@4.4.3": {
+      "integrity": "sha512-pLMeRgRYS7/vZIgAAkOe2P6+XGTifR1MT9pqDoxZ11EmcJJ+DPmdPqLN8ZZF4U8R9KHCCQCS9c2wtuE8wSrfkw==",
+      "dependencies": [
+        "openapi3-ts",
+        "zod"
+      ]
+    },
     "fast-check@4.9.0": {
       "integrity": "sha512-7ms6T7SybUev/PQITciI0yLM2pOSFy5zpG8Ty7tQofcVaQUvrMXp6CBwqF6fThLCLOrfBtuHAtwq6Yu4XPCllg==",
       "dependencies": [
@@ -96,16 +126,30 @@
       "scripts": true,
       "bin": true
     },
+    "openapi3-ts@4.6.1": {
+      "integrity": "sha512-XW9MOldkhoICNeXVzzmXzmOW5G73ppOEGmh7fLCqHjgfdEYCGGN+00MlVCeUZgovjjfC56j9tvtDt1zGabNjjA==",
+      "dependencies": [
+        "yaml"
+      ]
+    },
     "postgres@3.4.9": {
       "integrity": "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="
     },
     "pure-rand@8.4.2": {
       "integrity": "sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng=="
+    },
+    "yaml@2.9.0": {
+      "integrity": "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==",
+      "bin": true
+    },
+    "zod@4.4.3": {
+      "integrity": "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="
     }
   },
   "workspace": {
     "dependencies": [
       "jsr:@hono/hono@4",
+      "jsr:@hono/zod-openapi@1",
       "jsr:@std/assert@1",
       "npm:fast-check@^4.9.0",
       "npm:postgres@^3.4.0"

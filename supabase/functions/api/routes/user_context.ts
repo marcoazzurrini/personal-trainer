@@ -1,45 +1,117 @@
-import { Hono } from "@hono/hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { readJson, requireString, requireUuid } from "../lib/validate.ts";
+import { body, requestId, text } from "../lib/schema.ts";
 
-export const userContext = new Hono();
+export const userContext = new OpenAPIHono();
+
+const Entry = z.object({
+  id: z.int(),
+  topic: z.string(),
+  content: z.string(),
+  written_at: z.string(),
+});
+
+type EntryRow = z.infer<typeof Entry>;
 
 // All current entries together (latest row per topic), never a filtered
 // subset: a coach's picture of a person is coherent.
 // ?history=true returns every row ever written, in order.
-userContext.get("/", async (c) => {
-  if (c.req.query("history") === "true") {
-    const rows = await sql`
+userContext.openapi(
+  createRoute({
+    method: "get",
+    path: "/",
+    tags: ["Tracking"],
+    summary: "What is known about Marco",
+    request: {
+      query: z.object({
+        history: z.string().optional().meta({
+          description:
+            'Send "true" for every row ever written, in order, rather than the latest per topic.',
+        }),
+      }),
+    },
+    responses: {
+      200: {
+        description:
+          "The latest row per topic under `context`, or every row under `history`. Which key answers depends on the query.",
+        content: {
+          "application/json": {
+            schema: z.union([
+              z.object({ context: z.array(Entry) }),
+              z.object({ history: z.array(Entry) }),
+            ]),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    if (c.req.query("history") === "true") {
+      const rows = await sql<EntryRow[]>`
       select id, topic, content, written_at
       from user_context
       order by written_at, id`;
-    return c.json({ history: rows });
-  }
-  const rows = await sql`
+      return c.json({ history: rows });
+    }
+    const rows = await sql<EntryRow[]>`
     select distinct on (topic) id, topic, content, written_at
     from user_context
     order by topic, written_at desc, id desc`;
-  return c.json({ context: rows });
-});
+    return c.json({ context: rows });
+  },
+);
 
 // Append only. Correcting or retiring a fact means writing a new row on the
 // same topic; reuse the existing topic string (see the logging doc).
-userContext.post("/", async (c) => {
-  const body = await readJson(c, ["topic", "content"]);
-  const requestId = requireUuid(body, "request_id");
-  const topic = requireString(body, "topic");
-  const content = requireString(body, "content");
+userContext.openapi(
+  createRoute({
+    method: "post",
+    path: "/",
+    tags: ["Tracking"],
+    summary: "Write down a fact about Marco",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: body({
+              topic: text(),
+              content: text(),
+              request_id: requestId(),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: "The entry that was appended.",
+        content: {
+          "application/json": { schema: z.object({ entry: Entry }) },
+        },
+      },
+      200: {
+        description:
+          "The entry this request_id already appended. A retry, answered with the original result.",
+        content: {
+          "application/json": { schema: z.object({ entry: Entry }) },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const b = c.req.valid("json");
 
-  // Append-only, so nothing else would ever collide: two identical rows on the
-  // same topic are indistinguishable from having written the fact twice.
-  const [existing] = await sql`
+    // Append-only, so nothing else would ever collide: two identical rows on the
+    // same topic are indistinguishable from having written the fact twice.
+    const [existing] = await sql<EntryRow[]>`
     select id, topic, content, written_at
-    from user_context where request_id = ${requestId}`;
-  if (existing) return c.json({ entry: existing });
+    from user_context where request_id = ${b.request_id}`;
+    if (existing) return c.json({ entry: existing }, 200);
 
-  const [row] = await sql`
+    const [row] = await sql<EntryRow[]>`
     insert into user_context (topic, content, request_id)
-    values (${topic}, ${content}, ${requestId})
+    values (${b.topic}, ${b.content}, ${b.request_id})
     returning id, topic, content, written_at`;
-  return c.json({ entry: row }, 201);
-});
+    return c.json({ entry: row }, 201);
+  },
+);

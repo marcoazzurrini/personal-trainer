@@ -18,6 +18,16 @@ const BASE = Deno.env.get("API_URL") ??
 // webhook half) is guarded by dropping anything that names the wrong account.
 const PUBLIC_MOUNTS = ["/s", "/withings"];
 
+// Routes registered directly rather than mounted, on the same public side of
+// the line. /health is the uptime probe. The reference pair is public because
+// a browser cannot put a bearer token on a page load, so a documentation page
+// behind the middleware is one nobody can open — they publish the shape of the
+// surface, never its contents, and every route they name is still guarded
+// below. Scanned separately from the mounts because app.route is not the only
+// way a route lands above the middleware, and a new app.get() there would
+// otherwise be invisible to this file.
+const PUBLIC_ROUTES = ["/health", "/openapi.json", "/reference"];
+
 const source = await Deno.readTextFile(
   new URL("../supabase/functions/api/index.ts", import.meta.url),
 );
@@ -31,11 +41,21 @@ for (const m of source.matchAll(/app\.route\("([^"]+)"/g)) {
   (m.index < middlewareAt ? above : below).push(m[1]);
 }
 
+const routesAbove: string[] = [];
+for (
+  const m of source.matchAll(
+    /app\.(?:get|post|patch|put|delete|doc)\("([^"]+)"/g,
+  )
+) {
+  if (m.index < middlewareAt) routesAbove.push(m[1]);
+}
+
 Deno.test("the public surface is exactly the documented one", () => {
   // A mount added above the middleware would appear here and fail by name.
   // If it is meant to be public, it belongs in PUBLIC_MOUNTS with a comment
   // saying what guards it instead of the token.
   assertEquals(above.sort(), [...PUBLIC_MOUNTS].sort());
+  assertEquals(routesAbove.sort(), [...PUBLIC_ROUTES].sort());
   assert(below.length >= 20, `only ${below.length} guarded mounts found`);
 });
 
@@ -75,4 +95,20 @@ Deno.test("the tokenless surfaces answer without credentials", async () => {
   const head = await fetch(`${BASE}/withings/notify`, { method: "HEAD" });
   assertEquals(head.status, 200);
   await head.body?.cancel();
+
+  // The reference pair, which is only worth publishing if it opens.
+  const spec = await fetch(`${BASE}/openapi.json`);
+  assertEquals(spec.status, 200);
+  const doc = await spec.json();
+  assertEquals(doc.openapi, "3.0.0");
+  // Registered above the middleware, but built per request — so it describes
+  // the routes mounted below it, which is the whole point of it existing.
+  assert(
+    Object.keys(doc.paths).length > 0,
+    "the document describes no paths: app.doc() stopped seeing later mounts",
+  );
+
+  const page = await fetch(`${BASE}/reference`);
+  assertEquals(page.status, 200);
+  assert((await page.text()).includes("createApiReference"));
 });

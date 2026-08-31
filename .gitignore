@@ -13,3 +13,6 @@
 # Logs
 *.log
 skill/SKILL.md
+
+# Ai
+.pi/
