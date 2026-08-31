@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { checkEnergy, checkMacroMass } from "../rules/nutrition.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import { resolveFoodId } from "../record/resolve.ts";
 import {
   aliasList,
@@ -179,42 +180,50 @@ foods.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const [seen] = await sql`
-      select id from foods where request_id = ${b.request_id}`;
-    if (seen) return c.json({ food: await foodById(seen.id) }, 200);
 
-    const aliases = b.aliases ?? [];
+    const { body: answer, status } = await writeOnce({
+      table: "foods",
+      requestId: b.request_id,
+      select: sql`id`,
+      replay: async (seen: { id: number }) => ({
+        food: await foodById(seen.id),
+      }),
+      write: async () => {
+        const aliases = b.aliases ?? [];
 
-    checkMacroMass(b.protein_100g, b.carbs_100g, b.fat_100g);
-    checkEnergy(
-      b.kcal_100g,
-      b.protein_100g,
-      b.carbs_100g,
-      b.fat_100g,
-      b.energy_check === "override",
-      b.source_note ?? null,
-    );
+        checkMacroMass(b.protein_100g, b.carbs_100g, b.fat_100g);
+        checkEnergy(
+          b.kcal_100g,
+          b.protein_100g,
+          b.carbs_100g,
+          b.fat_100g,
+          b.energy_check === "override",
+          b.source_note ?? null,
+        );
 
-    const id = await sql.begin(async (tx) => {
-      const [created] = await tx`
-      insert into foods
-        (name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g,
-         fiber_100g, grams_per_unit, source, source_note, request_id)
-      values
-        (${b.name}, ${b.brand ?? null}, ${b.kcal_100g}, ${b.protein_100g},
-         ${b.carbs_100g}, ${b.fat_100g}, ${b.fiber_100g ?? null},
-         ${b.grams_per_unit ?? null}, ${b.source}, ${b.source_note ?? null},
-         ${b.request_id})
-      returning id`;
-      for (const alias of aliases) {
-        await tx`
-        insert into food_aliases (food_id, alias)
-        values (${created.id}, ${alias})`;
-      }
-      return created.id as number;
+        const id = await sql.begin(async (tx) => {
+          const [created] = await tx`
+          insert into foods
+            (name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g,
+             fiber_100g, grams_per_unit, source, source_note, request_id)
+          values
+            (${b.name}, ${b.brand ?? null}, ${b.kcal_100g}, ${b.protein_100g},
+             ${b.carbs_100g}, ${b.fat_100g}, ${b.fiber_100g ?? null},
+             ${b.grams_per_unit ?? null}, ${b.source}, ${b.source_note ?? null},
+             ${b.request_id})
+          returning id`;
+          for (const alias of aliases) {
+            await tx`
+            insert into food_aliases (food_id, alias)
+            values (${created.id}, ${alias})`;
+          }
+          return created.id as number;
+        });
+
+        return { food: await foodById(id) };
+      },
     });
-
-    return c.json({ food: await foodById(id) }, 201);
+    return c.json(answer, status);
   },
 );
 

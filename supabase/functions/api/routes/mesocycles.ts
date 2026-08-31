@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { romeDate } from "../record/calendar.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import {
   resolveExercise,
   resolveExerciseId,
@@ -86,6 +87,15 @@ const Decision = z.object({
   why: z.string(),
   prior_intent: z.string().nullable(),
 });
+
+// A decision as the standalone route answers it: named by its plan, and
+// without the prior intent, which only a revision replaces. Declared once so
+// the query returning it is typed by the same shape the document promises.
+const Recorded = Decision.omit({ prior_intent: true }).extend({
+  mesocycle_id: z.int(),
+});
+
+type RecordedRow = z.infer<typeof Recorded>;
 
 interface PlanExercise {
   exerciseId: number;
@@ -262,19 +272,22 @@ mesocycles.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const [seen] = await sql`
-      select id from mesocycles where request_id = ${b.request_id}`;
-    if (seen) {
-      return c.json({ mesocycle: await mesocycleDetail(seen.id) }, 200);
-    }
 
-    const plan: PlanExercise[] = [];
-    for (const entry of b.exercises) {
-      plan.push(await parsePlanExercise(entry));
-    }
+    const { body: answer, status } = await writeOnce({
+      table: "mesocycles",
+      requestId: b.request_id,
+      select: sql`id`,
+      replay: async (seen: { id: number }) => ({
+        mesocycle: await mesocycleDetail(seen.id),
+      }),
+      write: async () => {
+        const plan: PlanExercise[] = [];
+        for (const entry of b.exercises) {
+          plan.push(await parsePlanExercise(entry));
+        }
 
-    const id = await sql.begin(async (tx) => {
-      const [m] = await tx`
+        const id = await sql.begin(async (tx) => {
+          const [m] = await tx`
       insert into mesocycles
         (block_id, name, track, intent, planned_weeks, sessions_per_week,
          started_on, request_id)
@@ -282,11 +295,16 @@ mesocycles.openapi(
         (${b.block_id}, ${b.name}, ${b.track}, ${b.intent}, ${b.planned_weeks},
          ${b.sessions_per_week}, ${b.started_on}, ${b.request_id})
       returning id`;
-      for (const p of plan) await insertPlanExercise(tx, m.id, p, b.started_on);
-      return m.id as number;
-    });
+          for (const p of plan) {
+            await insertPlanExercise(tx, m.id, p, b.started_on);
+          }
+          return m.id as number;
+        });
 
-    return c.json({ mesocycle: await mesocycleDetail(id) }, 201);
+        return { mesocycle: await mesocycleDetail(id) };
+      },
+    });
+    return c.json(answer, status);
   },
 );
 
@@ -444,115 +462,121 @@ mesocycles.openapi(
     const m = await resolveMesocycle(c.req.valid("param").id);
     const b = c.req.valid("json");
 
-    {
-      const [existing] = await sql`
-      select id from mesocycle_decisions where request_id = ${b.request_id}`;
-      if (existing) {
-        return c.json({ mesocycle: await mesocycleDetail(m.id) }, 200);
-      }
-    }
-
-    if (b.weekly_sets !== undefined) {
-      throw new ApiError(
-        422,
-        'Dose changes are "redose": [{exercise, weekly_dose, weekly_dose_unit}], for exercises already in the plan.',
-      );
-    }
-    if (b.load_targets !== undefined) {
-      throw new ApiError(
-        422,
-        'Load targets are not stored in tables: a change to a goal or to the progression mechanism is an intent change. Send "intent" with the full replacement text (see tasks/programming).',
-      );
-    }
-
-    const whatChanged = b.decision.what_changed;
-    const why = b.decision.why;
-
-    const newIntent = b.intent ?? null;
-    const removals = b.remove ?? [];
-    const additions = b.add ?? [];
-    const redoses = b.redose ?? [];
-    if (
-      removals.length + additions.length + redoses.length === 0 &&
-      newIntent === null
-    ) {
-      throw new ApiError(
-        422,
-        'The revision changes nothing. Send at least one of: "remove" (exercise refs), "add" (plan entries), "redose" (new weekly doses for exercises already in the plan), "intent" (the full replacement text). A review outcome with no change ("hold") is recorded with POST /mesocycles/:id/decisions instead.',
-      );
-    }
-
-    // Resolve everything before touching the database.
-    const removeIds: number[] = [];
-    for (const ref of removals) removeIds.push(await resolveExerciseId(ref));
-    const addPlans: PlanExercise[] = [];
-    for (const entry of additions) {
-      addPlans.push(await parsePlanExercise(entry));
-    }
-    const newDoses: { exerciseId: number; dose: number; unit: string }[] = [];
-    for (const r of redoses) {
-      const exercise = await resolveExercise(r.exercise);
-      const unit = r.weekly_dose_unit;
-      assertDoseUnit(exercise.measure, unit, exercise.name);
-      newDoses.push({
-        exerciseId: exercise.id,
-        dose: r.weekly_dose,
-        unit,
-      });
-    }
-
-    await sql.begin(async (tx) => {
-      for (const exerciseId of removeIds) {
-        const [row] = await tx`
-        select me.id from mesocycle_exercises me
-        where me.mesocycle_id = ${m.id} and me.exercise_id = ${exerciseId}`;
-        if (!row) {
-          const [e] =
-            await tx`select name from exercises where id = ${exerciseId}`;
+    const { body: answer } = await writeOnce({
+      table: "mesocycle_decisions",
+      requestId: b.request_id,
+      select: sql`id`,
+      // A revision answers 200 either way: it changes a plan that already
+      // existed, so there is no created row to announce.
+      replay: async () => ({ mesocycle: await mesocycleDetail(m.id) }),
+      write: async () => {
+        if (b.weekly_sets !== undefined) {
           throw new ApiError(
             422,
-            `"${e.name}" is not in this mesocycle's plan, so it cannot be removed. GET /mesocycles/${m.id} shows the plan.`,
+            'Dose changes are "redose": [{exercise, weekly_dose, weekly_dose_unit}], for exercises already in the plan.',
           );
         }
-        await tx`delete from mesocycle_exercises where id = ${row.id}`;
-      }
-      for (const p of addPlans) await insertPlanExercise(tx, m.id, p, null);
-      for (const d of newDoses) {
-        const [row] = await tx`
+        if (b.load_targets !== undefined) {
+          throw new ApiError(
+            422,
+            'Load targets are not stored in tables: a change to a goal or to the progression mechanism is an intent change. Send "intent" with the full replacement text (see tasks/programming).',
+          );
+        }
+
+        const whatChanged = b.decision.what_changed;
+        const why = b.decision.why;
+
+        const newIntent = b.intent ?? null;
+        const removals = b.remove ?? [];
+        const additions = b.add ?? [];
+        const redoses = b.redose ?? [];
+        if (
+          removals.length + additions.length + redoses.length === 0 &&
+          newIntent === null
+        ) {
+          throw new ApiError(
+            422,
+            'The revision changes nothing. Send at least one of: "remove" (exercise refs), "add" (plan entries), "redose" (new weekly doses for exercises already in the plan), "intent" (the full replacement text). A review outcome with no change ("hold") is recorded with POST /mesocycles/:id/decisions instead.',
+          );
+        }
+
+        // Resolve everything before touching the database.
+        const removeIds: number[] = [];
+        for (const ref of removals) {
+          removeIds.push(await resolveExerciseId(ref));
+        }
+        const addPlans: PlanExercise[] = [];
+        for (const entry of additions) {
+          addPlans.push(await parsePlanExercise(entry));
+        }
+        const newDoses: { exerciseId: number; dose: number; unit: string }[] =
+          [];
+        for (const r of redoses) {
+          const exercise = await resolveExercise(r.exercise);
+          const unit = r.weekly_dose_unit;
+          assertDoseUnit(exercise.measure, unit, exercise.name);
+          newDoses.push({
+            exerciseId: exercise.id,
+            dose: r.weekly_dose,
+            unit,
+          });
+        }
+
+        await sql.begin(async (tx) => {
+          for (const exerciseId of removeIds) {
+            const [row] = await tx`
+        select me.id from mesocycle_exercises me
+        where me.mesocycle_id = ${m.id} and me.exercise_id = ${exerciseId}`;
+            if (!row) {
+              const [e] =
+                await tx`select name from exercises where id = ${exerciseId}`;
+              throw new ApiError(
+                422,
+                `"${e.name}" is not in this mesocycle's plan, so it cannot be removed. GET /mesocycles/${m.id} shows the plan.`,
+              );
+            }
+            await tx`delete from mesocycle_exercises where id = ${row.id}`;
+          }
+          for (const p of addPlans) await insertPlanExercise(tx, m.id, p, null);
+          for (const d of newDoses) {
+            const [row] = await tx`
         update mesocycle_exercises
         set weekly_dose = ${d.dose}, weekly_dose_unit = ${d.unit}
         where mesocycle_id = ${m.id} and exercise_id = ${d.exerciseId}
         returning id`;
-        if (!row) {
-          const [e] =
-            await tx`select name from exercises where id = ${d.exerciseId}`;
-          throw new ApiError(
-            422,
-            `"${e.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /mesocycles/${m.id} to see the plan.`,
-          );
-        }
-        // The update above is the current truth; this row is why past weeks
-        // stay judged against the dose that was actually in force.
-        await tx`
+            if (!row) {
+              const [e] =
+                await tx`select name from exercises where id = ${d.exerciseId}`;
+              throw new ApiError(
+                422,
+                `"${e.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /mesocycles/${m.id} to see the plan.`,
+              );
+            }
+            // The update above is the current truth; this row is why past weeks
+            // stay judged against the dose that was actually in force.
+            await tx`
         insert into mesocycle_exercise_doses
           (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit,
            effective_from)
         values (${m.id}, ${d.exerciseId}, ${d.dose}, ${d.unit},
           ${romeDate()})`;
-      }
-      if (newIntent !== null) {
-        await tx`update mesocycles set intent = ${newIntent} where id = ${m.id}`;
-      }
-      // A replaced intent is snapshotted on the decision row: the decision log
-      // is the plan's history now that no table holds prior numbers.
-      await tx`
+          }
+          if (newIntent !== null) {
+            await tx`update mesocycles set intent = ${newIntent} where id = ${m.id}`;
+          }
+          // A replaced intent is snapshotted on the decision row: the decision log
+          // is the plan's history now that no table holds prior numbers.
+          await tx`
       insert into mesocycle_decisions
         (mesocycle_id, what_changed, why, request_id, prior_intent)
       values (${m.id}, ${whatChanged}, ${why}, ${b.request_id},
         ${newIntent === null ? null : m.intent})`;
-    });
+        });
 
-    return c.json({ mesocycle: await mesocycleDetail(m.id) }, 200);
+        return { mesocycle: await mesocycleDetail(m.id) };
+      },
+    });
+    return c.json(answer, 200);
   },
 );
 
@@ -584,13 +608,14 @@ mesocycles.openapi(
       201: {
         description: "The decision that was recorded.",
         content: {
-          "application/json": {
-            schema: z.object({
-              decision: Decision.omit({ prior_intent: true }).extend({
-                mesocycle_id: z.int(),
-              }),
-            }),
-          },
+          "application/json": { schema: z.object({ decision: Recorded }) },
+        },
+      },
+      200: {
+        description:
+          "The decision this request_id already recorded. A retry, answered with the original result.",
+        content: {
+          "application/json": { schema: z.object({ decision: Recorded }) },
         },
       },
     },
@@ -598,13 +623,22 @@ mesocycles.openapi(
   async (c) => {
     const m = await resolveMesocycle(c.req.valid("param").id);
     const b = c.req.valid("json");
-    const [row] = await sql`
-    insert into mesocycle_decisions (mesocycle_id, what_changed, why, request_id)
-    values (${m.id}, ${b.what_changed}, ${b.why}, ${b.request_id})
-    returning id, mesocycle_id, made_at, what_changed, why`;
-    return c.json({
-      decision: row as z.infer<typeof Decision> & { mesocycle_id: number },
-    }, 201);
+
+    const { body: answer, status } = await writeOnce({
+      table: "mesocycle_decisions",
+      requestId: b.request_id,
+      select: sql`id, mesocycle_id, made_at, what_changed, why`,
+      replay: (existing: RecordedRow) => ({ decision: existing }),
+      write: async () => {
+        const [row] = await sql<RecordedRow[]>`
+        insert into mesocycle_decisions
+          (mesocycle_id, what_changed, why, request_id)
+        values (${m.id}, ${b.what_changed}, ${b.why}, ${b.request_id})
+        returning id, mesocycle_id, made_at, what_changed, why`;
+        return { decision: row };
+      },
+    });
+    return c.json(answer, status);
   },
 );
 

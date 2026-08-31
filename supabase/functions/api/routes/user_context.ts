@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import { body, requestId, text } from "../http/schema.ts";
 
 export const userContext = new OpenAPIHono();
@@ -103,15 +104,19 @@ userContext.openapi(
 
     // Append-only, so nothing else would ever collide: two identical rows on the
     // same topic are indistinguishable from having written the fact twice.
-    const [existing] = await sql<EntryRow[]>`
-    select id, topic, content, written_at
-    from user_context where request_id = ${b.request_id}`;
-    if (existing) return c.json({ entry: existing }, 200);
-
-    const [row] = await sql<EntryRow[]>`
-    insert into user_context (topic, content, request_id)
-    values (${b.topic}, ${b.content}, ${b.request_id})
-    returning id, topic, content, written_at`;
-    return c.json({ entry: row }, 201);
+    const { body: answer, status } = await writeOnce({
+      table: "user_context",
+      requestId: b.request_id,
+      select: sql`id, topic, content, written_at`,
+      replay: (existing: EntryRow) => ({ entry: existing }),
+      write: async () => {
+        const [row] = await sql<EntryRow[]>`
+        insert into user_context (topic, content, request_id)
+        values (${b.topic}, ${b.content}, ${b.request_id})
+        returning id, topic, content, written_at`;
+        return { entry: row };
+      },
+    });
+    return c.json(answer, status);
   },
 );

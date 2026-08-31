@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { requireRow } from "../http/errors.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import {
   body,
   idParam,
@@ -112,18 +113,23 @@ nutritionEvents.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const [existing] = await sql<EventRow[]>`
-      select id, day, kind, note, created_at
-      from nutrition_events where request_id = ${b.request_id}`;
-    if (existing) return c.json({ event: existing }, 200);
 
-    const day = b.day ?? await romeToday();
+    const { body: answer, status } = await writeOnce({
+      table: "nutrition_events",
+      requestId: b.request_id,
+      select: sql`id, day, kind, note, created_at`,
+      replay: (existing: EventRow) => ({ event: existing }),
+      write: async () => {
+        const day = b.day ?? await romeToday();
 
-    const [row] = await sql<EventRow[]>`
-    insert into nutrition_events (day, kind, note, request_id)
-    values (${day}, ${b.kind}, ${b.note ?? null}, ${b.request_id})
-    returning id, day, kind, note, created_at`;
-    return c.json({ event: row }, 201);
+        const [row] = await sql<EventRow[]>`
+        insert into nutrition_events (day, kind, note, request_id)
+        values (${day}, ${b.kind}, ${b.note ?? null}, ${b.request_id})
+        returning id, day, kind, note, created_at`;
+        return { event: row };
+      },
+    });
+    return c.json(answer, status);
   },
 );
 

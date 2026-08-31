@@ -1,11 +1,13 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  type ApiResponse,
   ensureCatalogue,
   lastMonday,
   resetNutrition,
   resetTraining,
   today,
+  uuid,
 } from "./helpers.ts";
 
 // The retry guarantee, checked as an inventory rather than one endpoint at a
@@ -216,4 +218,218 @@ Deno.test("the writes that cannot duplicate do not ask for one", async (t) => {
       assertEquals(muscle.status, 409);
     },
   );
+});
+
+// The other half of the promise, and the half that was never checked.
+//
+// The inventory above proves every creating POST *asks* for a request_id. It
+// does not prove any of them *honours* one, and those are different claims: an
+// endpoint can require the id, ignore it completely, and pass. What the caller
+// was promised is the second thing — "resending the same id returns the
+// original result instead of writing a second row" — so it is asserted the
+// only way it can be, by sending the same call twice.
+//
+// 201 then 200 is the whole guarantee. 201 twice is a duplicate row, and the
+// caller cannot tell: both answers look like success, and the second meal is
+// indistinguishable from eating twice. An error on the second is the same
+// promise broken more loudly — the unique constraint on request_id catching
+// what the handler forgot to.
+Deno.test("resending a request_id replays the original result", async (t) => {
+  await resetTraining();
+  await resetNutrition();
+  await ensureCatalogue();
+
+  const block = await api.post("/blocks", {
+    name: "Replay block",
+    goal: "testing",
+    started_on: lastMonday(),
+  });
+  const blockId = block.body.block.id;
+  await api.post("/mesocycles", {
+    block_id: blockId,
+    name: "Replay meso",
+    track: "hypertrophy",
+    intent: "testing",
+    planned_weeks: 4,
+    sessions_per_week: 3,
+    started_on: lastMonday(),
+    exercises: [
+      {
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_dose: 9,
+        weekly_dose_unit: "sets",
+      },
+      {
+        exercise: "bench press",
+        role: "main",
+        priority: 2,
+        weekly_dose: 9,
+        weekly_dose_unit: "sets",
+      },
+    ],
+  });
+  const session = await api.post("/sessions", {
+    date: today(),
+    rationale: "replay fixture",
+    sets: [{ exercise: "squat", target_weight_kg: 100, target_reps: 5 }],
+  });
+  await api.post("/foods", {
+    name: "Replay Food",
+    kcal_100g: 100,
+    protein_100g: 5,
+    carbs_100g: 12,
+    fat_100g: 3,
+    source: "estimate",
+  });
+
+  // `created` is what the first call answers. It is 201 wherever a row is
+  // created, and 200 on the one route that revises a plan rather than making
+  // one — there a replay is invisible in the status, and the proof is that the
+  // second call does not refuse a change already applied.
+  interface Replay {
+    label: string;
+    path: string;
+    body: unknown;
+    created?: 200 | 201;
+    identity: (b: ApiResponse["body"]) => unknown;
+  }
+
+  const replays: Replay[] = [
+    {
+      label: "blocks",
+      path: "/blocks",
+      body: { name: "Replayed block", goal: "g", started_on: lastMonday() },
+      identity: (b) => b.block.id,
+    },
+    {
+      label: "user context",
+      path: "/user-context",
+      body: { topic: "replay", content: "c" },
+      identity: (b) => b.entry.id,
+    },
+    {
+      label: "foods",
+      path: "/foods",
+      body: {
+        name: "Replayed Food",
+        kcal_100g: 100,
+        protein_100g: 5,
+        carbs_100g: 12,
+        fat_100g: 3,
+        source: "estimate",
+      },
+      identity: (b) => b.food.id,
+    },
+    {
+      label: "meals",
+      path: "/meals",
+      body: {
+        name: "Replayed Meal",
+        items: [{ food: "Replay Food", grams: 50 }],
+      },
+      identity: (b) => b.meal.id,
+    },
+    {
+      label: "nutrition events",
+      path: "/nutrition-events",
+      body: { kind: "creatine_start" },
+      identity: (b) => b.event.id,
+    },
+    {
+      label: "sessions",
+      path: "/sessions",
+      body: {
+        date: today(),
+        rationale: "replayed",
+        sets: [{ exercise: "squat", weight_kg: 100, reps: 5, effort: "hard" }],
+      },
+      identity: (b) => b.session.id,
+    },
+    {
+      label: "an appended set",
+      path: `/sessions/${session.body.session.id}/sets`,
+      body: { exercise: "squat", weight_kg: 100, reps: 5, effort: "hard" },
+      identity: (b) => b.set.id,
+    },
+    {
+      label: "body fat",
+      path: "/bodyfat",
+      body: { percent: 14, method: "bia" },
+      identity: (b) => b.bodyfat_estimate.id,
+    },
+    {
+      label: "mesocycles",
+      path: "/mesocycles",
+      body: {
+        block_id: blockId,
+        name: "Replayed meso",
+        track: "strength",
+        intent: "i",
+        planned_weeks: 4,
+        sessions_per_week: 3,
+        started_on: lastMonday(),
+        exercises: [{
+          exercise: "squat",
+          role: "main",
+          priority: 1,
+          weekly_dose: 9,
+          weekly_dose_unit: "sets",
+        }],
+      },
+      identity: (b) => b.mesocycle.id,
+    },
+    // Named by track: the strength plan created above is active too, and
+    // "current" alone is ambiguous once a second one exists.
+    //
+    // Without the preamble the repeat would reach the plan a second time and
+    // refuse — "bench press" is no longer in it to remove — so answering 200
+    // is the assertion that the retry never got that far.
+    {
+      label: "mesocycle revisions",
+      path: "/mesocycles/current:hypertrophy/revisions",
+      body: {
+        decision: { what_changed: "x", why: "y" },
+        remove: ["bench press"],
+      },
+      created: 200,
+      identity: (b) => b.mesocycle.id,
+    },
+    {
+      label: "mesocycle decisions",
+      path: "/mesocycles/current:hypertrophy/decisions",
+      body: { what_changed: "x", why: "y" },
+      identity: (b) => b.decision.id,
+    },
+  ];
+
+  for (const replay of replays) {
+    await t.step(replay.label, async () => {
+      const sent = {
+        ...(replay.body as Record<string, unknown>),
+        request_id: uuid(),
+      };
+
+      const first = await api.postRaw(replay.path, sent);
+      assertEquals(
+        first.status,
+        replay.created ?? 201,
+        `${replay.path} first call: ${first.body.error}`,
+      );
+
+      const again = await api.postRaw(replay.path, sent);
+      assertEquals(
+        again.status,
+        200,
+        `${replay.path} answered ${again.status} to a repeated request_id — a ` +
+          `retry must replay the original, not write again: ${again.body.error}`,
+      );
+      assertEquals(
+        replay.identity(again.body),
+        replay.identity(first.body),
+        `${replay.path} replayed something other than the original row`,
+      );
+    });
+  }
 });

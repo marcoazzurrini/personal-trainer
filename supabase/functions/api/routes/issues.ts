@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { isDocName, MAX_DOC_NAME } from "../doc_names.ts";
 import { ApiError } from "../http/errors.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import {
   commentOnIssue,
   type GithubConfig,
@@ -200,74 +201,81 @@ issues.openapi(
   async (c) => {
     const b = c.req.valid("json");
 
-    // The retry answer, before anything reaches GitHub. Same shape as the
-    // creating routes that write rows: look the request up, return what it
-    // already produced.
-    const [existing] = await sql`
-    select issue_number, url, kind, title
-    from coach_issues where request_id = ${b.request_id}`;
-    if (existing) {
-      return c.json({
+    // The retry answer arrives before anything reaches GitHub: the row is
+    // written after the issue exists, so finding one means the issue was
+    // already opened and a second call must not open another.
+    const { body: answer, status } = await writeOnce({
+      table: "coach_issues",
+      requestId: b.request_id,
+      select: sql`issue_number, url, kind, title`,
+      replay: (existing: {
+        issue_number: number;
+        url: string;
+        kind: IssueKind;
+        title: string;
+      }) => ({
         issue: {
           number: existing.issue_number,
           url: existing.url,
-          kind: existing.kind as IssueKind,
+          kind: existing.kind,
           title: existing.title,
         },
-      }, 200);
-    }
+      }),
+      write: async () => {
+        const kind = b.kind;
+        const title = capped(b.title, MAX_TITLE, "title");
+        const problem = capped(b.problem, MAX_PROBLEM, "problem");
+        // Required for a bug and optional for an improvement. A bug without the
+        // call that produced it cannot be reproduced from the repository, which is
+        // the only place it can be fixed — the report would arrive as a rumour. An
+        // improvement is allowed to start as an idea.
+        const rawEvidence = b.evidence ?? null;
+        if (kind === "bug" && rawEvidence === null) {
+          throw new ApiError(
+            422,
+            '"evidence" is required for a bug: the call you made, the response that came back, and when. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.',
+          );
+        }
+        const evidence = rawEvidence === null
+          ? null
+          : capped(rawEvidence, MAX_EVIDENCE, "evidence");
+        const rawSuggestion = b.suggestion ?? null;
+        const suggestion = rawSuggestion === null
+          ? null
+          : capped(rawSuggestion, MAX_SUGGESTION, "suggestion");
+        const docs = parseDocs(b.docs);
 
-    const kind = b.kind;
-    const title = capped(b.title, MAX_TITLE, "title");
-    const problem = capped(b.problem, MAX_PROBLEM, "problem");
-    // Required for a bug and optional for an improvement. A bug without the
-    // call that produced it cannot be reproduced from the repository, which is
-    // the only place it can be fixed — the report would arrive as a rumour. An
-    // improvement is allowed to start as an idea.
-    const rawEvidence = b.evidence ?? null;
-    if (kind === "bug" && rawEvidence === null) {
-      throw new ApiError(
-        422,
-        '"evidence" is required for a bug: the call you made, the response that came back, and when. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.',
-      );
-    }
-    const evidence = rawEvidence === null
-      ? null
-      : capped(rawEvidence, MAX_EVIDENCE, "evidence");
-    const rawSuggestion = b.suggestion ?? null;
-    const suggestion = rawSuggestion === null
-      ? null
-      : capped(rawSuggestion, MAX_SUGGESTION, "suggestion");
-    const docs = parseDocs(b.docs);
+        let issue: { number: number; url: string };
+        try {
+          issue = await openIssue(config(), {
+            title,
+            kind,
+            body: issueBody({
+              problem,
+              evidence,
+              suggestion,
+              docs,
+              requestId: b.request_id,
+            }),
+          });
+        } catch (err) {
+          if (err instanceof GithubError) throw new ApiError(502, err.message);
+          throw err;
+        }
 
-    let issue: { number: number; url: string };
-    try {
-      issue = await openIssue(config(), {
-        title,
-        kind,
-        body: issueBody({
-          problem,
-          evidence,
-          suggestion,
-          docs,
-          requestId: b.request_id,
-        }),
-      });
-    } catch (err) {
-      if (err instanceof GithubError) throw new ApiError(502, err.message);
-      throw err;
-    }
-
-    // After GitHub, so the row means the issue exists. on conflict do nothing
-    // covers two retries racing each other: the second finds the issue already
-    // recorded and its own insert is the one that loses, which is right —
-    // either row describes the same issue.
-    await sql`
+        // After GitHub, so the row means the issue exists. on conflict do nothing
+        // covers two retries racing each other: the second finds the issue already
+        // recorded and its own insert is the one that loses, which is right —
+        // either row describes the same issue.
+        await sql`
     insert into coach_issues (request_id, issue_number, url, kind, title)
     values (${b.request_id}, ${issue.number}, ${issue.url}, ${kind}, ${title})
     on conflict (request_id) do nothing`;
 
-    return c.json({ issue: { ...issue, kind, title } }, 201);
+        return { issue: { ...issue, kind, title } };
+      },
+    });
+    return c.json(answer, status);
   },
 );
 

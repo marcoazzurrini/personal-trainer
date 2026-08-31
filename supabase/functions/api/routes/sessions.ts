@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import {
   resolveExercise,
   resolveMesocycle,
@@ -334,21 +335,26 @@ sessions.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const [seen] = await sql`
-      select id from sessions where request_id = ${b.request_id}`;
-    if (seen) return c.json({ session: await sessionDetail(seen.id) }, 200);
 
-    const sets: NewSet[] = [];
-    for (const entry of b.sets) sets.push(await parseNewSet(entry));
+    const { body: answer, status } = await writeOnce({
+      table: "sessions",
+      requestId: b.request_id,
+      select: sql`id`,
+      replay: async (seen: { id: number }) => ({
+        session: await sessionDetail(seen.id),
+      }),
+      write: async () => {
+        const sets: NewSet[] = [];
+        for (const entry of b.sets) sets.push(await parseNewSet(entry));
 
-    const id = await sql.begin(async (tx) => {
-      const [session] = await tx`
+        const id = await sql.begin(async (tx) => {
+          const [session] = await tx`
       insert into sessions (public_id, date, rationale, request_id)
       values (${newPublicId()}, ${b.date}, ${b.rationale}, ${b.request_id})
       returning id`;
-      let position = 1;
-      for (const s of sets) {
-        await tx`
+          let position = 1;
+          for (const s of sets) {
+            await tx`
         insert into sets
           (session_id, exercise_id, mesocycle_id, position, kind,
            target_weight_kg, target_reps, target_distance_m,
@@ -360,11 +366,14 @@ sessions.openapi(
            ${s.targetDistanceM}, ${s.targetDurationS}, ${s.weightKg},
            ${s.reps}, ${s.distanceM}, ${s.durationS},
            ${s.effort}, ${s.performedAt}, ${s.notes})`;
-      }
-      return session.id as number;
-    });
+          }
+          return session.id as number;
+        });
 
-    return c.json({ session: await sessionDetail(id) }, 201);
+        return { session: await sessionDetail(id) };
+      },
+    });
+    return c.json(answer, status);
   },
 );
 
@@ -416,30 +425,31 @@ sessions.openapi(
     const b = c.req.valid("json");
     // Appends at max(position)+1, so there is no natural key to collide on:
     // without the id a lost response becomes a duplicate set.
-    const [duplicate] = await sql<z.infer<typeof AppendedSet>[]>`
-    select id, session_id, exercise_id, mesocycle_id, position, kind,
-      weight_kg::float8, reps, distance_m::float8, duration_s::float8,
-      effort, performed_at, notes
-    from sets where request_id = ${b.request_id}`;
-    if (duplicate) return c.json({ set: duplicate }, 200);
-
-    const s = await parseNewSet(b);
-    if (
-      s.targetReps !== null || s.targetDistanceM !== null ||
-      s.targetDurationS !== null
-    ) {
-      throw new ApiError(
-        422,
-        "An unplanned set records what was done: send actuals, not targets.",
-      );
-    }
-    if (s.reps === null && s.distanceM === null && s.durationS === null) {
-      throw new ApiError(
-        422,
-        "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured.",
-      );
-    }
-    const [row] = await sql<z.infer<typeof AppendedSet>[]>`
+    const { body: answer, status } = await writeOnce({
+      table: "sets",
+      requestId: b.request_id,
+      select: sql`id, session_id, exercise_id, mesocycle_id, position, kind,
+        weight_kg::float8, reps, distance_m::float8, duration_s::float8,
+        effort, performed_at, notes`,
+      replay: (duplicate: z.infer<typeof AppendedSet>) => ({ set: duplicate }),
+      write: async () => {
+        const s = await parseNewSet(b);
+        if (
+          s.targetReps !== null || s.targetDistanceM !== null ||
+          s.targetDurationS !== null
+        ) {
+          throw new ApiError(
+            422,
+            "An unplanned set records what was done: send actuals, not targets.",
+          );
+        }
+        if (s.reps === null && s.distanceM === null && s.durationS === null) {
+          throw new ApiError(
+            422,
+            "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured.",
+          );
+        }
+        const [row] = await sql<z.infer<typeof AppendedSet>[]>`
     insert into sets
       (session_id, exercise_id, mesocycle_id, position, kind, weight_kg, reps,
        distance_m, duration_s, effort, performed_at, notes, request_id)
@@ -452,7 +462,10 @@ sessions.openapi(
     returning id, session_id, exercise_id, mesocycle_id, position, kind,
       weight_kg::float8, reps, distance_m::float8, duration_s::float8,
       effort, performed_at, notes`;
-    return c.json({ set: row }, 201);
+        return { set: row };
+      },
+    });
+    return c.json(answer, status);
   },
 );
 

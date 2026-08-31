@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import { body, date, optionalDate, requestId, text } from "../http/schema.ts";
 
 export const blocks = new OpenAPIHono();
@@ -80,21 +81,25 @@ blocks.openapi(
   async (c) => {
     const b = c.req.valid("json");
 
-    const [existing] = await sql<BlockRow[]>`
-    select id, name, goal, started_on, ended_on
-    from blocks where request_id = ${b.request_id}`;
-    if (existing) return c.json({ block: existing }, 200);
-
-    const [row] = await sql<BlockRow[]>`
-    insert into blocks (name, goal, started_on, ended_on, request_id)
-    values (
-      ${b.name},
-      ${b.goal},
-      ${b.started_on},
-      ${b.ended_on ?? null},
-      ${b.request_id}
-    )
-    returning id, name, goal, started_on, ended_on`;
-    return c.json({ block: row }, 201);
+    const { body: answer, status } = await writeOnce({
+      table: "blocks",
+      requestId: b.request_id,
+      select: sql`id, name, goal, started_on, ended_on`,
+      replay: (existing: BlockRow) => ({ block: existing }),
+      write: async () => {
+        const [row] = await sql<BlockRow[]>`
+        insert into blocks (name, goal, started_on, ended_on, request_id)
+        values (
+          ${b.name},
+          ${b.goal},
+          ${b.started_on},
+          ${b.ended_on ?? null},
+          ${b.request_id}
+        )
+        returning id, name, goal, started_on, ended_on`;
+        return { block: row };
+      },
+    });
+    return c.json(answer, status);
   },
 );

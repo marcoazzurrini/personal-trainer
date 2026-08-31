@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { foodMacros, scaleFood, sumMacros } from "../rules/nutrition.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
 import {
   aliasList,
@@ -205,31 +206,39 @@ meals.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const [seen] = await sql`
-      select id from meals where request_id = ${b.request_id}`;
-    if (seen) return c.json({ meal: await mealDetail(seen.id) }, 200);
 
-    const aliases = b.aliases ?? [];
-    const items = await resolveItems(b.items);
+    const { body: answer, status } = await writeOnce({
+      table: "meals",
+      requestId: b.request_id,
+      select: sql`id`,
+      replay: async (seen: { id: number }) => ({
+        meal: await mealDetail(seen.id),
+      }),
+      write: async () => {
+        const aliases = b.aliases ?? [];
+        const items = await resolveItems(b.items);
 
-    const id = await sql.begin(async (tx) => {
-      const [created] = await tx`
-      insert into meals (name, request_id) values (${b.name}, ${b.request_id})
-      returning id`;
-      for (const alias of aliases) {
-        await tx`
-        insert into meal_aliases (meal_id, alias)
-        values (${created.id}, ${alias})`;
-      }
-      for (const { foodId, grams } of items) {
-        await tx`
-        insert into meal_items (meal_id, food_id, grams)
-        values (${created.id}, ${foodId}, ${grams})`;
-      }
-      return created.id as number;
+        const id = await sql.begin(async (tx) => {
+          const [created] = await tx`
+          insert into meals (name, request_id) values (${b.name}, ${b.request_id})
+          returning id`;
+          for (const alias of aliases) {
+            await tx`
+            insert into meal_aliases (meal_id, alias)
+            values (${created.id}, ${alias})`;
+          }
+          for (const { foodId, grams } of items) {
+            await tx`
+            insert into meal_items (meal_id, food_id, grams)
+            values (${created.id}, ${foodId}, ${grams})`;
+          }
+          return created.id as number;
+        });
+
+        return { meal: await mealDetail(id) };
+      },
     });
-
-    return c.json({ meal: await mealDetail(id) }, 201);
+    return c.json(answer, status);
   },
 );
 

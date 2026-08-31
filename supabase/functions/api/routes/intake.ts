@@ -8,6 +8,7 @@ import {
   scaleFood,
   sumMacros,
 } from "../rules/nutrition.ts";
+import { writeOnce } from "../record/idempotency.ts";
 import { romeToday } from "../record/calendar.ts";
 import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
 import {
@@ -196,123 +197,130 @@ intake.openapi(
     const day = requireNotFuture(b.day ?? today, today, "day");
     const note = b.note ?? null;
 
-    const [seen] = await sql`
-      select 1 from intake_entries where request_id = ${b.request_id} limit 1`;
-    if (seen) return c.json(await dayView(day), 200);
-
-    const wants = (["meal", "food", "adhoc_kcal"] as const).filter((k) =>
-      b[k] !== undefined && b[k] !== null
-    );
-    if (wants.length !== 1) {
-      throw new ApiError(
-        422,
-        wants.length === 0
-          ? 'An intake entry is one of three things: "meal" (a saved meal by id, name, or alias), "food" plus "grams" or "units", or "adhoc_kcal" for an estimated entry. Send exactly one.'
-          : `Send exactly one of "meal", "food", "adhoc_kcal" — got ${
-            wants.join(" and ")
-          }. A meal plus an extra food is two calls, which is also how a variation on a routine gets logged.`,
-      );
-    }
-
-    // A portion of a saved meal. Bounded on both sides: a scale of 0 logs
-    // nothing while answering 201, and anything past 10x a routine portion is a
-    // misplaced decimal rather than an appetite — the same reasoning that makes
-    // a future date a typo instead of a fact.
-    const scale = b.scale ?? null;
-    if (scale !== null) {
-      if (wants[0] !== "meal") {
-        throw new ApiError(
-          422,
-          '"scale" is a portion of a saved meal, so it goes with "meal". A part of a single food is that food at fewer grams; an estimate is "adhoc_kcal" at the number you mean.',
+    const { body: answer, status } = await writeOnce({
+      table: "intake_entries",
+      requestId: b.request_id,
+      // The entry's own columns are never needed: a logged day is answered
+      // with the whole day, which gets read again either way.
+      select: sql`1 as logged`,
+      replay: () => dayView(day),
+      write: async () => {
+        const wants = (["meal", "food", "adhoc_kcal"] as const).filter((k) =>
+          b[k] !== undefined && b[k] !== null
         );
-      }
-      if (scale <= 0 || scale > MAX_SCALE) {
-        throw new ApiError(
-          422,
-          `"scale" must be greater than 0 and at most ${MAX_SCALE} — 0.5 for half the usual portion, 2 for a double. A meal not eaten is not logged, and past ${MAX_SCALE}x the decimal point is usually in the wrong place.`,
-        );
-      }
-    }
+        if (wants.length !== 1) {
+          throw new ApiError(
+            422,
+            wants.length === 0
+              ? 'An intake entry is one of three things: "meal" (a saved meal by id, name, or alias), "food" plus "grams" or "units", or "adhoc_kcal" for an estimated entry. Send exactly one.'
+              : `Send exactly one of "meal", "food", "adhoc_kcal" — got ${
+                wants.join(" and ")
+              }. A meal plus an extra food is two calls, which is also how a variation on a routine gets logged.`,
+          );
+        }
 
-    if (b.adhoc_kcal !== undefined && b.adhoc_kcal !== null) {
-      // A number, always. An "unknown" would be counted as zero by the intake
-      // mean that feeds the expenditure back-solve; a day genuinely beyond
-      // estimating is flagged incomplete instead, which excludes it entirely.
-      const kcal = b.adhoc_kcal;
-      if (kcal < 0) {
-        throw new ApiError(422, '"adhoc_kcal" must be zero or more.');
-      }
-      await sql.begin((tx) =>
-        insertEntry(tx, day, b.request_id, {
-          foodId: null,
-          grams: null,
-          mealId: null,
-          kcal,
-          protein_g: b.adhoc_protein_g ?? null,
-          carbs_g: null,
-          fat_g: null,
-          fiber_g: null,
-          note,
-        })
-      );
-      return c.json(await dayView(day), 201);
-    }
+        // A portion of a saved meal. Bounded on both sides: a scale of 0 logs
+        // nothing while answering 201, and anything past 10x a routine portion is a
+        // misplaced decimal rather than an appetite — the same reasoning that makes
+        // a future date a typo instead of a fact.
+        const scale = b.scale ?? null;
+        if (scale !== null) {
+          if (wants[0] !== "meal") {
+            throw new ApiError(
+              422,
+              '"scale" is a portion of a saved meal, so it goes with "meal". A part of a single food is that food at fewer grams; an estimate is "adhoc_kcal" at the number you mean.',
+            );
+          }
+          if (scale <= 0 || scale > MAX_SCALE) {
+            throw new ApiError(
+              422,
+              `"scale" must be greater than 0 and at most ${MAX_SCALE} — 0.5 for half the usual portion, 2 for a double. A meal not eaten is not logged, and past ${MAX_SCALE}x the decimal point is usually in the wrong place.`,
+            );
+          }
+        }
 
-    if (b.food !== undefined && b.food !== null) {
-      const foodId = await resolveFoodId(b.food);
-      const [food] = await sql`select * from foods where id = ${foodId}`;
-      const grams = gramsEaten(
-        b.grams ?? null,
-        b.units ?? null,
-        food.grams_per_unit === null ? null : Number(food.grams_per_unit),
-        food.name,
-      );
-      await sql.begin((tx) =>
-        insertEntry(tx, day, b.request_id, {
-          foodId,
-          grams,
-          mealId: null,
-          ...scaleFood(foodMacros(food), grams),
-          note,
-        })
-      );
-      return c.json(await dayView(day), 201);
-    }
+        if (b.adhoc_kcal !== undefined && b.adhoc_kcal !== null) {
+          // A number, always. An "unknown" would be counted as zero by the intake
+          // mean that feeds the expenditure back-solve; a day genuinely beyond
+          // estimating is flagged incomplete instead, which excludes it entirely.
+          const kcal = b.adhoc_kcal;
+          if (kcal < 0) {
+            throw new ApiError(422, '"adhoc_kcal" must be zero or more.');
+          }
+          await sql.begin((tx) =>
+            insertEntry(tx, day, b.request_id, {
+              foodId: null,
+              grams: null,
+              mealId: null,
+              kcal,
+              protein_g: b.adhoc_protein_g ?? null,
+              carbs_g: null,
+              fat_g: null,
+              fiber_g: null,
+              note,
+            })
+          );
+          return await dayView(day);
+        }
 
-    const mealId = await resolveMealId(b.meal);
-    const items = await sql`
+        if (b.food !== undefined && b.food !== null) {
+          const foodId = await resolveFoodId(b.food);
+          const [food] = await sql`select * from foods where id = ${foodId}`;
+          const grams = gramsEaten(
+            b.grams ?? null,
+            b.units ?? null,
+            food.grams_per_unit === null ? null : Number(food.grams_per_unit),
+            food.name,
+          );
+          await sql.begin((tx) =>
+            insertEntry(tx, day, b.request_id, {
+              foodId,
+              grams,
+              mealId: null,
+              ...scaleFood(foodMacros(food), grams),
+              note,
+            })
+          );
+          return await dayView(day);
+        }
+
+        const mealId = await resolveMealId(b.meal);
+        const items = await sql`
     select mi.grams::float8, f.id as food_id, f.name,
       f.kcal_100g::float8, f.protein_100g::float8, f.carbs_100g::float8,
       f.fat_100g::float8, f.fiber_100g::float8
     from meal_items mi
     join foods f on f.id = mi.food_id
     where mi.meal_id = ${mealId}`;
-    if (items.length === 0) {
-      const [meal] = await sql`select name from meals where id = ${mealId}`;
-      throw new ApiError(
-        422,
-        `"${meal.name}" has no foods in it, so there is nothing to log. Add its items first.`,
-      );
-    }
+        if (items.length === 0) {
+          const [meal] = await sql`select name from meals where id = ${mealId}`;
+          throw new ApiError(
+            422,
+            `"${meal.name}" has no foods in it, so there is nothing to log. Add its items first.`,
+          );
+        }
 
-    // The snapshot, taken here: every item's numbers are copied onto its row.
-    // One transaction — a half-logged meal would understate the day silently.
-    await sql.begin(async (tx) => {
-      for (const item of items) {
-        // Rounded to the tenth the column stores, then the macros are taken
-        // from that number rather than from the unrounded one — otherwise a
-        // row's macros describe grams it does not claim to hold.
-        const grams = Math.round(item.grams * (scale ?? 1) * 10) / 10;
-        await insertEntry(tx, day, b.request_id, {
-          foodId: item.food_id,
-          grams,
-          mealId,
-          ...scaleFood(foodMacros(item), grams),
-          note,
+        // The snapshot, taken here: every item's numbers are copied onto its row.
+        // One transaction — a half-logged meal would understate the day silently.
+        await sql.begin(async (tx) => {
+          for (const item of items) {
+            // Rounded to the tenth the column stores, then the macros are taken
+            // from that number rather than from the unrounded one — otherwise a
+            // row's macros describe grams it does not claim to hold.
+            const grams = Math.round(item.grams * (scale ?? 1) * 10) / 10;
+            await insertEntry(tx, day, b.request_id, {
+              foodId: item.food_id,
+              grams,
+              mealId,
+              ...scaleFood(foodMacros(item), grams),
+              note,
+            });
+          }
         });
-      }
+        return await dayView(day);
+      },
     });
-    return c.json(await dayView(day), 201);
+    return c.json(answer, status);
   },
 );
 
