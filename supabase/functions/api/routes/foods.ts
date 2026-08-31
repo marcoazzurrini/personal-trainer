@@ -1,8 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
-import { checkEnergy, checkMacroMass } from "../lib/nutrition.ts";
-import { resolveFoodId } from "../lib/resolve.ts";
+import { ApiError } from "../http/errors.ts";
+import { checkEnergy, checkMacroMass } from "../rules/nutrition.ts";
+import { resolveFoodId } from "../record/resolve.ts";
 import {
   body,
   number,
@@ -11,7 +11,7 @@ import {
   optionalText,
   requestId,
   text,
-} from "../lib/schema.ts";
+} from "../http/schema.ts";
 
 // The registry the coach fills as it goes. A food is sourced once — from a
 // label, CREA, USDA or Open Food Facts — and saved, so it is never searched

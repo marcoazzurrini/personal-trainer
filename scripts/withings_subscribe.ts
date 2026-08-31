@@ -12,7 +12,7 @@
 // is the only place the live tokens exist.
 
 import postgres from "postgres";
-import { refreshTokens } from "../supabase/functions/api/lib/withings.ts";
+import { refreshTokens } from "../supabase/functions/api/outside/withings.ts";
 
 const API_BASE = "https://wbsapi.withings.net";
 const APPLI_WEIGHT = "1";

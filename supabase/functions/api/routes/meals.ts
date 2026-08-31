@@ -1,9 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
-import { foodMacros, scaleFood, sumMacros } from "../lib/nutrition.ts";
-import { resolveFoodId, resolveMealId } from "../lib/resolve.ts";
-import { body, macroTotals, number, requestId, text } from "../lib/schema.ts";
+import { ApiError } from "../http/errors.ts";
+import { foodMacros, scaleFood, sumMacros } from "../rules/nutrition.ts";
+import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
+import { body, macroTotals, number, requestId, text } from "../http/schema.ts";
 
 // Meals are routines, not history. "il mio solito yogurt" is a name, a list of
 // foods and their amounts — saved so that logging it costs seconds.

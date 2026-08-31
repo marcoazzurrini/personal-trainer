@@ -1,14 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
-import { requireNotFuture } from "../lib/dates.ts";
-import { ApiError } from "../lib/errors.ts";
+import { requireNotFuture } from "../rules/dates.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   foodMacros,
   gramsEaten,
   scaleFood,
   sumMacros,
-} from "../lib/nutrition.ts";
-import { resolveFoodId, resolveMealId } from "../lib/resolve.ts";
+} from "../rules/nutrition.ts";
+import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
 import {
   body,
   dayParam,
@@ -19,7 +19,7 @@ import {
   optionalNumber,
   optionalText,
   requestId,
-} from "../lib/schema.ts";
+} from "../http/schema.ts";
 
 // What was actually eaten. Three ways in — a saved meal, a single food, or an
 // ad-hoc estimate — and one way out: rows carrying their own numbers.

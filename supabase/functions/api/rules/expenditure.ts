@@ -71,7 +71,7 @@ export interface TrendPoint {
 
 // Re-exported: daysBetween has always been part of this module's public
 // face, and its callers should not care that the arithmetic moved to
-// lib/dates.ts when the week functions joined it.
+// rules/dates.ts when the week functions joined it.
 export { daysBetween } from "./dates.ts";
 
 // Exponentially weighted moving average over the daily series, initialized at

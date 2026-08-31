@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { body, date, optionalDate, requestId, text } from "../lib/schema.ts";
+import { body, date, optionalDate, requestId, text } from "../http/schema.ts";
 
 export const blocks = new OpenAPIHono();
 

@@ -9,7 +9,7 @@ what a correct one looks like.
 What they could not do is describe themselves. There was no way to see the API
 whole: 75 handlers, no inventory, and the only account of the request and
 response shapes was Markdown maintained by hand beside the code. So the routes
-now validate with Zod schemas (`lib/schema.ts`), and `/openapi.json` is
+now validate with Zod schemas (`http/schema.ts`), and `/openapi.json` is
 generated from those same schemas and rendered by Scalar at `/reference`.
 
 The prose survived intact, which was the condition for doing this at all. It
@@ -88,5 +88,5 @@ contract, and it still lives in prose.
 
 Epilogue: `lib/validate.ts` is gone. Both reasons held, but neither needed a
 file of its own — the log page's validators moved into `routes/logpage.ts`, the
-future checks joined the calendar in `lib/dates.ts`, and every sentence moved
+future checks joined the calendar in `rules/dates.ts`, and every sentence moved
 unchanged.

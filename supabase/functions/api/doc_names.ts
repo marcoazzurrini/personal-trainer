@@ -15,7 +15,7 @@ export function isDocName(name: string): boolean {
 // from general knowledge, and the API states that rather than leaving the
 // coach to discover it.
 export function docUrl(name: string): URL {
-  return new URL(`../docs/${name}.md`, import.meta.url);
+  return new URL(`./docs/${name}.md`, import.meta.url);
 }
 
 // Reads the file rather than stat-ing it: the edge runtime serves Deno.stat

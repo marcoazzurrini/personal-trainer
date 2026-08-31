@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { isDocName } from "../supabase/functions/api/lib/doc_names.ts";
+import { isDocName } from "../supabase/functions/api/doc_names.ts";
 import { api, BASE } from "./helpers.ts";
 
 Deno.test("skill documents", async (t) => {

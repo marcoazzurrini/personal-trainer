@@ -8,8 +8,8 @@
 // definition of what counts as a measurement.
 
 import { sql } from "../db.ts";
-import { requireNotFutureInstant } from "./dates.ts";
-import { ApiError } from "./errors.ts";
+import { requireNotFutureInstant } from "../rules/dates.ts";
+import { ApiError } from "../http/errors.ts";
 
 // A weigh-in outside this band is not a weigh-in. The band is deliberately
 // far wider than any human Marco will ever be, because its job is not to

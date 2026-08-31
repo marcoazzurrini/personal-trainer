@@ -6,9 +6,9 @@ import {
   daysBetween,
   lastFinishedSunday,
   mondayOf,
-} from "../supabase/functions/api/lib/dates.ts";
+} from "../supabase/functions/api/rules/dates.ts";
 
-// lib/dates.ts is one of two implementations of the calendar — the other is
+// rules/dates.ts is one of two implementations of the calendar — the other is
 // Postgres's date_trunc, which the routes use in SQL. helpers.ts once carried
 // a third, and its own comments explained why two clocks that must agree
 // eventually will not. Now there are exactly two, and this file pins them to

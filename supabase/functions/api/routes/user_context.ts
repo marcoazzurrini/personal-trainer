@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { body, requestId, text } from "../lib/schema.ts";
+import { body, requestId, text } from "../http/schema.ts";
 
 export const userContext = new OpenAPIHono();
 

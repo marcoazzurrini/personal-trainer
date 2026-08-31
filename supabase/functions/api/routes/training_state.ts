@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { docExists } from "../lib/doc_names.ts";
-import { deliveredInDoseUnit } from "../lib/training.ts";
+import { docExists } from "../doc_names.ts";
+import { deliveredInDoseUnit } from "../rules/training.ts";
 
 // The composite: everything true about the training as of now. A view over
 // things that each have their own address — nothing here is only obtainable

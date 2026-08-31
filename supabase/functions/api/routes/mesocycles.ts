@@ -1,12 +1,17 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   resolveExercise,
   resolveExerciseId,
   resolveMesocycle,
-} from "../lib/resolve.ts";
-import { assertDoseUnit, DOSE_UNITS, ROLES, TRACKS } from "../lib/training.ts";
+} from "../record/resolve.ts";
+import {
+  assertDoseUnit,
+  DOSE_UNITS,
+  ROLES,
+  TRACKS,
+} from "../rules/training.ts";
 import {
   body,
   date,
@@ -17,7 +22,7 @@ import {
   optionalText,
   requestId,
   text,
-} from "../lib/schema.ts";
+} from "../http/schema.ts";
 
 // The plan's judgment — load goals, progression, deload rules, what would
 // force a rethink — lives in the mesocycle's intent, not in tables. The

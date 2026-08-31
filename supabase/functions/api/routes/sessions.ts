@@ -1,12 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   resolveExercise,
   resolveMesocycle,
   resolveSetMesocycleId,
-} from "../lib/resolve.ts";
-import { assertEffort, assertSetMeasures } from "../lib/training.ts";
+} from "../record/resolve.ts";
+import { assertEffort, assertSetMeasures } from "../rules/training.ts";
 import {
   body,
   date,
@@ -18,7 +18,7 @@ import {
   optionalTimestamp,
   requestId,
   text,
-} from "../lib/schema.ts";
+} from "../http/schema.ts";
 
 const KINDS = ["warmup", "working"] as const;
 const EFFORTS = ["easy", "hard", "failure"] as const;

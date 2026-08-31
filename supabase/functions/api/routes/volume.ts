@@ -1,8 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
-import { resolveMesocycle } from "../lib/resolve.ts";
-import { deliveredInDoseUnit } from "../lib/training.ts";
+import { ApiError } from "../http/errors.ts";
+import { resolveMesocycle } from "../record/resolve.ts";
+import { deliveredInDoseUnit } from "../rules/training.ts";
 
 // Both endpoints read the views, which already enforce the rules: working
 // sets only, performed only, finished weeks only — plus, on weekly_volume

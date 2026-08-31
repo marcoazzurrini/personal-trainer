@@ -7,9 +7,9 @@ import {
   DOSE_UNITS,
   doseUnitsFor,
   MEASURES,
-} from "../supabase/functions/api/lib/training.ts";
-import type { SetMeasures } from "../supabase/functions/api/lib/training.ts";
-import { ApiError } from "../supabase/functions/api/lib/errors.ts";
+} from "../supabase/functions/api/rules/training.ts";
+import type { SetMeasures } from "../supabase/functions/api/rules/training.ts";
+import { ApiError } from "../supabase/functions/api/http/errors.ts";
 
 // The measure table, restated as behaviour. training.ts holds one RULES table
 // read from three sides — what a set may carry, which units a dose may use,

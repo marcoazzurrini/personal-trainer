@@ -10,7 +10,7 @@ import {
   MIN_WINDOW_DAYS,
   PROTEIN_G_PER_KG_BW_RANGE,
   PROTEIN_G_PER_KG_FFM_RANGE,
-} from "../supabase/functions/api/lib/expenditure.ts";
+} from "../supabase/functions/api/rules/expenditure.ts";
 
 // The server owns these numbers, and the docs quote them as literals — the
 // clip rates in four documents, the protein bands in four, the window in two.

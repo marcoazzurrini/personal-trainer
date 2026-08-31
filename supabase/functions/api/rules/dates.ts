@@ -12,7 +12,7 @@
 // The future checks live here too: whether a day has happened yet is a
 // question about the calendar, not about a field.
 
-import { ApiError } from "./errors.ts";
+import { ApiError } from "../http/errors.ts";
 
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);

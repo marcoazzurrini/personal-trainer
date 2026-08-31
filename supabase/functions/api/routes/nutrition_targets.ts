@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   energyDensity,
   fatMassKg,
@@ -12,14 +12,14 @@ import {
   type ProteinBasis,
   proteinFromMultiplier,
   targetFromRate,
-} from "../lib/expenditure.ts";
+} from "../rules/expenditure.ts";
 import {
   activeTarget,
   currentExpenditure,
   latestBodyfat,
   loadTrend,
   romeToday,
-} from "../lib/nutrition_read.ts";
+} from "../record/nutrition_read.ts";
 import {
   body,
   number,
@@ -29,7 +29,7 @@ import {
   optionalNumber,
   requestId,
   text,
-} from "../lib/schema.ts";
+} from "../http/schema.ts";
 
 // The goal, expressed as a rate of bodyweight change. Append-only: the latest
 // effective_from is active and the history is the record of the phase

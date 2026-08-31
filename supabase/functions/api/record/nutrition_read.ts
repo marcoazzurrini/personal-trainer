@@ -1,5 +1,5 @@
 import { sql } from "../db.ts";
-import { addDays } from "./dates.ts";
+import { addDays } from "../rules/dates.ts";
 import {
   backSolve,
   damp,
@@ -8,7 +8,7 @@ import {
   type Expenditure,
   type TrendPoint,
   trendSeries,
-} from "./expenditure.ts";
+} from "../rules/expenditure.ts";
 
 // Everything that reads the nutrition picture out of the database and hands it
 // to the pure arithmetic in expenditure.ts. Kept apart from the routes because

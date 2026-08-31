@@ -1,15 +1,15 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
-import { recordBodyweight } from "../lib/bodyweight.ts";
-import { loadTrend } from "../lib/nutrition_read.ts";
+import { ApiError } from "../http/errors.ts";
+import { recordBodyweight } from "../record/bodyweight.ts";
+import { loadTrend } from "../record/nutrition_read.ts";
 import {
   body,
   idParam,
   number,
   optionalText,
   optionalTimestamp,
-} from "../lib/schema.ts";
+} from "../http/schema.ts";
 
 export const bodyweight = new OpenAPIHono();
 

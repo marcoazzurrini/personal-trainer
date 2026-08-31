@@ -7,7 +7,7 @@ import {
   issueBody,
   listCoachIssues,
   openIssue,
-} from "../supabase/functions/api/lib/github.ts";
+} from "../supabase/functions/api/outside/github.ts";
 import { api, uuid } from "./helpers.ts";
 
 // --- The route's validation, through the running function ---------------

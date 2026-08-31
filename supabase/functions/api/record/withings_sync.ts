@@ -2,12 +2,12 @@
 // they are refreshed, and what happens to a reading between arriving and
 // becoming a row.
 //
-// Split from lib/withings.ts so that file can stay import-free and testable
+// Split from outside/withings.ts so that file can stay import-free and testable
 // against a stub. What is here is the part that needs a database.
 
 import { sql } from "../db.ts";
 import { recordBodyweight } from "./bodyweight.ts";
-import { ApiError } from "./errors.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   getWeights,
   type MeasureRange,
@@ -16,7 +16,7 @@ import {
   selectWeights,
   type WithingsConfig,
   WithingsError,
-} from "./withings.ts";
+} from "../outside/withings.ts";
 
 export const WITHINGS_SOURCE = "withings";
 

@@ -6,15 +6,15 @@ import {
   optionalNumber,
   optionalRequestId,
   optionalTimestamp,
-} from "../supabase/functions/api/lib/schema.ts";
-import { requireNotFuture } from "../supabase/functions/api/lib/dates.ts";
+} from "../supabase/functions/api/http/schema.ts";
+import { requireNotFuture } from "../supabase/functions/api/rules/dates.ts";
 import { requireIdParam } from "../supabase/functions/api/routes/logpage.ts";
 import {
   docUrl,
   isDocName,
   MAX_DOC_NAME,
-} from "../supabase/functions/api/lib/doc_names.ts";
-import { ApiError } from "../supabase/functions/api/lib/errors.ts";
+} from "../supabase/functions/api/doc_names.ts";
+import { ApiError } from "../supabase/functions/api/http/errors.ts";
 
 // The gatekeepers, tested as laws. Every request the API accepts or refuses
 // passes through these few shapes, so a wrong edge here is a wrong edge on

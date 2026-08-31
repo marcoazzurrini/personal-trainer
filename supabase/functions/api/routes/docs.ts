@@ -1,6 +1,6 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
-import { docUrl, isDocName } from "../lib/doc_names.ts";
-import { ApiError } from "../lib/errors.ts";
+import { docUrl, isDocName } from "../doc_names.ts";
+import { ApiError } from "../http/errors.ts";
 
 // The skill's documents, bundled with the function and served as markdown.
 // The whole point: updating the coach's knowledge is a git push.

@@ -6,9 +6,9 @@ import {
   currentExpenditure,
   loadTrend,
   slopePctBwWeek,
-} from "../lib/nutrition_read.ts";
-import { sumMacros } from "../lib/nutrition.ts";
-import { macroTotals } from "../lib/schema.ts";
+} from "../record/nutrition_read.ts";
+import { sumMacros } from "../rules/nutrition.ts";
+import { macroTotals } from "../http/schema.ts";
 
 // The nutrition analogue of /training-state: everything true about eating as
 // of now, fetched at the start of any nutrition conversation. Separate from

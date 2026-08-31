@@ -11,7 +11,7 @@ import {
   targetFromRate,
   type TrendPoint,
   trendSeries,
-} from "../supabase/functions/api/lib/expenditure.ts";
+} from "../supabase/functions/api/rules/expenditure.ts";
 
 // Pure functions, no stack. This is the arithmetic that would be invisible if
 // it were quietly wrong, so it gets tested against hand-computed values rather

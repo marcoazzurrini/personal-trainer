@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { isDocName, MAX_DOC_NAME } from "../lib/doc_names.ts";
-import { ApiError } from "../lib/errors.ts";
+import { isDocName, MAX_DOC_NAME } from "../doc_names.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   commentOnIssue,
   type GithubConfig,
@@ -11,8 +11,14 @@ import {
   type IssueKind,
   listCoachIssues,
   openIssue,
-} from "../lib/github.ts";
-import { body, idParam, optionalText, requestId, text } from "../lib/schema.ts";
+} from "../outside/github.ts";
+import {
+  body,
+  idParam,
+  optionalText,
+  requestId,
+  text,
+} from "../http/schema.ts";
 
 // The coach's one channel for "something about this system is in the way".
 // It files a GitHub issue; it never writes code, and it never edits the live

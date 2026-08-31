@@ -1,9 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
-import { resolveExercise, resolveExerciseId } from "../lib/resolve.ts";
-import { MEASURES } from "../lib/training.ts";
-import { body, oneOf, optionalText, text } from "../lib/schema.ts";
+import { ApiError } from "../http/errors.ts";
+import { resolveExercise, resolveExerciseId } from "../record/resolve.ts";
+import { MEASURES } from "../rules/training.ts";
+import { body, oneOf, optionalText, text } from "../http/schema.ts";
 
 const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
 const SYSTEMIC_FATIGUE_LEVELS = ["normal", "high"] as const;

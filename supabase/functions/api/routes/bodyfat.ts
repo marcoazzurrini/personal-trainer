@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { requireNotFuture } from "../lib/dates.ts";
-import { ApiError } from "../lib/errors.ts";
+import { requireNotFuture } from "../rules/dates.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   body,
   idParam,
@@ -10,7 +10,7 @@ import {
   optionalDate,
   optionalText,
   requestId,
-} from "../lib/schema.ts";
+} from "../http/schema.ts";
 
 // Body fat exists here for one reason: the energy density of a weight change
 // is composition-weighted, not a flat 7,700 kcal/kg. Forbes gives

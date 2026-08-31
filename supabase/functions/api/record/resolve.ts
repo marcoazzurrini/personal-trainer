@@ -1,6 +1,6 @@
 import { sql } from "../db.ts";
-import { ApiError } from "./errors.ts";
-import { TRACKS } from "./training.ts";
+import { ApiError } from "../http/errors.ts";
+import { TRACKS } from "../rules/training.ts";
 
 // Exercises resolve by id, name, or alias, case-insensitively, server-side.
 export async function resolveExerciseId(ref: unknown): Promise<number> {

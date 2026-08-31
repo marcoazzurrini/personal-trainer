@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
+import { ApiError } from "../http/errors.ts";
 import {
   body,
   idParam,
@@ -8,8 +8,8 @@ import {
   optionalDate,
   optionalText,
   requestId,
-} from "../lib/schema.ts";
-import { activeTransients, romeToday } from "../lib/nutrition_read.ts";
+} from "../http/schema.ts";
+import { activeTransients, romeToday } from "../record/nutrition_read.ts";
 
 // The register of things that make bodyweight move for reasons that are not
 // fat or muscle. Registering one tells the expenditure back-solve to damp its

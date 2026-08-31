@@ -6,14 +6,14 @@
 
 import { type Context, Hono } from "@hono/hono";
 import { sql } from "../db.ts";
-import { ApiError } from "../lib/errors.ts";
-import { resolveSetMesocycleId } from "../lib/resolve.ts";
-import { assertEffort, assertSetMeasures } from "../lib/training.ts";
+import { ApiError } from "../http/errors.ts";
+import { resolveSetMesocycleId } from "../record/resolve.ts";
+import { assertEffort, assertSetMeasures } from "../rules/training.ts";
 
 export const logPage = new Hono();
 
 // The page's own validators. The coach API validates with schemas
-// (lib/schema.ts), which say the same sentences and describe themselves into
+// (http/schema.ts), which say the same sentences and describe themselves into
 // /openapi.json; this namespace is registered above the token middleware and
 // was deliberately left alone — it is the one surface a browser talks to, its
 // shapes are its own, and nothing is gained by describing them in a document

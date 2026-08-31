@@ -5,7 +5,7 @@ import {
   refreshTokens,
   selectWeights,
   WithingsError,
-} from "../supabase/functions/api/lib/withings.ts";
+} from "../supabase/functions/api/outside/withings.ts";
 import { api, BASE, resetWithings } from "./helpers.ts";
 
 // --- The Withings client, against a stub server ---------------------------
