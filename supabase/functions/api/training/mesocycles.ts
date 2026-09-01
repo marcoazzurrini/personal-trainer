@@ -6,8 +6,8 @@
 
 import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
-import { romeDate } from "../record/calendar.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { romeDate } from "../shared/calendar.ts";
+import { writeOnce } from "../shared/idempotency.ts";
 import {
   exerciseName,
   resolveExercise,

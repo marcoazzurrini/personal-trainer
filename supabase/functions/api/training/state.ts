@@ -9,7 +9,7 @@
 
 import { sql } from "../db.ts";
 import { docExists } from "../surfaces/docs.ts";
-import { romeClock, romeDate, romeWeekStart } from "../record/calendar.ts";
+import { romeClock, romeDate, romeWeekStart } from "../shared/calendar.ts";
 import { deliveredInDoseUnit } from "./rules.ts";
 import { planWeekOrNull, planWeekSince } from "./mesocycles.ts";
 import { type ContextEntry, currentContext } from "./user_context.ts";

@@ -2,7 +2,7 @@
 //
 // Every day in this system is a Rome calendar date carried as a bare
 // "YYYY-MM-DD" string; which day "today" is gets decided by Postgres
-// (`now() at time zone 'Europe/Rome'`, asked in record/calendar.ts and
+// (`now() at time zone 'Europe/Rome'`, asked in calendar.ts and
 // nowhere else), never here. What this module does is
 // walk from one such day to another, and that walking is UTC-anchored on
 // purpose: anchored to local time it would gain or lose a day in the DST

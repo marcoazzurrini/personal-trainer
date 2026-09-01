@@ -9,9 +9,9 @@
 // because the estimate gets re-anchored as a phase runs on.
 
 import { sql } from "../db.ts";
-import { romeToday } from "../record/calendar.ts";
-import { writeOnce } from "../record/idempotency.ts";
-import { requireNotFuture } from "../rules/dates.ts";
+import { romeToday } from "../shared/calendar.ts";
+import { writeOnce } from "../shared/idempotency.ts";
+import { requireNotFuture } from "../shared/dates.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
 
 export const METHODS = ["bia", "dxa", "caliper", "visual", "other"] as const;
@@ -26,7 +26,7 @@ export interface BodyfatRow {
   created_at: string;
 }
 
-// A function and not a shared constant, for the reason record/calendar.ts
+// A function and not a shared constant, for the reason shared/calendar.ts
 // gives about its own fragments: a postgres.js fragment is a query object
 // rather than a string, so callers splice a fresh one instead of sharing an
 // instance.
@@ -128,7 +128,7 @@ export async function recordBodyfat(input: {
  * The most recent estimate, or null when none is on record.
  *
  * Tie-broken by id, because several methods can land on one day and the
- * back-solve needs one number. rules/dates.ts documents the hazard that
+ * back-solve needs one number. shared/dates.ts documents the hazard that
  * ordering creates — which is why the ordering is stated once here rather
  * than wherever a caller happens to want the row. Callers that only need the
  * number take `.percent`; nutrition-state shows the whole estimate, and it

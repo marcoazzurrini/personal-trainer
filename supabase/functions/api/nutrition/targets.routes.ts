@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { GOALS } from "./expenditure.ts";
-import { romeToday } from "../record/calendar.ts";
+import { romeToday } from "../shared/calendar.ts";
 import {
   activeTarget,
   CLIP_REASONS,

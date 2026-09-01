@@ -2,7 +2,7 @@
 // ran between. Mesocycles sit inside one; nothing here knows that.
 
 import { sql } from "../db.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { writeOnce } from "../shared/idempotency.ts";
 
 export interface BlockRow {
   id: number;

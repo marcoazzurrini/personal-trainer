@@ -5,7 +5,7 @@
 import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { checkEnergy, checkMacroMass } from "./rules.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { writeOnce } from "../shared/idempotency.ts";
 import { assertFoodAliasesFree, resolveFoodId } from "./resolve.ts";
 
 export const SOURCES = ["label", "crea", "usda", "off", "estimate"] as const;

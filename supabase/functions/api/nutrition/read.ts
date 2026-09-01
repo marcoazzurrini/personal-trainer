@@ -1,6 +1,6 @@
 import { sql } from "../db.ts";
-import { lastFinishedDay } from "../record/calendar.ts";
-import { addDays, daysBetween } from "../rules/dates.ts";
+import { lastFinishedDay } from "../shared/calendar.ts";
+import { addDays, daysBetween } from "../shared/dates.ts";
 import { activeTransients } from "./events.ts";
 import { latestBodyfat } from "../body/bodyfat.ts";
 import type { TrendPoint } from "../body/trend.ts";

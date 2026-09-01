@@ -6,7 +6,7 @@ import {
   registerEvent,
   withdrawEvent,
 } from "./events.ts";
-import { romeToday } from "../record/calendar.ts";
+import { romeToday } from "../shared/calendar.ts";
 import {
   body,
   idParam,

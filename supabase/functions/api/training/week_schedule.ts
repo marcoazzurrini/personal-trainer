@@ -14,7 +14,7 @@
 // what this endpoint is for.
 
 import { sql } from "../db.ts";
-import { romeIsoDow, romeWeekStart } from "../record/calendar.ts";
+import { romeIsoDow, romeWeekStart } from "../shared/calendar.ts";
 
 export interface WeekScheduleRow {
   week_start: string;

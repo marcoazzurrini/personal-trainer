@@ -6,13 +6,13 @@
 // back-solve differentiates it to infer stored energy — and neither owns it.
 //
 // Pure on purpose: no database, no clock. That is not decoration here, it is
-// load-bearing. rules/expenditure.ts imports TrendPoint from this file, and
-// rules_purity_test.ts walks imports transitively, so a database reached from
-// anywhere below this line would make the back-solve untestable without a
+// load-bearing. nutrition/expenditure.ts imports TrendPoint from this file,
+// and rules_purity_test.ts walks imports transitively, so a database reached
+// from anywhere below this line would make the back-solve untestable without a
 // stack. It is why the read that feeds this — loadTrend, over the
 // daily_bodyweight view — stays in bodyweight.ts with the table it reads.
 
-import { addDays, daysBetween } from "../rules/dates.ts";
+import { addDays, daysBetween } from "../shared/dates.ts";
 
 export const DEFAULT_ALPHA = 0.10; // ~19-day-equivalent window
 

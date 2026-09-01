@@ -7,7 +7,7 @@ import {
   optionalRequestId,
   optionalTimestamp,
 } from "../supabase/functions/api/http/schema.ts";
-import { requireNotFuture } from "../supabase/functions/api/rules/dates.ts";
+import { requireNotFuture } from "../supabase/functions/api/shared/dates.ts";
 import {
   docUrl,
   isDocName,

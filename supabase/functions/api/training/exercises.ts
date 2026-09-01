@@ -8,7 +8,7 @@
 
 import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
-import { romeNow } from "../record/calendar.ts";
+import { romeNow } from "../shared/calendar.ts";
 import {
   assertExerciseAliasesFree,
   resolveExercise,

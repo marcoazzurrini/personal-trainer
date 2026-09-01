@@ -4,7 +4,7 @@
 
 import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { writeOnce } from "../shared/idempotency.ts";
 import {
   energyDensity,
   type ExpenditureStatus,
@@ -19,7 +19,7 @@ import {
   proteinFromMultiplier,
   targetFromRate,
 } from "./expenditure.ts";
-import { romeToday } from "../record/calendar.ts";
+import { romeToday } from "../shared/calendar.ts";
 import { latestBodyfat } from "../body/bodyfat.ts";
 import { loadTrend } from "../body/bodyweight.ts";
 import { currentExpenditure } from "./read.ts";

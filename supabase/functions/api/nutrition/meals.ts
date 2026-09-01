@@ -15,7 +15,7 @@ import {
   scaleFood,
   sumMacros,
 } from "./rules.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { writeOnce } from "../shared/idempotency.ts";
 import {
   assertMealAliasesFree,
   resolveFoodId,

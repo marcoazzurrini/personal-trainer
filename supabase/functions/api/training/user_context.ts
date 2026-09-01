@@ -8,7 +8,7 @@
 // lives with its only reader, which is training state (ADR-0006, Fog 3).
 
 import { sql } from "../db.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { writeOnce } from "../shared/idempotency.ts";
 
 export interface ContextEntry {
   id: number;

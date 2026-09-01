@@ -3,7 +3,7 @@ import { sql } from "../db.ts";
 // Which day it is, asked of Postgres — and the only place 'Europe/Rome' is
 // named.
 //
-// rules/dates.ts is the other half of this: it walks from one day to another
+// dates.ts is the other half of this: it walks from one day to another
 // and may not import db.ts. Deciding *which* day is now is not arithmetic. It
 // is a question whose answer changes, and it has to be answered by the same
 // clock that stamped the rows, because a UTC process is already tomorrow at

@@ -11,21 +11,20 @@ import { assert, assertEquals } from "@std/assert";
 // — the file would still pass every test it has and the suite would still be
 // green, and nothing would say so.
 //
-// ApiError is deliberately not forbidden here. Almost every file in rules/
+// ApiError is deliberately not forbidden here. Almost every pure module
 // refuses something, the refusal sentence is the contract with a model
 // client, and the code that knows why a call is wrong is the code that
 // should write the sentence. ADR-0003 records that choice.
 //
-// record/ is not checked, and must not be. It is a holding pen for the reads
-// and writes not yet claimed by a topic, not a boundary, and a test asserting
-// otherwise would be describing a rule the repository does not keep. The same
-// standard is why the route rule is scoped to *.routes.ts: it holds for every
-// file that carries the name today, and the migration that gives the name to
-// the rest is what makes it hold for them.
+// shared/ is not checked as a whole, and must not be. calendar.ts and
+// idempotency.ts belong to no topic and reach the database on purpose, so a
+// rule over that folder would be a rule the repository does not keep. Only
+// dates.ts is pure, and it is in the list below by name for exactly that
+// reason.
 //
 // The walk is transitive, because a direct `import { sql }` is not how this
 // rule realistically breaks — that one is conspicuous in review. It breaks by
-// a file in rules/ reaching for a helper in record/, which asks Postgres a
+// a pure file reaching for a helper in its topic, which asks Postgres a
 // hop further down, where nobody reading the arithmetic can see it. So the
 // failure names the whole chain: the entry point alone would say a rule was
 // broken without saying which import to take back.
@@ -49,7 +48,7 @@ const PURE = [
   `${API_DIR}/body/trend.ts`,
   `${API_DIR}/nutrition/expenditure.ts`,
   `${API_DIR}/nutrition/rules.ts`,
-  `${API_DIR}/rules/dates.ts`,
+  `${API_DIR}/shared/dates.ts`,
   `${API_DIR}/training/rules.ts`,
 ];
 

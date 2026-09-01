@@ -23,7 +23,7 @@ import {
   DEFAULT_ALPHA,
   trendSeries,
 } from "../supabase/functions/api/body/trend.ts";
-import { daysBetween } from "../supabase/functions/api/rules/dates.ts";
+import { daysBetween } from "../supabase/functions/api/shared/dates.ts";
 
 // Properties, not examples. expenditure_test.ts pins hand-computed values at
 // chosen points; this file states the laws those points are instances of and

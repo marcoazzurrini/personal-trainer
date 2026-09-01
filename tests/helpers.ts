@@ -426,7 +426,7 @@ import {
   addDays,
   lastFinishedSunday as lastFinishedSundayOf,
   mondayOf,
-} from "../supabase/functions/api/rules/dates.ts";
+} from "../supabase/functions/api/shared/dates.ts";
 
 /** The window the estimate reads: N days ending at the last finished Sunday, oldest first. */
 export function expenditureWindow(count = WINDOW_DAYS): string[] {
@@ -590,7 +590,7 @@ const ROME_TODAY: string = await (async () => {
   }
 })();
 
-// The arithmetic on top of that anchor comes from rules/dates.ts — the same
+// The arithmetic on top of that anchor comes from shared/dates.ts — the same
 // functions the API's own code uses, so the suite cannot disagree with the
 // server about where a week starts. The reasoning above for the anchor
 // applies to the week boundaries too: two implementations of "Monday" were

@@ -10,7 +10,7 @@
 
 import { sql } from "../db.ts";
 import { energyDensity, fatMassKg } from "./expenditure.ts";
-import { lastFinishedDay } from "../record/calendar.ts";
+import { lastFinishedDay } from "../shared/calendar.ts";
 import { loadTrend } from "../body/bodyweight.ts";
 import { latestBodyfat } from "../body/bodyfat.ts";
 

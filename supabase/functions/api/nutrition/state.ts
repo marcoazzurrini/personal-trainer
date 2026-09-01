@@ -13,7 +13,7 @@
 // misleading picture.
 
 import { sql } from "../db.ts";
-import { romeClock } from "../record/calendar.ts";
+import { romeClock } from "../shared/calendar.ts";
 import { loadTrend } from "../body/bodyweight.ts";
 import { type BodyfatRow, latestBodyfat } from "../body/bodyfat.ts";
 import type { MacroTotals } from "./rules.ts";

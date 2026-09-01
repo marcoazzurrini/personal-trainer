@@ -9,7 +9,7 @@
 
 import { sql } from "../db.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { writeOnce } from "../shared/idempotency.ts";
 import {
   resolveExercise,
   resolveMesocycle,

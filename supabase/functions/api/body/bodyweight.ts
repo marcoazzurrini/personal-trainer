@@ -13,7 +13,7 @@
 // this table also knows every question asked of it.
 
 import { sql } from "../db.ts";
-import { requireNotFutureInstant } from "../rules/dates.ts";
+import { requireNotFutureInstant } from "../shared/dates.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
 import { type TrendPoint, trendSeries } from "./trend.ts";
 

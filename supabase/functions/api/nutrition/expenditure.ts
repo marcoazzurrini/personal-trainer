@@ -18,7 +18,7 @@
 // without a stack, and it is the only arithmetic in the system where being
 // quietly wrong would be invisible for weeks.
 
-import { daysBetween } from "../rules/dates.ts";
+import { daysBetween } from "../shared/dates.ts";
 import type { TrendPoint } from "../body/trend.ts";
 
 export const MIN_WINDOW_DAYS = 14;

@@ -13,7 +13,7 @@
 // entries — those rows are corrected explicitly when it matters.
 
 import { sql, type Tx } from "../db.ts";
-import { requireNotFuture } from "../rules/dates.ts";
+import { requireNotFuture } from "../shared/dates.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
 import {
   foodMacros,
@@ -22,8 +22,8 @@ import {
   scaleFood,
   sumMacros,
 } from "./rules.ts";
-import { writeOnce } from "../record/idempotency.ts";
-import { romeToday } from "../record/calendar.ts";
+import { writeOnce } from "../shared/idempotency.ts";
+import { romeToday } from "../shared/calendar.ts";
 import { resolveFoodId, resolveMealId } from "./resolve.ts";
 
 export interface IntakeEntry {
