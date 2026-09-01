@@ -20,7 +20,12 @@ import {
   nutritionTargets,
   nutritionWeekly,
 } from "./nutrition/index.ts";
-import { blocks } from "./routes/blocks.ts";
+import {
+  blocks,
+  weeklyExerciseSets,
+  weeklyVolume,
+  weekSchedule,
+} from "./training/index.ts";
 import { docs } from "./routes/docs.ts";
 import { exercises, muscles } from "./routes/exercises.ts";
 import { issues } from "./routes/issues.ts";
@@ -29,8 +34,6 @@ import { sessions } from "./routes/sessions.ts";
 import { sets } from "./routes/sets.ts";
 import { trainingState } from "./routes/training_state.ts";
 import { userContext } from "./routes/user_context.ts";
-import { weekSchedule } from "./routes/week_schedule.ts";
-import { weeklyExerciseSets, weeklyVolume } from "./routes/volume.ts";
 
 // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
 // mounted below stays an ordinary Hono router and keeps working untouched.

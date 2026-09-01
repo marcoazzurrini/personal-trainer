@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { sql } from "../db.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import { listBlocks, openBlock } from "./blocks.ts";
 import {
   body,
   date,
@@ -20,10 +19,6 @@ const Block = z.object({
   ended_on: z.string().nullable(),
 });
 
-// The response schema doubles as the row type, so the columns a query selects
-// and the columns the document promises cannot drift apart.
-type BlockRow = z.infer<typeof Block>;
-
 blocks.openapi(
   createRoute({
     method: "get",
@@ -42,11 +37,7 @@ blocks.openapi(
       },
     },
   }),
-  async (c) => {
-    const rows = await sql<BlockRow[]>`
-    select id, name, goal, started_on, ended_on from blocks order by started_on`;
-    return c.json({ blocks: rows });
-  },
+  async (c) => c.json({ blocks: await listBlocks() }),
 );
 
 blocks.openapi(
@@ -88,27 +79,7 @@ blocks.openapi(
     },
   }),
   async (c) => {
-    const b = c.req.valid("json");
-
-    const { body: answer, status } = await writeOnce({
-      table: "blocks",
-      requestId: b.request_id,
-      select: sql`id, name, goal, started_on, ended_on`,
-      replay: (existing: BlockRow) => ({ block: existing }),
-      write: async () => {
-        const [row] = await sql<BlockRow[]>`
-        insert into blocks (name, goal, started_on, ended_on, request_id)
-        values (
-          ${b.name},
-          ${b.goal},
-          ${b.started_on},
-          ${b.ended_on ?? null},
-          ${b.request_id}
-        )
-        returning id, name, goal, started_on, ended_on`;
-        return { block: row };
-      },
-    });
-    return c.json(answer, status);
+    const { row, created } = await openBlock(c.req.valid("json"));
+    return created ? c.json({ block: row }, 201) : c.json({ block: row }, 200);
   },
 );
