@@ -6,8 +6,8 @@ import {
   assertExerciseAliasesFree,
   resolveExercise,
   resolveExerciseId,
-} from "../record/resolve.ts";
-import { MEASURES } from "../rules/training.ts";
+} from "../training/resolve.ts";
+import { MEASURES, STIMULUS_TYPES } from "../training/rules.ts";
 import {
   aliasList,
   body,
@@ -18,7 +18,6 @@ import {
 } from "../http/schema.ts";
 import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 
-const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
 const SYSTEMIC_FATIGUE_LEVELS = ["normal", "high"] as const;
 
 export const exercises = new OpenAPIHono();

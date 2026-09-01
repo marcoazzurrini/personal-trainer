@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { docExists } from "../doc_names.ts";
 import { romeClock, romeDate, romeWeekStart } from "../record/calendar.ts";
-import { deliveredInDoseUnit } from "../rules/training.ts";
+import { deliveredInDoseUnit } from "../training/rules.ts";
 import { clock, query } from "../http/schema.ts";
 
 // The composite: everything true about the training as of now. A view over

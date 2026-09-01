@@ -7,13 +7,13 @@ import {
   resolveExercise,
   resolveExerciseId,
   resolveMesocycle,
-} from "../record/resolve.ts";
+} from "../training/resolve.ts";
 import {
   assertDoseUnit,
   DOSE_UNITS,
   ROLES,
   TRACKS,
-} from "../rules/training.ts";
+} from "../training/rules.ts";
 import {
   body,
   date,

@@ -1,6 +1,6 @@
 import { sql } from "../db.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
-import { TRACKS } from "../rules/training.ts";
+import { TRACKS } from "./rules.ts";
 import {
   assertAliasesFree,
   type Namespace,

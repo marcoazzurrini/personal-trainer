@@ -1,7 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
-import { assertEffort, assertSetMeasures } from "../rules/training.ts";
+import {
+  assertEffort,
+  assertSetMeasures,
+  EFFORTS,
+  KINDS,
+} from "../training/rules.ts";
 import {
   body,
   idParam,
@@ -12,8 +17,6 @@ import {
   optionalTimestamp,
   query,
 } from "../http/schema.ts";
-
-const EFFORTS = ["easy", "hard", "failure"] as const;
 
 const TARGET_FIELDS = [
   "target_weight_kg",
@@ -30,7 +33,7 @@ const Set = z.object({
   exercise_id: z.int(),
   mesocycle_id: z.int().nullable(),
   position: z.int(),
-  kind: z.string(),
+  kind: z.enum(KINDS),
   target_weight_kg: z.number().nullable(),
   target_reps: z.int().nullable(),
   target_distance_m: z.number().nullable(),

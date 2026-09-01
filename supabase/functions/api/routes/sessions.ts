@@ -6,8 +6,13 @@ import {
   resolveExercise,
   resolveMesocycle,
   resolveSetMesocycleId,
-} from "../record/resolve.ts";
-import { assertEffort, assertSetMeasures } from "../rules/training.ts";
+} from "../training/resolve.ts";
+import {
+  assertEffort,
+  assertSetMeasures,
+  EFFORTS,
+  KINDS,
+} from "../training/rules.ts";
 import {
   body,
   date,
@@ -22,9 +27,6 @@ import {
   requestId,
   text,
 } from "../http/schema.ts";
-
-const KINDS = ["warmup", "working"] as const;
-const EFFORTS = ["easy", "hard", "failure"] as const;
 
 export const sessions = new OpenAPIHono();
 

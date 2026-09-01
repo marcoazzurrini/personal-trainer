@@ -30,6 +30,26 @@ export const MEASURES = [
 
 export const DOSE_UNITS = ["sets", "minutes", "km"] as const;
 
+// A set's kind, and how close it came to failure. Both were declared in the
+// route files instead — EFFORTS twice, in sessions and in sets, and KINDS in
+// sessions while sets typed the same column as a bare string. They belong with
+// their siblings above: this file already owns every other closed vocabulary
+// of the training half, and assertEffort below consumes an effort without
+// owning the list it comes from.
+export const KINDS = ["warmup", "working"] as const;
+export const EFFORTS = ["easy", "hard", "failure"] as const;
+
+// What kind of adaptation an exercise is trained for. Declared in the
+// exercises route while the rule that branches on it — assertEffort — spelled
+// "strength" as a literal, so adding a fourth stimulus type would have
+// silently changed effort enforcement.
+export const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
+export type StimulusType = typeof STIMULUS_TYPES[number];
+
+// The one stimulus that effort is information about. Named rather than
+// spelled inline, so the list above and the branch below cannot part company.
+const EFFORT_BEARING: StimulusType = "strength";
+
 export type Measure = typeof MEASURES[number];
 export type DoseUnit = typeof DOSE_UNITS[number];
 
@@ -187,7 +207,7 @@ export function assertEffort(
   effort: string | null,
 ): void {
   if (kind !== "working" || reps === null || effort !== null) return;
-  if (stimulusType !== "strength") return;
+  if (stimulusType !== EFFORT_BEARING) return;
   throw new ApiError(
     422,
     `effort is required on a working set of "${exercise}": send easy, hard, or failure. It is what the next session's load is chosen from, and a missing chip cannot be told from an honest one later. Work scored by the clock or the tape carries none.`,

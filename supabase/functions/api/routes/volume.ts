@@ -1,8 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
-import { resolveMesocycle } from "../record/resolve.ts";
-import { deliveredInDoseUnit } from "../rules/training.ts";
+import { resolveMesocycle } from "../training/resolve.ts";
+import { deliveredInDoseUnit } from "../training/rules.ts";
 import { query } from "../http/schema.ts";
 
 // Both endpoints read the views, which already enforce the rules: working
