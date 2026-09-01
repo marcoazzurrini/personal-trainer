@@ -5,4 +5,6 @@ export { nutritionEvents } from "./events.routes.ts";
 export { foods } from "./foods.routes.ts";
 export { days, intake } from "./intake.routes.ts";
 export { meals } from "./meals.routes.ts";
+export { nutritionState } from "./state.routes.ts";
+export { nutritionTargets } from "./targets.routes.ts";
 export { nutritionWeekly } from "./weekly.routes.ts";

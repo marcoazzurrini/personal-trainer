@@ -23,7 +23,9 @@ import {
 
 export const intake = new OpenAPIHono();
 
-const Entry = z.object({
+// Exported: nutrition-state answers with the same rows, and used to declare
+// its own copy of this minus `day` over its own copy of the query.
+export const Entry = z.object({
   id: z.int(),
   day: z.string(),
   grams: z.number().nullable(),

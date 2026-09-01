@@ -1,0 +1,335 @@
+// The goal, expressed as a rate of bodyweight change. Append-only: the latest
+// effective_from is active and the history is the record of the phase
+// structure. A target is never edited — a changed mind is a new row saying why.
+
+import { sql } from "../db.ts";
+import { ApiError } from "../http/errors.ts";
+import { writeOnce } from "../record/idempotency.ts";
+import {
+  energyDensity,
+  type ExpenditureStatus,
+  fatMassKg,
+  type Goal,
+  MAX_LOSS_RATE_PCT_BW_WEEK,
+  MAX_RECOMP_DEFICIT_KCAL,
+  PROTEIN_G_PER_KG_BW_RANGE,
+  PROTEIN_G_PER_KG_FFM_RANGE,
+  type ProteinBasis,
+  type ProteinComputation,
+  proteinFromMultiplier,
+  targetFromRate,
+} from "../rules/expenditure.ts";
+import { romeToday } from "../record/calendar.ts";
+import { latestBodyfat } from "../body/bodyfat.ts";
+import { loadTrend } from "../body/bodyweight.ts";
+import { currentExpenditure } from "./read.ts";
+
+export const CLIP_REASONS = [
+  "rate",
+  "deficit",
+  "recomp_deficit",
+  "surplus",
+] as const;
+export type ClipReason = (typeof CLIP_REASONS)[number];
+
+export interface TargetRow {
+  id: number;
+  effective_from: string;
+  goal: Goal;
+  rate_pct_bw_week: number;
+  kcal_target: number;
+  protein_g_target: number;
+  decision: string;
+  clipped: boolean;
+  clipped_reasons: ClipReason[];
+  tdee_at_creation: number | null;
+  created_at: string;
+}
+
+/** The arithmetic, returned so the coach can quote it rather than redo it. */
+export interface Computation {
+  tdee_kcal: number;
+  band_kcal: number | null;
+  expenditure_status: ExpenditureStatus;
+  trend_weight_kg: number;
+  energy_density_kcal_per_kg: number;
+  rate_requested: number;
+  rate_used: number;
+  desired_slope_kg_per_day: number;
+  implied_deficit_kcal: number;
+  clipped: boolean;
+  clipped_reasons: ClipReason[];
+}
+
+export interface CreatedTarget {
+  target: TargetRow;
+  computation: Computation | null;
+  protein_computation: ProteinComputation | null;
+  phase_switch_registered: boolean;
+}
+
+// The eleven columns and their casts, written once. They were written twice —
+// here and in the reader that answers "which target governed this date" — and
+// two column lists over one row is how a field quietly stops being returned
+// on one of the two paths.
+function selectTarget() {
+  return sql`
+  select id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
+    protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
+    created_at
+  from nutrition_targets`;
+}
+
+/** Every target ever set, newest first. */
+export async function listTargets(): Promise<TargetRow[]> {
+  return await sql<TargetRow[]>`
+    ${selectTarget()} order by effective_from desc, id desc`;
+}
+
+/** The target governing a date: the latest one effective on or before it. */
+export async function activeTarget(asOf: string): Promise<TargetRow | null> {
+  const [row] = await sql<TargetRow[]>`
+    ${selectTarget()}
+    where effective_from <= ${asOf}
+    order by effective_from desc, id desc
+    limit 1`;
+  return row ?? null;
+}
+
+export interface SetTargetInput {
+  goal: Goal;
+  effective_from?: string | null;
+  kcal_target?: number | null;
+  protein_g_target?: number | null;
+  protein_g_per_kg_ffm?: number | null;
+  protein_g_per_kg_bw?: number | null;
+  rate_pct_bw_week: number;
+  decision: string;
+  request_id: string;
+}
+
+export type TargetWritten =
+  | { created: true; body: CreatedTarget }
+  | { created: false; body: { target: TargetRow } };
+
+export async function setTarget(
+  b: SetTargetInput,
+): Promise<TargetWritten> {
+  const { body, status } = await writeOnce<
+    { id: number },
+    { target: TargetRow },
+    CreatedTarget
+  >({
+    table: "nutrition_targets",
+    requestId: b.request_id,
+    select: sql`id`,
+    // A retry is answered with the row alone. The computation blocks explain
+    // a decision being made; replaying them would describe a reasoning that
+    // happened once, against numbers that have since moved on.
+    replay: async (seen) => {
+      const [row] = await sql<TargetRow[]>`
+          ${selectTarget()} where id = ${seen.id}`;
+      return { target: row };
+    },
+    write: async () => {
+      const goal = b.goal;
+      const rate = b.rate_pct_bw_week;
+
+      // Protein is computed from a multiplier, like kcal is computed from a rate.
+      // The multiplier is the coach's judgment; multiplying it by fat-free mass is
+      // arithmetic, and arithmetic does not happen in the model's head. An
+      // explicit gram figure stays available for cases the multipliers don't fit.
+      //
+      // "Exactly one of three" is a relationship between fields rather than a
+      // fact about any one of them, so it stays here rather than becoming a
+      // schema refinement: the message has to name which ones actually arrived.
+      const proteinInputs = (
+        [
+          ["protein_g_per_kg_ffm", b.protein_g_per_kg_ffm],
+          ["protein_g_per_kg_bw", b.protein_g_per_kg_bw],
+          ["protein_g_target", b.protein_g_target],
+        ] as const
+      ).filter(([, v]) => v !== undefined && v !== null).map(([k]) => k);
+      if (proteinInputs.length !== 1) {
+        throw new ApiError(
+          422,
+          proteinInputs.length === 0
+            ? `Send exactly one protein input: "protein_g_per_kg_ffm" (the deficit basis — ${
+              PROTEIN_G_PER_KG_FFM_RANGE.join(" to ")
+            }; muscle retention scales with the mass being retained, not the fat being lost), "protein_g_per_kg_bw" (maintenance or surplus — ${
+              PROTEIN_G_PER_KG_BW_RANGE.join(" to ")
+            }), or "protein_g_target" as a finished number when neither basis fits.`
+            : `Send exactly one protein input — got ${
+              proteinInputs.join(" and ")
+            }.`,
+        );
+      }
+      const decision = b.decision;
+      const effectiveFrom = b.effective_from ?? await romeToday();
+      const explicitKcal = b.kcal_target ?? null;
+
+      // The direction must match the goal. Catching this here rather than letting
+      // a sign slip through is the difference between a cut and an accidental
+      // bulk — the rate is the one number the whole loop steers on.
+      if (goal === "cut" && rate >= 0) {
+        throw new ApiError(
+          422,
+          `A cut needs a negative rate_pct_bw_week (got ${rate}). Default -0.5, never past -0.7: faster costs lean mass in trained people.`,
+        );
+      }
+      if (goal === "gain" && rate <= 0) {
+        throw new ApiError(
+          422,
+          `A gain needs a positive rate_pct_bw_week (got ${rate}). +0.25 to +0.5 for a trained lifter; past that is mostly fat.`,
+        );
+      }
+      if (goal === "maintain" && Math.abs(rate) > 0.15) {
+        throw new ApiError(
+          422,
+          `A ${goal} target holds bodyweight roughly flat — rate_pct_bw_week should be near 0 (got ${rate}). If a real rate of change is intended, the goal is a cut or a gain.`,
+        );
+      }
+      // Recomp's real bound is in kcal — maintenance to a 200 kcal/day deficit —
+      // and the rate a deficit implies moves with bodyweight, so the rate gate
+      // here is only a sanity check against absurdity. A ±0.15 band once lived
+      // here; it capped recomp at roughly half the doctrine's floor and told
+      // doctrine-compliant requests to relabel themselves as cuts, which then
+      // registered a phase switch that never happened.
+      if (
+        goal === "recomp" &&
+        (rate > 0.15 || rate < -MAX_LOSS_RATE_PCT_BW_WEEK)
+      ) {
+        throw new ApiError(
+          422,
+          `A recomp holds bodyweight or drops it slowly — rate_pct_bw_week between -${MAX_LOSS_RATE_PCT_BW_WEEK} and +0.15 (got ${rate}). The kcal target is clipped to a ${MAX_RECOMP_DEFICIT_KCAL} kcal/day deficit whatever the rate implies, so a doctrine recomp needs no relabelling as a cut.`,
+        );
+      }
+
+      const trend = await loadTrend();
+      if (trend.length === 0) {
+        throw new ApiError(
+          422,
+          "No bodyweight history, so neither a calorie target nor a protein target can be computed. Log a weigh-in first.",
+        );
+      }
+      const trendNow = trend[trend.length - 1].trend_kg;
+      const bodyfat = (await latestBodyfat())?.percent ?? null;
+
+      // Protein first: it is the one target that does not depend on the
+      // expenditure estimate, so it still resolves when the estimate does not.
+      let proteinTarget: number;
+      let proteinComputation = null;
+      const explicitProtein = b.protein_g_target ?? null;
+      if (explicitProtein !== null) {
+        proteinTarget = explicitProtein;
+      } else {
+        const basis: ProteinBasis = b.protein_g_per_kg_ffm !== undefined &&
+            b.protein_g_per_kg_ffm !== null
+          ? "ffm"
+          : "bodyweight";
+        const multiplier =
+          (basis === "ffm" ? b.protein_g_per_kg_ffm : b.protein_g_per_kg_bw)!;
+        if (multiplier <= 0 || multiplier > 5) {
+          throw new ApiError(
+            422,
+            `A protein multiplier of ${multiplier} g/kg is outside anything defensible. Deficit: ${
+              PROTEIN_G_PER_KG_FFM_RANGE.join("–")
+            } g/kg fat-free mass. Maintenance or surplus: ${
+              PROTEIN_G_PER_KG_BW_RANGE.join("–")
+            } g/kg bodyweight.`,
+          );
+        }
+        if (basis === "ffm" && bodyfat === null) {
+          throw new ApiError(
+            422,
+            'Fat-free mass needs a body-fat estimate and there is none on record. POST /bodyfat with a rough figure (BIA, DXA, or an honest visual guess), or send "protein_g_per_kg_bw" to use bodyweight as the basis instead.',
+          );
+        }
+        proteinComputation = proteinFromMultiplier(
+          basis,
+          multiplier,
+          trendNow,
+          bodyfat,
+        );
+        proteinTarget = proteinComputation.protein_g_target;
+      }
+
+      let tdeeAtCreation: number | null = null;
+      let clipped = false;
+      let clippedReasons: string[] = [];
+      let kcalTarget: number;
+      let computation: Computation | null = null;
+
+      if (explicitKcal !== null) {
+        kcalTarget = explicitKcal;
+      } else {
+        // The normal path: rate in, kcal out, arithmetic on the server.
+        const expenditure = await currentExpenditure(trend);
+        if (expenditure.tdee_kcal === null) {
+          throw new ApiError(
+            422,
+            `A target cannot be computed yet: ${expenditure.reason} Send an explicit "kcal_target" only if you have a defensible reason for the number and say so in the decision — a formula-derived guess presented as this system's answer is an invention.`,
+          );
+        }
+        const density = energyDensity(fatMassKg(trendNow, bodyfat!));
+        const computed = targetFromRate(
+          expenditure.tdee_kcal,
+          rate,
+          trendNow,
+          density,
+          goal,
+        );
+        kcalTarget = computed.kcal_target;
+        clipped = computed.clipped;
+        clippedReasons = computed.clipped_reasons;
+        tdeeAtCreation = expenditure.tdee_kcal;
+        computation = {
+          tdee_kcal: expenditure.tdee_kcal,
+          band_kcal: expenditure.band_kcal,
+          expenditure_status: expenditure.status,
+          trend_weight_kg: trendNow,
+          energy_density_kcal_per_kg: Math.round(density),
+          rate_requested: computed.rate_requested,
+          rate_used: computed.rate_used,
+          desired_slope_kg_per_day: computed.desired_slope_kg_per_day,
+          implied_deficit_kcal: computed.implied_deficit_kcal,
+          clipped: computed.clipped,
+          clipped_reasons: computed.clipped_reasons,
+        };
+      }
+
+      const previous = await activeTarget(effectiveFrom);
+
+      const [row] = await sql<TargetRow[]>`
+    insert into nutrition_targets
+      (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target,
+       decision, tdee_at_creation, clipped, clipped_reasons, request_id)
+    values
+      (${effectiveFrom}, ${goal}, ${rate}, ${kcalTarget}, ${proteinTarget},
+       ${decision}, ${tdeeAtCreation}, ${clipped}, ${sql.array(clippedReasons)},
+       ${b.request_id})
+    returning id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
+      protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
+      created_at`;
+
+      // A change of goal is a phase switch, and a phase switch moves 1–2 kg of
+      // water within days. Registered automatically so the expenditure estimate
+      // damps through it — the coach should not have to remember to do this, and
+      // forgetting would make the next check-in read the water as metabolism.
+      if (previous && previous.goal !== goal) {
+        await sql`
+      insert into nutrition_events (day, kind, note)
+      values (${effectiveFrom}, 'phase_switch',
+        ${`${previous.goal} -> ${goal}`})`;
+      }
+
+      return {
+        target: row,
+        computation,
+        protein_computation: proteinComputation,
+        phase_switch_registered: Boolean(previous && previous.goal !== goal),
+      };
+    },
+  });
+  return status === 201 ? { created: true, body } : { created: false, body };
+}

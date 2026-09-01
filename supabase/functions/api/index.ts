@@ -16,6 +16,8 @@ import {
   intake,
   meals,
   nutritionEvents,
+  nutritionState,
+  nutritionTargets,
   nutritionWeekly,
 } from "./nutrition/index.ts";
 import { blocks } from "./routes/blocks.ts";
@@ -23,8 +25,6 @@ import { docs } from "./routes/docs.ts";
 import { exercises, muscles } from "./routes/exercises.ts";
 import { issues } from "./routes/issues.ts";
 import { mesocycles } from "./routes/mesocycles.ts";
-import { nutritionState } from "./routes/nutrition_state.ts";
-import { nutritionTargets } from "./routes/nutrition_targets.ts";
 import { sessions } from "./routes/sessions.ts";
 import { sets } from "./routes/sets.ts";
 import { trainingState } from "./routes/training_state.ts";
