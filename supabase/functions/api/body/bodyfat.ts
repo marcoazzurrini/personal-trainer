@@ -125,17 +125,20 @@ export async function recordBodyfat(input: {
 }
 
 /**
- * The most recent estimate's percentage, or null when none is on record.
+ * The most recent estimate, or null when none is on record.
  *
  * Tie-broken by id, because several methods can land on one day and the
  * back-solve needs one number. rules/dates.ts documents the hazard that
- * ordering creates.
+ * ordering creates — which is why the ordering is stated once here rather
+ * than wherever a caller happens to want the row. Callers that only need the
+ * number take `.percent`; nutrition-state shows the whole estimate, and it
+ * used to run a second, separately written query to get it.
  */
-export async function latestBodyfat(): Promise<number | null> {
-  const [row] = await sql`
-    select percent::float8 from bodyfat_estimates
+export async function latestBodyfat(): Promise<BodyfatRow | null> {
+  const [row] = await sql<BodyfatRow[]>`
+    select ${estimateColumns()} from bodyfat_estimates
     order by day desc, id desc limit 1`;
-  return row ? row.percent : null;
+  return row ?? null;
 }
 
 // A mistyped estimate is a mistake, not a measurement. 41% instead of 14%

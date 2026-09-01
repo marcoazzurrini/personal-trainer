@@ -4,10 +4,10 @@ import { romeClock } from "../record/calendar.ts";
 import { loadTrend } from "../body/bodyweight.ts";
 import {
   activeTarget,
-  activeTransients,
   currentExpenditure,
   slopePctBwWeek,
-} from "../record/nutrition_read.ts";
+} from "../nutrition/read.ts";
+import { activeTransients } from "../nutrition/events.ts";
 import { sumMacros } from "../rules/nutrition.ts";
 import { clock, macroTotals, query } from "../http/schema.ts";
 
@@ -118,7 +118,7 @@ const Bodyfat = z.object({
 });
 
 // A rate of change in weight, stated both ways it gets used: absolute and as a
-// share of bodyweight. record/nutrition_read.ts's slopePctBwWeek is the
+// share of bodyweight. nutrition/read.ts's slopePctBwWeek is the
 // definition.
 const Slope = z.object({
   kg_per_week: z.number(),
@@ -156,7 +156,7 @@ const NutritionState = z.object({
     interpolated: z.boolean(),
     // A slope is stated both ways it gets used: absolute, and as a share of
     // bodyweight — the number a cut is judged by is the percentage. The
-    // computation (record/nutrition_read.ts) has always returned both; the
+    // computation (nutrition/read.ts) has always returned both; the
     // schema here promised only the first.
     slope_7d: Slope.nullable(),
     slope_21d: Slope.nullable(),

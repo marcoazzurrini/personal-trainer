@@ -17,7 +17,7 @@ import {
 import { romeToday } from "../record/calendar.ts";
 import { latestBodyfat } from "../body/bodyfat.ts";
 import { loadTrend } from "../body/bodyweight.ts";
-import { activeTarget, currentExpenditure } from "../record/nutrition_read.ts";
+import { activeTarget, currentExpenditure } from "../nutrition/read.ts";
 import {
   body,
   number,
@@ -269,7 +269,7 @@ nutritionTargets.openapi(
           );
         }
         const trendNow = trend[trend.length - 1].trend_kg;
-        const bodyfat = await latestBodyfat();
+        const bodyfat = (await latestBodyfat())?.percent ?? null;
 
         // Protein first: it is the one target that does not depend on the
         // expenditure estimate, so it still resolves when the estimate does not.

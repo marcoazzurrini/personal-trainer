@@ -1,7 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { sql } from "../db.ts";
-import { requireRow } from "../http/errors.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import {
+  activeTransients,
+  KINDS,
+  listEvents,
+  registerEvent,
+  withdrawEvent,
+} from "./events.ts";
+import { romeToday } from "../record/calendar.ts";
 import {
   body,
   idParam,
@@ -11,20 +16,6 @@ import {
   query,
   requestId,
 } from "../http/schema.ts";
-import { romeToday } from "../record/calendar.ts";
-import { activeTransients } from "../record/nutrition_read.ts";
-
-// The register of things that make bodyweight move for reasons that are not
-// fat or muscle. Registering one tells the expenditure back-solve to damp its
-// updates while the water settles, instead of reading it as metabolism.
-
-const KINDS = [
-  "creatine_start",
-  "phase_switch",
-  "program_change",
-  "logging_change",
-  "other",
-] as const;
 
 export const nutritionEvents = new OpenAPIHono();
 
@@ -35,8 +26,6 @@ const Event = z.object({
   note: z.string().nullable(),
   created_at: z.string(),
 });
-
-type EventRow = z.infer<typeof Event>;
 
 // What the expenditure back-solve is actually damping on: the same rows, still
 // inside the window, without the bookkeeping column.
@@ -64,17 +53,11 @@ nutritionEvents.openapi(
       },
     },
   }),
-  async (c) => {
-    const rows = await sql<EventRow[]>`
-    select id, day, kind, note, created_at
-    from nutrition_events order by day desc, id desc`;
-    return c.json({
-      events: rows,
-      active: await activeTransients(await romeToday()) as z.infer<
-        typeof ActiveTransient
-      >[],
-    });
-  },
+  async (c) =>
+    c.json({
+      events: await listEvents(),
+      active: await activeTransients(await romeToday()),
+    }),
 );
 
 nutritionEvents.openapi(
@@ -115,31 +98,11 @@ nutritionEvents.openapi(
     },
   }),
   async (c) => {
-    const b = c.req.valid("json");
-
-    const { body: answer, status } = await writeOnce({
-      table: "nutrition_events",
-      requestId: b.request_id,
-      select: sql`id, day, kind, note, created_at`,
-      replay: (existing: EventRow) => ({ event: existing }),
-      write: async () => {
-        const day = b.day ?? await romeToday();
-
-        const [row] = await sql<EventRow[]>`
-        insert into nutrition_events (day, kind, note, request_id)
-        values (${day}, ${b.kind}, ${b.note ?? null}, ${b.request_id})
-        returning id, day, kind, note, created_at`;
-        return { event: row };
-      },
-    });
-    return c.json(answer, status);
+    const { row, created } = await registerEvent(c.req.valid("json"));
+    return created ? c.json({ event: row }, 201) : c.json({ event: row }, 200);
   },
 );
 
-// An event registered on the wrong day, or that turned out not to have
-// happened, actively distorts the estimate: it damps updates for two weeks
-// around a transient that never occurred. Registering one is a claim, and a
-// claim can be wrong.
 nutritionEvents.openapi(
   createRoute({
     method: "delete",
@@ -162,14 +125,6 @@ nutritionEvents.openapi(
       404: { description: "No event carries that id." },
     },
   }),
-  async (c) => {
-    const { id } = c.req.valid("param");
-    const row = requireRow(
-      await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
-    delete from nutrition_events where id = ${id}
-    returning day, kind, note`,
-      `No nutrition event with id ${id}.`,
-    );
-    return c.json({ deleted: row });
-  },
+  async (c) =>
+    c.json({ deleted: await withdrawEvent(c.req.valid("param").id) }),
 );

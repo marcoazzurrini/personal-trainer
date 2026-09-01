@@ -1,6 +1,7 @@
 import { sql } from "../db.ts";
-import { lastFinishedDay } from "./calendar.ts";
+import { lastFinishedDay } from "../record/calendar.ts";
 import { addDays, daysBetween } from "../rules/dates.ts";
+import { activeTransients } from "./events.ts";
 import { latestBodyfat } from "../body/bodyfat.ts";
 import type { TrendPoint } from "../body/trend.ts";
 import {
@@ -14,9 +15,6 @@ import {
 // to the pure arithmetic in expenditure.ts. Kept apart from the routes because
 // three of them need the same picture and it must not drift between them.
 
-// How long after a registered transient its damping applies. Glycogen and
-// water settle over one to two weeks; two is the honest outer bound.
-const TRANSIENT_WINDOW_DAYS = 14;
 // How far back to look for a window that still qualifies before giving up.
 const MAX_STALE_WEEKS = 4;
 
@@ -63,22 +61,6 @@ async function solveWindow(
   return backSolve({ days, intakeByDay, excludedDays, trend, bodyfatPercent });
 }
 
-export interface ActiveTransient {
-  id: number;
-  day: string;
-  kind: string;
-  note: string | null;
-}
-
-export async function activeTransients(
-  asOf: string,
-): Promise<ActiveTransient[]> {
-  return await sql<ActiveTransient[]>`
-    select id, day, kind, note from nutrition_events
-    where day >= ${addDays(asOf, -TRANSIENT_WINDOW_DAYS)} and day <= ${asOf}
-    order by day desc, id desc`;
-}
-
 export interface ExpenditureRead extends Expenditure {
   /**
    * Which window the returned estimate belongs to — today's for `ok` and
@@ -96,7 +78,7 @@ export async function currentExpenditure(
   trend: readonly TrendPoint[],
 ): Promise<ExpenditureRead> {
   const to = await lastFinishedDay();
-  const bodyfat = await latestBodyfat();
+  const bodyfat = (await latestBodyfat())?.percent ?? null;
 
   let current = await solveWindow(to, trend, bodyfat);
 
