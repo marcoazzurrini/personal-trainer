@@ -18,7 +18,7 @@ import {
   type ProteinComputation,
   proteinFromMultiplier,
   targetFromRate,
-} from "../rules/expenditure.ts";
+} from "./expenditure.ts";
 import { romeToday } from "../record/calendar.ts";
 import { latestBodyfat } from "../body/bodyfat.ts";
 import { loadTrend } from "../body/bodyweight.ts";

@@ -9,7 +9,7 @@ import {
   damp,
   DEFAULT_WINDOW_DAYS,
   type Expenditure,
-} from "../rules/expenditure.ts";
+} from "./expenditure.ts";
 
 // Everything that reads the nutrition picture out of the database and hands it
 // to the pure arithmetic in expenditure.ts. Kept apart from the routes because

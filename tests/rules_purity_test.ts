@@ -1,16 +1,15 @@
 import { assert, assertEquals } from "@std/assert";
 
 // The two rules about reaching the database, held against the source that has
-// to obey them: rules/ may not ask Postgres anything, and neither may a file
-// that declares HTTP routes.
+// to obey them: the pure arithmetic may not ask Postgres anything, and neither
+// may a file that declares HTTP routes.
 //
-// rules/ holds the arithmetic and the laws the database cannot express: the
-// Forbes energy math, the measure/dose/effort relationships, the macro
-// checks, the calendar. None of it asks Postgres anything, which is what
-// makes all of it testable without a stack. One `import { sql }` would end
-// that quietly — the file would still pass every test it has, the suite
-// would still be green, and the folder's name would have stopped meaning
-// anything by the time anyone noticed.
+// The pure modules hold the laws the database cannot express: the Forbes
+// energy math, the measure/dose/effort relationships, the macro checks, the
+// day arithmetic. None of it asks Postgres anything, which is what makes all
+// of it testable without a stack. One `import { sql }` would end that quietly
+// — the file would still pass every test it has and the suite would still be
+// green, and nothing would say so.
 //
 // ApiError is deliberately not forbidden here. Almost every file in rules/
 // refuses something, the refusal sentence is the contract with a model
@@ -34,9 +33,38 @@ import { assert, assertEquals } from "@std/assert";
 const API_DIR = "supabase/functions/api";
 const DB = `${API_DIR}/db.ts`;
 
+// The pure modules, named one by one.
+//
+// A folder carried this rule until #31 dissolved it: rules/ meant "no database
+// below here", and each topic owns its own arithmetic now, so there is no
+// folder left to point at. A list is the honest replacement rather than a
+// lesser one — the folder never covered a pure file written anywhere else
+// either, and a list at least says what it checks instead of implying it
+// checks a place. What it cannot do is notice a new pure module nobody adds to
+// it, which is the cost taken knowingly.
+//
+// Each entry is checked to exist, so a file renamed out from under this list
+// fails loudly here rather than dropping out of the walk in silence.
+const PURE = [
+  `${API_DIR}/body/trend.ts`,
+  `${API_DIR}/nutrition/expenditure.ts`,
+  `${API_DIR}/nutrition/rules.ts`,
+  `${API_DIR}/rules/dates.ts`,
+  `${API_DIR}/rules/training.ts`,
+];
+
 // Static imports, side-effect imports, re-exports and dynamic imports all
 // name their target the same way.
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*)"([^"]+)"/g;
+
+async function readable(file: string): Promise<boolean> {
+  try {
+    await Deno.stat(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function filesUnder(dir: string): Promise<string[]> {
   const found: string[] = [];
@@ -92,12 +120,15 @@ async function chainToDatabase(
   return null;
 }
 
-Deno.test("nothing under rules/ reaches the database", async () => {
-  const files = await filesUnder(`${API_DIR}/rules`);
-  assert(files.length > 0, `no source found under ${API_DIR}/rules`);
-
+Deno.test("nothing pure reaches the database", async () => {
   const offenders: string[] = [];
-  for (const file of files) {
+  for (const file of PURE) {
+    assert(
+      await readable(file),
+      `${file} is listed as pure and is not there. If it moved, move it in ` +
+        `PURE too; if it is gone, take it out — a stale entry is a module ` +
+        `nobody is checking.`,
+    );
     const chain = await chainToDatabase(file, new Set([file]), []);
     if (chain !== null) offenders.push(chain.join("\n      \u2192 "));
   }
@@ -105,9 +136,9 @@ Deno.test("nothing under rules/ reaches the database", async () => {
   assertEquals(
     offenders,
     [],
-    `rules/ is pure by rule — it may refuse, but it may not ask the ` +
-      `database anything:\n  ${offenders.join("\n  ")}\nPut the query in ` +
-      `record/ or in the route, and pass the values down.`,
+    `these modules are pure by rule — they may refuse, but they may not ask ` +
+      `the database anything:\n  ${offenders.join("\n  ")}\nPut the query in ` +
+      `the topic module beside them, and pass the values down.`,
   );
 });
 

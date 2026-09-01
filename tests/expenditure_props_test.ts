@@ -13,11 +13,11 @@ import {
   MAX_SURPLUS_KCAL,
   MIN_WINDOW_DAYS,
   targetFromRate,
-} from "../supabase/functions/api/rules/expenditure.ts";
+} from "../supabase/functions/api/nutrition/expenditure.ts";
 import type {
   Expenditure,
   WindowInput,
-} from "../supabase/functions/api/rules/expenditure.ts";
+} from "../supabase/functions/api/nutrition/expenditure.ts";
 import {
   type DailyWeight,
   DEFAULT_ALPHA,

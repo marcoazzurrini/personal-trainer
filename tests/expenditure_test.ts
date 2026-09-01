@@ -8,7 +8,7 @@ import {
   GOALS,
   proteinFromMultiplier,
   targetFromRate,
-} from "../supabase/functions/api/rules/expenditure.ts";
+} from "../supabase/functions/api/nutrition/expenditure.ts";
 import {
   type DailyWeight,
   type TrendPoint,

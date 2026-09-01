@@ -16,7 +16,7 @@ import { sql } from "../db.ts";
 import { romeClock } from "../record/calendar.ts";
 import { loadTrend } from "../body/bodyweight.ts";
 import { type BodyfatRow, latestBodyfat } from "../body/bodyfat.ts";
-import type { MacroTotals } from "../rules/nutrition.ts";
+import type { MacroTotals } from "./rules.ts";
 import { type ExpenditureRead } from "./read.ts";
 import { currentExpenditure, slopePctBwWeek } from "./read.ts";
 import { type ActiveTransient, activeTransients } from "./events.ts";

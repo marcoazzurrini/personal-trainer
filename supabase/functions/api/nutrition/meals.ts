@@ -14,7 +14,7 @@ import {
   type ScaledMacros,
   scaleFood,
   sumMacros,
-} from "../rules/nutrition.ts";
+} from "./rules.ts";
 import { writeOnce } from "../record/idempotency.ts";
 import {
   assertMealAliasesFree,

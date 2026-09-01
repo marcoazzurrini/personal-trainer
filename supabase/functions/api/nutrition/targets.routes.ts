@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { GOALS } from "../rules/expenditure.ts";
+import { GOALS } from "./expenditure.ts";
 import { romeToday } from "../record/calendar.ts";
 import {
   activeTarget,

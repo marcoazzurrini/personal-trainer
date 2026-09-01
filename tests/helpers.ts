@@ -420,7 +420,7 @@ export async function seedCut(seed: CutSeed) {
 import {
   DEFAULT_WINDOW_DAYS as WINDOW_DAYS,
   MIN_WINDOW_DAYS as MIN_USABLE_DAYS,
-} from "../supabase/functions/api/rules/expenditure.ts";
+} from "../supabase/functions/api/nutrition/expenditure.ts";
 export { MIN_USABLE_DAYS, WINDOW_DAYS };
 import {
   addDays,

@@ -21,7 +21,7 @@ import {
   type MacroTotals,
   scaleFood,
   sumMacros,
-} from "../rules/nutrition.ts";
+} from "./rules.ts";
 import { writeOnce } from "../record/idempotency.ts";
 import { romeToday } from "../record/calendar.ts";
 import { resolveFoodId, resolveMealId } from "./resolve.ts";
