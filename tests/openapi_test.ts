@@ -65,24 +65,22 @@ async function filesUnder(dir: string): Promise<string[]> {
   return found;
 }
 
-// The whole tree, not one directory. routes/ is being drained a topic at a
-// time, and a scan of that folder would go on passing while checking less and
-// less of the surface with every move — green, silent, and covering nothing by
-// the end. The failure it protects against is a route registered with .get()
-// instead of .openapi(), which is invisible by construction, so a check that
-// quietly stops looking is the same failure one level up.
+// The whole tree, not one directory. This scanned routes/ while that folder
+// was being drained a topic at a time, which would have gone on passing while
+// checking less and less of the surface with every move — green, silent, and
+// covering nothing by the end. The failure it protects against is a route
+// registered with .get() instead of .openapi(), which is invisible by
+// construction, so a check that quietly stops looking is the same failure one
+// level up.
 //
-// A non-empty guard would not catch it: it stays green with one file left. So
-// the set is defined by what a route file *is* rather than by where it sits —
-// the *.routes.ts convention ADR-0006 establishes, plus whatever has not moved
-// out of routes/ yet.
+// A non-empty guard would not have caught it either: it stays green with one
+// file left. So the set is defined by what a route file *is* rather than by
+// where it sits — the *.routes.ts convention ADR-0006 establishes — and that
+// is why a topic added tomorrow is covered without anyone remembering to add
+// it.
 async function routeFiles(): Promise<string[]> {
   const files = await filesUnder(API_DIR);
-  return files
-    .filter((f) =>
-      f.endsWith(".routes.ts") || f.startsWith(`${API_DIR}/routes/`)
-    )
-    .sort();
+  return files.filter((f) => f.endsWith(".routes.ts")).sort();
 }
 
 Deno.test("no route hides from the document", async () => {
