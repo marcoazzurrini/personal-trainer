@@ -1,8 +1,7 @@
 // The coaching documents: what a name may be, and where the files are.
 //
-// The documents are the product — CONTEXT.md says so — and the whole point of
-// bundling them with the function is that updating the coach's knowledge is a
-// git push.
+// The documents are the product, and the whole point of bundling them with the
+// function is that updating the coach's knowledge is a git push.
 
 // A document name is lowercase words joined by hyphens, nested with
 // slashes: "programming", "method/hypertrophy". No dots at all, so a name
