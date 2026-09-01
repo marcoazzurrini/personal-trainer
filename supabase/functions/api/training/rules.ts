@@ -19,6 +19,8 @@ export const TRACKS = [
 ] as const;
 
 export const ROLES = ["main", "accessory", "rehab"] as const;
+export type Role = typeof ROLES[number];
+export type Track = typeof TRACKS[number];
 
 export const MEASURES = [
   "load_reps",

@@ -23,6 +23,7 @@ import {
 import {
   blocks,
   exercises,
+  mesocycles,
   muscles,
   sessions,
   sets,
@@ -32,7 +33,6 @@ import {
 } from "./training/index.ts";
 import { docs } from "./routes/docs.ts";
 import { issues } from "./routes/issues.ts";
-import { mesocycles } from "./routes/mesocycles.ts";
 import { trainingState } from "./routes/training_state.ts";
 import { userContext } from "./routes/user_context.ts";
 

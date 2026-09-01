@@ -1,4 +1,4 @@
-import { sql } from "../db.ts";
+import { sql, type Tx } from "../db.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
 import { TRACKS } from "./rules.ts";
 import {
@@ -30,6 +30,26 @@ const EXERCISES: Namespace = {
 
 export const assertExerciseAliasesFree = (aliases: readonly string[]) =>
   assertAliasesFree(EXERCISES, aliases);
+
+/**
+ * What an exercise is called, for a refusal that has to name it.
+ *
+ * Three sites raise "that exercise is not in this plan" or "it is in two
+ * plans" and each needs the name to say which, so each ran its own lookup.
+ * Not a getExerciseById in disguise: nothing reads a row through it, and its
+ * only callers are the sentences.
+ *
+ * Takes the handle because two of those refusals are raised inside the
+ * transaction they are about to roll back, where a separate connection would
+ * not see the rows being written.
+ */
+export async function exerciseName(
+  on: Tx | typeof sql,
+  id: number,
+): Promise<string> {
+  const [row] = await on`select name from exercises where id = ${id}`;
+  return row.name as string;
+}
 
 export function resolveExerciseId(ref: unknown): Promise<number> {
   return resolveNamed(EXERCISES, ref);
@@ -145,10 +165,12 @@ export async function resolveSetMesocycleId(
     order by m.track`;
   if (rows.length === 0) return null;
   if (rows.length === 1) return rows[0].id as number;
-  const [e] = await sql`select name from exercises where id = ${exerciseId}`;
   throw new ApiError(
     422,
-    `"${e.name}" is in more than one active plan (${
+    `"${await exerciseName(
+      sql,
+      exerciseId,
+    )}" is in more than one active plan (${
       rows.map((r) => r.track).join(", ")
     }), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`,
   );
