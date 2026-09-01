@@ -1,6 +1,6 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { sql } from "../db.ts";
-import { ApiError, requireRow } from "../http/errors.ts";
+import { ApiError } from "../http/errors.ts";
+import { addAliases, releaseAlias } from "./aliases.ts";
 import { aliasList, body, query, text } from "../http/schema.ts";
 
 // Exercises, foods and meals all answer to more than one name, and the rule
@@ -12,6 +12,11 @@ import { aliasList, body, query, text } from "../http/schema.ts";
 // What is not shared is the prose. Every sentence below comes from the
 // caller: the client is a model, and the sentence telling it how to name a
 // food is not the sentence telling it how to name an exercise.
+//
+// The two writes are in aliases.ts beside this, for the reason every topic
+// splits the same way: a file that declares HTTP routes may not reach the
+// database. This one belongs to no topic — it is mounted five times across
+// three of them — so it shares a home rather than joining one.
 
 interface Aliased {
   id: number;
@@ -88,13 +93,7 @@ export function addAliasRoute<Body>(
       const aliases = b.alias !== undefined ? [b.alias] : (b.aliases ?? []);
       if (aliases.length === 0) throw new ApiError(422, surface.neither);
       await surface.assertFree(aliases);
-      await sql.begin(async (tx) => {
-        for (const alias of aliases) {
-          await tx`
-          insert into ${sql(surface.aliasTable)}
-          (${sql(surface.foreignKey)}, alias) values (${id}, ${alias})`;
-        }
-      });
+      await addAliases(surface.aliasTable, surface.foreignKey, id, aliases);
       return c.json(await surface.respond(id), 201);
     },
   );
@@ -141,14 +140,13 @@ export function releaseAliasRoute<Body>(
       const { ref: reference, alias: rawAlias } = c.req.valid("param");
       const entity = await surface.resolve(reference);
       const alias = decodeURIComponent(rawAlias);
-      requireRow(
-        await sql`
-      delete from ${sql(surface.aliasTable)}
-      where ${sql(surface.foreignKey)} = ${entity.id}
-        and lower(alias) = lower(${alias})
-      returning id`,
-        surface.notAnAlias(alias, entity),
-      );
+      await releaseAlias({
+        table: surface.aliasTable,
+        foreignKey: surface.foreignKey,
+        id: entity.id,
+        alias,
+        notAnAlias: surface.notAnAlias(alias, entity),
+      });
       return c.json(await surface.respond(entity.id));
     },
   );

@@ -16,7 +16,7 @@ import {
   query,
   text,
 } from "../http/schema.ts";
-import { addAliasRoute, releaseAliasRoute } from "./aliases.ts";
+import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 
 const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
 const SYSTEMIC_FATIGUE_LEVELS = ["normal", "high"] as const;

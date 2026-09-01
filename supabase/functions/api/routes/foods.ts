@@ -15,7 +15,7 @@ import {
   requestId,
   text,
 } from "../http/schema.ts";
-import { addAliasRoute, releaseAliasRoute } from "./aliases.ts";
+import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 
 // The registry the coach fills as it goes. A food is sourced once — from a
 // label, CREA, USDA or Open Food Facts — and saved, so it is never searched

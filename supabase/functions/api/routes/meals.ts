@@ -17,7 +17,7 @@ import {
   requestId,
   text,
 } from "../http/schema.ts";
-import { releaseAliasRoute } from "./aliases.ts";
+import { releaseAliasRoute } from "../shared/aliases.routes.ts";
 
 // Meals are routines, not history. "il mio solito yogurt" is a name, a list of
 // foods and their amounts — saved so that logging it costs seconds.
