@@ -116,7 +116,8 @@ Some code belongs to no topic and is not evidence of a failed boundary. The
 calendar, which holds the only place the Rome clock is *asked of Postgres* — the
 `now() at time zone 'Europe/Rome'` fragment, one site — and is imported by
 eleven files; `writeOnce`, used by every topic; the request-shape factories
-in `http/schema.ts`, used by twenty-one of twenty-two route files; the
+in `http/schema.ts` (now `shared/schema.ts`), used by twenty-one of
+twenty-two route files; the
 name-resolution engine that serves exercises, foods and meals alike; the alias
 route factory mounted five times across two topics. These are cross-cutting by
 nature and already deep. They keep a shared home, and a topic folder importing
@@ -175,3 +176,33 @@ evidence for a folder. And whether `rules/` survives as a name once each topic
 owns its own arithmetic: the purity rule it carries is about a capability rather
 than a place, and it may end up asserted against every topic's pure files
 wherever they sit.
+
+## Epilogue: `http/` went too
+
+The opening sentence names `http/` among the folders that sort this API by the
+technical job a file does, and says they are replaced. The migration then kept
+it, and ended with one folder still sorted on the rejected axis. `errors.ts` and
+`schema.ts` are now `shared/errors.ts` and `shared/schema.ts` — 100% renames, so
+every refusal sentence and every constraint message is byte-identical and
+`/openapi.json` did not move.
+
+The reason is ADR-0003's, applied to the folder that ADR created: `http/`
+claimed a boundary the repository does not keep. Its two files hold the envelope
+and the request shapes, but HTTP knowledge is deliberately not confined to them
+— the pure arithmetic throws `ApiError` and chooses status codes, because the
+refusal sentence is the contract with a model. `shared/` says only that no topic
+owns the file. That is less than `http/` said and all that is true.
+
+The cost is that `errors.ts` and `schema.ts` are not junk, and `shared/` is the
+name for code that belongs nowhere: twenty-three importers and twenty-one
+respectively, and this ADR's own *What does not move* leans on them. The trade
+is one sorting principle across the tree against two names that each said more.
+
+The layout as built:
+
+```
+index.ts       composition only
+db.ts          the client; no *.routes.ts may import it
+shared/        aliases  calendar  dates  errors  idempotency  resolve  schema
+body/  nutrition/  training/  surfaces/
+```

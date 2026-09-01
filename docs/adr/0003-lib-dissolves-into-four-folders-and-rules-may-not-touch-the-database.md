@@ -74,3 +74,18 @@ documents are the product rather than a third party, so it is no sibling of
 work that dissolves it is a different decision. The move itself was `git mv`
 and import rewrites only: no file contents changed beyond the paths, and every
 refusal sentence in the repository is byte-identical to what it was before.
+
+**Epilogue.** All four folders are gone. `rules/`, `record/` and `outside/`
+dissolved into the topics (ADR-0006), and `http/` followed them, its two files
+joining `shared/`. The prediction three paragraphs above held exactly: the
+layout did not survive and the rule did, now asserted against a list of pure
+files and against every `*.routes.ts` rather than against a folder.
+
+`http/` went for the reason this ADR gives for refusing to call `record/` the
+owner of database access — it claimed a boundary the repository does not keep.
+The name reads as "HTTP knowledge lives here", and *Why `ApiError` is allowed in
+the pure folder* settles that such knowledge is deliberately not confined: the
+pure arithmetic throws `ApiError` and picks status codes, because the refusal
+sentence is the contract. `shared/` claims only that no topic owns the file,
+which is true of both. That is a weaker name, and the weaker name is the honest
+one.

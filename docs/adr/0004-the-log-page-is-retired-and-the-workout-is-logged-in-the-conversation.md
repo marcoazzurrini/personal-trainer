@@ -37,7 +37,8 @@ would go private when the log page validated with schemas.
 It never did, and now it does not have to. `readJson`, `assertKnownFields`,
 `optionalString`, `requireOneOf`, `requireInt`, `optionalInt`, `optionalNumber`
 and `requireIdParam` are deleted with the file that held them. Every request
-this service accepts is now shaped by `http/schema.ts`, described in
+this service accepts is now shaped by `http/schema.ts` (now `shared/schema.ts`),
+described in
 `/openapi.json`, and refused through one error map. A reader no longer meets a
 second validation system and has to work out which one is real.
 

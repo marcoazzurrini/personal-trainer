@@ -9,7 +9,8 @@ what a correct one looks like.
 What they could not do is describe themselves. There was no way to see the API
 whole: 75 handlers, no inventory, and the only account of the request and
 response shapes was Markdown maintained by hand beside the code. So the routes
-now validate with Zod schemas (`http/schema.ts`), and `/openapi.json` is
+now validate with Zod schemas (`http/schema.ts`, now `shared/schema.ts`), and
+`/openapi.json` is
 generated from those same schemas and rendered by Scalar at `/reference`.
 
 The prose survived intact, which was the condition for doing this at all. It
