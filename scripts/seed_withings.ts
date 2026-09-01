@@ -19,7 +19,7 @@
 //     scripts/seed_withings.ts
 
 import postgres from "postgres";
-import { refreshTokens } from "../supabase/functions/api/outside/withings.ts";
+import { refreshTokens } from "../supabase/functions/api/body/withings_client.ts";
 
 const ENV_PATH = "supabase/functions/.env";
 const POOLER_PATH = "supabase/.temp/pooler-url";

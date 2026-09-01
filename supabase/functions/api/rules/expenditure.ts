@@ -1,4 +1,4 @@
-// Trend weight and the expenditure back-solve.
+// The expenditure back-solve.
 //
 // The identity: over a window, TDEE ~= mean(intake) - dE_stored/dt, with the
 // stored-energy term inferred from the bodyweight trend. Validated against
@@ -18,9 +18,9 @@
 // without a stack, and it is the only arithmetic in the system where being
 // quietly wrong would be invisible for weeks.
 
-import { addDays, daysBetween } from "./dates.ts";
+import { daysBetween } from "./dates.ts";
+import type { TrendPoint } from "../body/trend.ts";
 
-export const DEFAULT_ALPHA = 0.10; // ~19-day-equivalent window
 export const MIN_WINDOW_DAYS = 14;
 export const DEFAULT_WINDOW_DAYS = 21;
 export const MIN_WEIGH_INS_PER_WEEK = 3;
@@ -55,79 +55,12 @@ export function fatFreeMassKg(
   return weightKg * (1 - bodyfatPercent / 100);
 }
 
-// --- Trend weight ----------------------------------------------------------
-
-export interface DailyWeight {
-  day: string; // YYYY-MM-DD
-  value_kg: number;
-}
-
-export interface TrendPoint {
-  day: string;
-  weight_kg: number; // real or interpolated
-  interpolated: boolean;
-  trend_kg: number;
-}
-
-// Re-exported: daysBetween has always been part of this module's public
-// face, and its callers should not care that the arithmetic moved to
-// rules/dates.ts when the week functions joined it.
-export { daysBetween } from "./dates.ts";
-
-// Exponentially weighted moving average over the daily series, initialized at
-// the first weigh-in's raw value.
-//
-// A single missing day is filled by interpolating its neighbours — the gap is
-// shorter than the noise it sits in, and MacroFactor documents the same
-// choice. Longer gaps are NOT filled: the EMA simply does not advance across
-// them. Carrying a value forward through a week of silence would invent a
-// flat stretch that never happened and drag the slope toward zero, which
-// reads as a stalled diet.
-export function trendSeries(
-  weights: readonly DailyWeight[],
-  alpha: number = DEFAULT_ALPHA,
-): TrendPoint[] {
-  if (weights.length === 0) return [];
-  // Sorted here, not assumed: the SQL that feeds this orders by day, but an
-  // unsorted array used to be answered with a silently truncated series —
-  // wrong in exactly the invisible-for-weeks way this module exists to avoid.
-  const ordered = [...weights].sort((a, b) => a.day < b.day ? -1 : 1);
-  const byDay = new Map(ordered.map((w) => [w.day, Number(w.value_kg)]));
-  const first = ordered[0].day;
-  const last = ordered[ordered.length - 1].day;
-
-  const points: TrendPoint[] = [];
-  let trend = Number(ordered[0].value_kg);
-
-  for (let day = first; daysBetween(day, last) >= 0; day = addDays(day, 1)) {
-    let weight = byDay.get(day);
-    let interpolated = false;
-
-    if (weight === undefined) {
-      const before = byDay.get(addDays(day, -1));
-      const after = byDay.get(addDays(day, 1));
-      if (before === undefined || after === undefined) continue; // gap > 1 day
-      weight = (before + after) / 2;
-      interpolated = true;
-    }
-
-    trend = day === first ? weight : alpha * weight + (1 - alpha) * trend;
-    points.push({
-      day,
-      weight_kg: round(weight, 2),
-      interpolated,
-      trend_kg: round(trend, 2),
-    });
-  }
-  return points;
-}
+// --- The back-solve --------------------------------------------------------
 
 function round(v: number, places: number): number {
   const f = 10 ** places;
   return Math.round(v * f) / f;
 }
-
-// --- The back-solve --------------------------------------------------------
 
 export type ExpenditureStatus =
   | "ok"

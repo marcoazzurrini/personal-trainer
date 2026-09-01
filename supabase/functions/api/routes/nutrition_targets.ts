@@ -15,11 +15,11 @@ import {
   targetFromRate,
 } from "../rules/expenditure.ts";
 import { romeToday } from "../record/calendar.ts";
+import { loadTrend } from "../body/bodyweight.ts";
 import {
   activeTarget,
   currentExpenditure,
   latestBodyfat,
-  loadTrend,
 } from "../record/nutrition_read.ts";
 import {
   body,

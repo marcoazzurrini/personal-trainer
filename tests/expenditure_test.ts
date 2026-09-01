@@ -1,7 +1,6 @@
 import { assert, assertAlmostEquals, assertEquals } from "@std/assert";
 import {
   backSolve,
-  type DailyWeight,
   damp,
   energyDensity,
   fatFreeMassKg,
@@ -9,9 +8,12 @@ import {
   GOALS,
   proteinFromMultiplier,
   targetFromRate,
+} from "../supabase/functions/api/rules/expenditure.ts";
+import {
+  type DailyWeight,
   type TrendPoint,
   trendSeries,
-} from "../supabase/functions/api/rules/expenditure.ts";
+} from "../supabase/functions/api/body/trend.ts";
 
 // Pure functions, no stack. This is the arithmetic that would be invisible if
 // it were quietly wrong, so it gets tested against hand-computed values rather

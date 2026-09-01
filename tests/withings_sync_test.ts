@@ -3,7 +3,7 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 // The sync wiring: what happens to a reading between arriving and becoming a
 // row, and — above all — what moves the watermark. withings_test.ts covers
 // the client protocol against a stub; this file points the whole sync at the
-// same kind of stub (WITHINGS_API_BASE) and exercises record/withings_sync.ts
+// same kind of stub (WITHINGS_API_BASE) and exercises body/withings.ts
 // for real, database included.
 //
 // Env first, imports after: db.ts reads DATABASE_URL and withings_sync.ts
@@ -63,7 +63,7 @@ Deno.test(
     );
 
     const { catchUp, catchUpIfDue, syncNotifiedWindow } = await import(
-      "../supabase/functions/api/record/withings_sync.ts"
+      "../supabase/functions/api/body/withings.ts"
     );
     const { sql } = await import("../supabase/functions/api/db.ts");
 

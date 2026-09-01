@@ -1,11 +1,11 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { romeClock } from "../record/calendar.ts";
+import { loadTrend } from "../body/bodyweight.ts";
 import {
   activeTarget,
   activeTransients,
   currentExpenditure,
-  loadTrend,
   slopePctBwWeek,
 } from "../record/nutrition_read.ts";
 import { sumMacros } from "../rules/nutrition.ts";

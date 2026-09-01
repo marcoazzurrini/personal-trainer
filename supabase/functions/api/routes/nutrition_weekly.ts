@@ -2,7 +2,8 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { energyDensity, fatMassKg, GOALS } from "../rules/expenditure.ts";
 import { lastFinishedDay } from "../record/calendar.ts";
-import { latestBodyfat, loadTrend } from "../record/nutrition_read.ts";
+import { loadTrend } from "../body/bodyweight.ts";
+import { latestBodyfat } from "../record/nutrition_read.ts";
 import { query } from "../http/schema.ts";
 
 // Finished weeks only, like every other weekly read in this system: the

@@ -1,14 +1,12 @@
 import { sql } from "../db.ts";
 import { lastFinishedDay } from "./calendar.ts";
-import { addDays } from "../rules/dates.ts";
+import { addDays, daysBetween } from "../rules/dates.ts";
+import type { TrendPoint } from "../body/trend.ts";
 import {
   backSolve,
   damp,
-  daysBetween,
   DEFAULT_WINDOW_DAYS,
   type Expenditure,
-  type TrendPoint,
-  trendSeries,
 } from "../rules/expenditure.ts";
 
 // Everything that reads the nutrition picture out of the database and hands it
@@ -20,12 +18,6 @@ import {
 const TRANSIENT_WINDOW_DAYS = 14;
 // How far back to look for a window that still qualifies before giving up.
 const MAX_STALE_WEEKS = 4;
-
-export async function loadTrend(): Promise<TrendPoint[]> {
-  const rows = await sql`
-    select day, value_kg from daily_bodyweight order by day`;
-  return trendSeries(rows.map((r) => ({ day: r.day, value_kg: r.value_kg })));
-}
 
 interface IntakeWindow {
   intakeByDay: Map<string, number>;

@@ -2,7 +2,7 @@
 // they are refreshed, and what happens to a reading between arriving and
 // becoming a row.
 //
-// Split from outside/withings.ts so that file can stay import-free and testable
+// Split from withings_client.ts so that file can stay import-free and testable
 // against a stub. What is here is the part that needs a database.
 
 import { sql } from "../db.ts";
@@ -16,7 +16,7 @@ import {
   selectWeights,
   type WithingsConfig,
   WithingsError,
-} from "../outside/withings.ts";
+} from "./withings_client.ts";
 
 export const WITHINGS_SOURCE = "withings";
 

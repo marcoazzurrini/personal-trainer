@@ -1,8 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { sql } from "../db.ts";
-import { requireRow } from "../http/errors.ts";
-import { recordBodyweight } from "../record/bodyweight.ts";
-import { loadTrend } from "../record/nutrition_read.ts";
+import {
+  listBodyweight,
+  loadTrend,
+  recordBodyweight,
+  removeBodyweight,
+} from "./bodyweight.ts";
 import {
   body,
   idParam,
@@ -21,15 +23,13 @@ const Measurement = z.object({
   source: z.string(),
 });
 
-type MeasurementRow = z.infer<typeof Measurement>;
-
 const TrendPoint = z.object({
   day: z.string(),
   // The two fields the EMA needs to state its own gaps: the day's raw or
   // interpolated weight, and which of the two it is. A point nobody weighed
   // is a different fact from one they did, and the chart wants to mark it.
-  // rules/expenditure.ts defines the shape; this declares what was always
-  // served — the schema promised less than the SQL returned.
+  // trend.ts defines the shape; this declares what was always served — the
+  // schema promised less than the SQL returned.
   weight_kg: z.number(),
   interpolated: z.boolean(),
   trend_kg: z.number(),
@@ -58,9 +58,6 @@ bodyweight.openapi(
     },
   }),
   async (c) => {
-    const rows = await sql<MeasurementRow[]>`
-    select id, value_kg::float8, measured_at, source
-    from bodyweight order by measured_at`;
     // The trend rides along as its own series, not as a column on the raw rows.
     // It cannot be a column: an interpolated day has no raw row to carry it, so
     // a per-row trend would gap exactly where the EMA earns its keep — and the
@@ -69,7 +66,7 @@ bodyweight.openapi(
     // yields both series the bodyweight chart needs; the chart rules forbid
     // computing a trend client-side, and for a long while nothing served one.
     return c.json({
-      bodyweight: rows,
+      bodyweight: await listBodyweight(),
       trend: await loadTrend(),
     });
   },
@@ -126,16 +123,11 @@ bodyweight.openapi(
       measuredAt: b.measured_at ?? new Date().toISOString(),
     });
     return created
-      ? c.json({ bodyweight: row as MeasurementRow }, 201)
-      : c.json({ bodyweight: row as MeasurementRow }, 200);
+      ? c.json({ bodyweight: row }, 201)
+      : c.json({ bodyweight: row }, 200);
   },
 );
 
-// A mistyped weigh-in used to be a cosmetic blemish on a chart. It now feeds
-// the trend, the trend feeds the expenditure estimate, and the estimate sets
-// the calorie target — an 8 kg typo would read as a fortnight of catastrophic
-// loss and hand back a target hundreds of calories wrong. A measurement that
-// was never taken is a mistake, and mistakes come out.
 bodyweight.openapi(
   createRoute({
     method: "delete",
@@ -160,12 +152,6 @@ bodyweight.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    const row = requireRow(
-      await sql<Array<Omit<MeasurementRow, "id">>>`
-    delete from bodyweight where id = ${id}
-    returning value_kg::float8, measured_at, source`,
-      `No bodyweight measurement with id ${id}.`,
-    );
-    return c.json({ deleted: row });
+    return c.json({ deleted: await removeBodyweight(id) });
   },
 );

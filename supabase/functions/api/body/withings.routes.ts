@@ -1,12 +1,8 @@
 import { Hono } from "@hono/hono";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { ApiError } from "../http/errors.ts";
-import {
-  catchUp,
-  configuredUserId,
-  syncNotifiedWindow,
-} from "../record/withings_sync.ts";
-import { WithingsError } from "../outside/withings.ts";
+import { catchUp, configuredUserId, syncNotifiedWindow } from "./withings.ts";
+import { WithingsError } from "./withings_client.ts";
 import { query } from "../http/schema.ts";
 
 // The routes Withings itself calls. Mounted ahead of the bearer-token
