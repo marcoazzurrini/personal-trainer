@@ -10,13 +10,11 @@ import {
   withingsWebhook,
 } from "./body/index.ts";
 import { catchUpIfDue } from "./body/withings.ts";
-import { days, intake } from "./nutrition/index.ts";
+import { days, foods, intake, meals } from "./nutrition/index.ts";
 import { blocks } from "./routes/blocks.ts";
 import { docs } from "./routes/docs.ts";
 import { exercises, muscles } from "./routes/exercises.ts";
-import { foods } from "./routes/foods.ts";
 import { issues } from "./routes/issues.ts";
-import { meals } from "./routes/meals.ts";
 import { mesocycles } from "./routes/mesocycles.ts";
 import { nutritionEvents } from "./routes/nutrition_events.ts";
 import { nutritionState } from "./routes/nutrition_state.ts";
