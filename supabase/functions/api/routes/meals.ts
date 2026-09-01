@@ -7,7 +7,7 @@ import {
   assertMealAliasesFree,
   resolveFoodId,
   resolveMealId,
-} from "../record/resolve.ts";
+} from "../nutrition/resolve.ts";
 import {
   aliasList,
   body,

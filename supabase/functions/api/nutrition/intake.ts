@@ -24,7 +24,7 @@ import {
 } from "../rules/nutrition.ts";
 import { writeOnce } from "../record/idempotency.ts";
 import { romeToday } from "../record/calendar.ts";
-import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
+import { resolveFoodId, resolveMealId } from "./resolve.ts";
 
 export interface IntakeEntry {
   id: number;

@@ -3,7 +3,7 @@ import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { checkEnergy, checkMacroMass } from "../rules/nutrition.ts";
 import { writeOnce } from "../record/idempotency.ts";
-import { assertFoodAliasesFree, resolveFoodId } from "../record/resolve.ts";
+import { assertFoodAliasesFree, resolveFoodId } from "../nutrition/resolve.ts";
 import {
   aliasList,
   body,
