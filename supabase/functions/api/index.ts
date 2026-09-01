@@ -22,6 +22,8 @@ import {
 } from "./nutrition/index.ts";
 import {
   blocks,
+  exercises,
+  muscles,
   sessions,
   sets,
   weeklyExerciseSets,
@@ -29,7 +31,6 @@ import {
   weekSchedule,
 } from "./training/index.ts";
 import { docs } from "./routes/docs.ts";
-import { exercises, muscles } from "./routes/exercises.ts";
 import { issues } from "./routes/issues.ts";
 import { mesocycles } from "./routes/mesocycles.ts";
 import { trainingState } from "./routes/training_state.ts";
