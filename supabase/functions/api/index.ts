@@ -10,6 +10,7 @@ import {
   withingsWebhook,
 } from "./body/index.ts";
 import { catchUpIfDue } from "./body/withings.ts";
+import { docs, issues } from "./surfaces/index.ts";
 import {
   days,
   foods,
@@ -33,8 +34,6 @@ import {
   weeklyVolume,
   weekSchedule,
 } from "./training/index.ts";
-import { docs } from "./routes/docs.ts";
-import { issues } from "./routes/issues.ts";
 
 // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
 // mounted below stays an ordinary Hono router and keeps working untouched.

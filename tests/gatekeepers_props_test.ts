@@ -12,7 +12,7 @@ import {
   docUrl,
   isDocName,
   MAX_DOC_NAME,
-} from "../supabase/functions/api/doc_names.ts";
+} from "../supabase/functions/api/surfaces/docs.ts";
 import { ApiError } from "../supabase/functions/api/http/errors.ts";
 
 // The gatekeepers, tested as laws. Every request the API accepts or refuses

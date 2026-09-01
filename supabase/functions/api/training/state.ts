@@ -8,7 +8,7 @@
 // list of recent sessions, one person.
 
 import { sql } from "../db.ts";
-import { docExists } from "../doc_names.ts";
+import { docExists } from "../surfaces/docs.ts";
 import { romeClock, romeDate, romeWeekStart } from "../record/calendar.ts";
 import { deliveredInDoseUnit } from "./rules.ts";
 import { planWeekOrNull, planWeekSince } from "./mesocycles.ts";

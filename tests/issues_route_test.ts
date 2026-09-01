@@ -37,7 +37,7 @@ Deno.test(
     );
 
     const { issues } = await import(
-      "../supabase/functions/api/routes/issues.ts"
+      "../supabase/functions/api/surfaces/issues.routes.ts"
     );
     const { errorResponse } = await import(
       "../supabase/functions/api/http/errors.ts"

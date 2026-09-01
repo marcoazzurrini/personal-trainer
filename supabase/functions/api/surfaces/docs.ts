@@ -1,3 +1,9 @@
+// The coaching documents: what a name may be, and where the files are.
+//
+// The documents are the product — CONTEXT.md says so — and the whole point of
+// bundling them with the function is that updating the coach's knowledge is a
+// git push.
+
 // A document name is lowercase words joined by hyphens, nested with
 // slashes: "programming", "method/hypertrophy". No dots at all, so a name
 // can never spell ".." and escape the docs folder.
@@ -15,7 +21,10 @@ export function isDocName(name: string): boolean {
 // from general knowledge, and the API states that rather than leaving the
 // coach to discover it.
 export function docUrl(name: string): URL {
-  return new URL(`./docs/${name}.md`, import.meta.url);
+  // Up one, because the markdown lives at api/docs/ and this file is in
+  // api/surfaces/. The folder could not be renamed to match: docs/ is already
+  // the documents themselves.
+  return new URL(`../docs/${name}.md`, import.meta.url);
 }
 
 // Reads the file rather than stat-ing it: the edge runtime serves Deno.stat

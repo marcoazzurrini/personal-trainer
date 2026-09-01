@@ -1,5 +1,5 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
-import { docUrl, isDocName } from "../doc_names.ts";
+import { docUrl, isDocName } from "./docs.ts";
 import { ApiError } from "../http/errors.ts";
 
 // The skill's documents, bundled with the function and served as markdown.
