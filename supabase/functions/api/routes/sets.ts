@@ -10,6 +10,7 @@ import {
   optionalNumber,
   optionalText,
   optionalTimestamp,
+  query,
 } from "../http/schema.ts";
 
 const EFFORTS = ["easy", "hard", "failure"] as const;
@@ -67,6 +68,7 @@ sets.openapi(
     description:
       "Partial. A field left out is untouched; a field sent as null is cleared. Only actuals, performed_at and notes can change — targets are immutable.",
     request: {
+      query: query({}),
       params: z.object({ id: idParam("set") }),
       body: {
         content: {

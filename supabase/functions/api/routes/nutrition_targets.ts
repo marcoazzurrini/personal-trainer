@@ -28,6 +28,7 @@ import {
   optionalDate,
   optionalInt,
   optionalNumber,
+  query,
   requestId,
   text,
 } from "../http/schema.ts";
@@ -92,6 +93,7 @@ nutritionTargets.openapi(
     path: "/",
     tags: ["Nutrition"],
     summary: "Every target ever set, and the one in force",
+    request: { query: query({}) },
     responses: {
       200: {
         description:
@@ -126,6 +128,7 @@ nutritionTargets.openapi(
     description:
       "Exactly one protein input is required: `protein_g_per_kg_ffm` on a deficit, `protein_g_per_kg_bw` at maintenance or in a surplus, or `protein_g_target` as a finished number when neither basis fits. kcal is computed from `rate_pct_bw_week` unless `kcal_target` is sent explicitly.",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {

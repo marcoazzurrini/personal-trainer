@@ -11,6 +11,7 @@ import {
   oneOf,
   optionalDate,
   optionalText,
+  query,
   requestId,
 } from "../http/schema.ts";
 
@@ -42,6 +43,7 @@ bodyfat.openapi(
     path: "/",
     tags: ["Tracking"],
     summary: "Every body-fat estimate",
+    request: { query: query({}) },
     responses: {
       200: {
         description: "All estimates, by day then method.",
@@ -78,6 +80,7 @@ bodyfat.openapi(
     tags: ["Tracking"],
     summary: "Record a body-fat estimate",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -182,7 +185,10 @@ bodyfat.openapi(
     path: "/{id}",
     tags: ["Tracking"],
     summary: "Delete a body-fat estimate",
-    request: { params: z.object({ id: idParam("body-fat estimate") }) },
+    request: {
+      params: z.object({ id: idParam("body-fat estimate") }),
+      query: query({}),
+    },
     responses: {
       200: {
         description: "The estimate that was deleted.",

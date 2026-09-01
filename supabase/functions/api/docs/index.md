@@ -40,11 +40,18 @@ Two reflexes replace memory:
   filed it, give Marco the URL, and carry on with what he was doing. You are the
   only thing that saw it; unfiled, it is gone. Improvements are the opposite: they
   wait until the task is done and Marco decides whether they are worth filing.
-- **A field a call does not accept is refused, not ignored.** Invent a plausible
-  parameter and the call fails naming it, and lists the fields that do exist —
-  which is usually the one you wanted. Never assume an unfamiliar field was
-  understood because the call succeeded; if it had not been understood, it would
-  not have succeeded.
+- **A field a call does not accept is refused, not ignored.** This covers the body
+  and the query string alike. Invent a plausible parameter and the call fails naming
+  it, and lists the fields or parameters that do exist — which is usually the one you
+  wanted. Never assume an unfamiliar field was understood because the call succeeded;
+  if it had not been understood, it would not have succeeded. In particular a filter
+  you guessed at either filtered or refused, so a 200 is never an unfiltered list
+  wearing the shape of a filtered one.
+- **Both state reads open with `now`** — `{date, time, weekday, tz}`, from the
+  server's clock, in Europe/Rome. Read it before interpreting anything relative:
+  "yesterday", "stasera", "this morning", "last Monday". Never date those from
+  conversation history or from an earlier tool result, which went stale the moment
+  the conversation crossed midnight.
 - Exercises, foods and meals all resolve by id, name, or alias, case-insensitively. If
   a name doesn't resolve, the error says what to do. Only add a genuinely new one —
   never a synonym of something that exists, which would split its history in two.

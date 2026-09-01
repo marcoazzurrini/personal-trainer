@@ -3,6 +3,7 @@ import { sql } from "../db.ts";
 import { energyDensity, fatMassKg, GOALS } from "../rules/expenditure.ts";
 import { lastFinishedDay } from "../record/calendar.ts";
 import { latestBodyfat, loadTrend } from "../record/nutrition_read.ts";
+import { query } from "../http/schema.ts";
 
 // Finished weeks only, like every other weekly read in this system: the
 // current week is never blended in, because a Tuesday's three logged days
@@ -73,7 +74,7 @@ nutritionWeekly.openapi(
     tags: ["Nutrition"],
     summary: "Finished weeks, each against the target that governed it",
     request: {
-      query: z.object({
+      query: query({
         weeks: weeksParam.meta({
           description:
             "How many finished weeks to return, newest last. Default 8, maximum 104.",

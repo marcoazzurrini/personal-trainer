@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { romeIsoDow, romeWeekStart } from "../record/calendar.ts";
-import { body, optionalDate, text } from "../http/schema.ts";
+import { body, optionalDate, query, text } from "../http/schema.ts";
 
 // The shape of a week, in prose, as the coach proposed it and Marco accepted
 // it. Its only reader is the coach, so it has no structure to speak of: a
@@ -34,6 +34,7 @@ weekSchedule.openapi(
     tags: ["Planning"],
     summary: "Write or replace a week's shape",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {

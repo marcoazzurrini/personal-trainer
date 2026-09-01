@@ -1,8 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { docExists } from "../doc_names.ts";
-import { romeDate, romeWeekStart } from "../record/calendar.ts";
+import { romeClock, romeDate, romeWeekStart } from "../record/calendar.ts";
 import { deliveredInDoseUnit } from "../rules/training.ts";
+import { clock, query } from "../http/schema.ts";
 
 // The composite: everything true about the training as of now. A view over
 // things that each have their own address — nothing here is only obtainable
@@ -110,7 +111,7 @@ const RecentSession = z.object({
 // routing to onboarding or to programming, and `recent_sessions` is not
 // fetched at all — there is nothing to read them against yet.
 const TrainingState = z.object({
-  today: z.string(),
+  now: clock(),
   week_schedule: WeekSchedule.nullable(),
   mesocycles: z.array(ActiveMesocycle),
   note: z.string().optional(),
@@ -126,6 +127,7 @@ trainingState.openapi(
     summary: "Everything true about the training, as of now",
     description:
       "The read that opens a training conversation. Plans are plural — hypertrophy and speed run side by side, each with its own week number, its own dose and its own method document. What they share is the week: one schedule, one list of recent sessions, one person. With no active plan the answer carries a `note` routing to onboarding or programming instead.",
+    request: { query: query({}) },
     responses: {
       200: {
         description: "The complete current training picture.",
@@ -134,9 +136,9 @@ trainingState.openapi(
     },
   }),
   async (c) => {
-    const [clock] = await sql`
-    select ${romeDate()} as today,
-      ${romeWeekStart()} as week_start`;
+    const now = await romeClock();
+    const [{ week_start: weekStart }] = await sql`
+    select ${romeWeekStart()} as week_start`;
 
     const userContext = await sql<z.infer<typeof ContextEntry>[]>`
     select distinct on (topic) topic, content, written_at
@@ -145,7 +147,7 @@ trainingState.openapi(
 
     const [weekSchedule] = await sql<z.infer<typeof WeekSchedule>[]>`
     select week_start, schedule, written_at from week_schedules
-    where week_start = ${clock.week_start}`;
+    where week_start = ${weekStart}`;
 
     const active = await sql`
     select id, name, track, intent, planned_weeks, sessions_per_week,
@@ -160,7 +162,7 @@ trainingState.openapi(
         ? "No active mesocycle and no user context: this is a first conversation. Start with GET /docs/tasks/onboarding — do not program anything yet."
         : "No active mesocycle. Fetch GET /docs/tasks/programming, then create one with POST /mesocycles (blocks via POST /blocks).";
       return c.json({
-        today: clock.today as string,
+        now,
         mesocycles: [],
         note,
         week_schedule: weekSchedule ?? null,
@@ -203,7 +205,7 @@ trainingState.openapi(
           and t.mesocycle_id = me.mesocycle_id
           and t.kind = 'working'
           and set_performed(t.reps, t.distance_m, t.duration_s)
-          and s.date >= ${clock.week_start}
+          and s.date >= ${weekStart}
       ) d on true
       where me.mesocycle_id = ${meso.id}
       order by me.priority, e.name`;
@@ -212,7 +214,7 @@ trainingState.openapi(
       select count(distinct s.id)::int as sessions_done
       from sessions s
       join sets t on t.session_id = s.id
-      where t.mesocycle_id = ${meso.id} and s.date >= ${clock.week_start}
+      where t.mesocycle_id = ${meso.id} and s.date >= ${weekStart}
         and set_performed(t.reps, t.distance_m, t.duration_s)`;
 
       // The last few finished weeks: what was delivered. Judging it against the
@@ -302,7 +304,7 @@ trainingState.openapi(
     limit 5`;
 
     return c.json({
-      today: clock.today as string,
+      now,
       week_schedule: weekSchedule ?? null,
       mesocycles,
       recent_sessions: recentSessions,

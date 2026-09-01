@@ -1,7 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { writeOnce } from "../record/idempotency.ts";
-import { body, date, optionalDate, requestId, text } from "../http/schema.ts";
+import {
+  body,
+  date,
+  optionalDate,
+  query,
+  requestId,
+  text,
+} from "../http/schema.ts";
 
 export const blocks = new OpenAPIHono();
 
@@ -23,6 +30,7 @@ blocks.openapi(
     path: "/",
     tags: ["Planning"],
     summary: "Every block, oldest first",
+    request: { query: query({}) },
     responses: {
       200: {
         description: "All blocks in start order.",
@@ -48,6 +56,7 @@ blocks.openapi(
     tags: ["Planning"],
     summary: "Open a block",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {

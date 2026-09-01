@@ -7,6 +7,7 @@ import {
   syncNotifiedWindow,
 } from "../record/withings_sync.ts";
 import { WithingsError } from "../outside/withings.ts";
+import { query } from "../http/schema.ts";
 
 // The routes Withings itself calls. Mounted ahead of the bearer-token
 // middleware, because Withings has no way to send our token and a notification
@@ -112,7 +113,7 @@ withingsAdmin.openapi(
     description:
       "Ignores the throttle. Takes no body — `curl -X POST` with nothing in it is the point, because this is the endpoint reached for in a terminal at an awkward moment.",
     request: {
-      query: z.object({
+      query: query({
         since: z.string().optional().meta({
           description:
             "Epoch seconds, overriding the watermark. 0 re-imports the whole history, which is free because every write is deduped on its instant.",
@@ -155,7 +156,7 @@ withingsAdmin.openapi(
     },
   }),
   async (c) => {
-    const raw = c.req.query("since");
+    const raw = c.req.valid("query").since;
     let since: number | undefined;
     if (raw !== undefined) {
       since = Number(raw);

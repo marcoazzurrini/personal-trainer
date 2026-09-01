@@ -7,6 +7,22 @@ about today's intake. Reference: `GET /docs/reference/nutrition`. Method:
 Most messages arrive via voice-to-text: casual phrasing, aliases, no numbers.
 The procedure exists so that a logged day costs seconds.
 
+## Which day it is
+
+Before logging anything described with a relative day — "ieri", "stasera", "this
+morning", "ieri sera", "yesterday" — read `now` from `GET /nutrition-state` and
+pass an explicit `day`.
+
+Never infer the date from conversation history or from an earlier tool result.
+A chat spans days; a timestamp read on Wednesday afternoon is still sitting in
+the context on Thursday, and anchoring on it moves "yesterday" back by one. That
+failure is invisible afterwards — the entry looks deliberate, on a day Marco
+never named — and it is one call to avoid.
+
+The hour matters as much as the date, which is why `now` carries it: late in the
+evening "stasera" is today and "yesterday" is the day already one behind. When
+Marco's phrasing and the clock disagree, ask; do not average them.
+
 ## Logging a known meal
 
 1. Resolve the alias ("il solito yogurt", "colazione") via the API — meals and
@@ -91,4 +107,4 @@ once) is better coaching than silence.
 - Protein is the one number worth flagging proactively when it is far off
   target on a training day.
 - Arithmetic comes from the API (`/nutrition-state` for today's totals), never
-  from your head.
+  from your head. The date is arithmetic too: `now`, not memory.

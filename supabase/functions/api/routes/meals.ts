@@ -3,12 +3,17 @@ import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { foodMacros, scaleFood, sumMacros } from "../rules/nutrition.ts";
 import { writeOnce } from "../record/idempotency.ts";
-import { resolveFoodId, resolveMealId } from "../record/resolve.ts";
+import {
+  assertMealAliasesFree,
+  resolveFoodId,
+  resolveMealId,
+} from "../record/resolve.ts";
 import {
   aliasList,
   body,
   macroTotals,
   number,
+  query,
   requestId,
   text,
 } from "../http/schema.ts";
@@ -139,6 +144,7 @@ meals.openapi(
     path: "/",
     tags: ["Nutrition"],
     summary: "Saved meals",
+    request: { query: query({}) },
     responses: {
       200: {
         description: "Every meal with its aliases and item count, by name.",
@@ -172,6 +178,7 @@ meals.openapi(
     tags: ["Nutrition"],
     summary: "Save a meal",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -216,6 +223,7 @@ meals.openapi(
       }),
       write: async () => {
         const aliases = b.aliases ?? [];
+        await assertMealAliasesFree(aliases);
         const items = await resolveItems(b.items);
 
         const id = await sql.begin(async (tx) => {
@@ -248,7 +256,7 @@ meals.openapi(
     path: "/{ref}",
     tags: ["Nutrition"],
     summary: "One meal, by id, name or alias",
-    request: { params: z.object({ ref: ref() }) },
+    request: { params: z.object({ ref: ref() }), query: query({}) },
     responses: {
       200: {
         description: "The meal, its items with resolved foods, and its totals.",
@@ -283,6 +291,7 @@ meals.openapi(
     description:
       "`items`, when sent, is the complete replacement list rather than a patch — a partial edit of a recipe is ambiguous about what was meant to survive. Aliases are added, not replaced. Nothing already logged is touched.",
     request: {
+      query: query({}),
       params: z.object({ ref: ref() }),
       body: {
         content: {
@@ -328,6 +337,7 @@ meals.openapi(
     }
 
     const items = hasItems ? await resolveItems(b.items!) : [];
+    await assertMealAliasesFree(aliases);
 
     await sql.begin(async (tx) => {
       if (name !== null) {

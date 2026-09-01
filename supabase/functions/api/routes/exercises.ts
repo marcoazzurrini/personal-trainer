@@ -2,9 +2,20 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql, type Tx } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { romeNow } from "../record/calendar.ts";
-import { resolveExercise, resolveExerciseId } from "../record/resolve.ts";
+import {
+  assertExerciseAliasesFree,
+  resolveExercise,
+  resolveExerciseId,
+} from "../record/resolve.ts";
 import { MEASURES } from "../rules/training.ts";
-import { aliasList, body, oneOf, optionalText, text } from "../http/schema.ts";
+import {
+  aliasList,
+  body,
+  oneOf,
+  optionalText,
+  query,
+  text,
+} from "../http/schema.ts";
 import { addAliasRoute, releaseAliasRoute } from "./aliases.ts";
 
 const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
@@ -150,6 +161,7 @@ exercises.openapi(
     path: "/",
     tags: ["Exercises"],
     summary: "The catalogue",
+    request: { query: query({}) },
     responses: {
       200: {
         description:
@@ -178,6 +190,7 @@ exercises.openapi(
     description:
       "Creates the exercise with its aliases and muscle classification in one call. Muscles are referenced by name and must already exist.",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -205,7 +218,10 @@ exercises.openapi(
           "application/json": { schema: z.object({ exercise: Exercise }) },
         },
       },
-      409: { description: "That name or alias already exists." },
+      409: {
+        description:
+          "That name already exists, or one of the aliases already belongs to another exercise — which one, and to what, is named in the error.",
+      },
       422: { description: "An unknown muscle, or a bad volume_factor." },
     },
   }),
@@ -213,6 +229,7 @@ exercises.openapi(
     const b = c.req.valid("json");
     const aliases = b.aliases ?? [];
     const muscles = parseMuscleList(b.muscles);
+    await assertExerciseAliasesFree(aliases);
 
     const id = await sql.begin(async (sql) => {
       const [exercise] = await sql`
@@ -287,8 +304,8 @@ exercises.openapi(
       '`limit` is required and has no default: this read grows forever, and "however much there is" is not an amount anybody chose. Every measure comes back — a sprint\'s history is metres and seconds — and every set carries its note, because this is where an exercise is judged and not only where it is plotted.',
     request: {
       params: z.object({ ref: ref() }),
-      query: z.object({
-        limit: z.string().optional().meta({
+      query: query({
+        limit: z.string().min(1).optional().meta({
           description:
             'A whole number of most-recent sets, or "all" for the whole series. Required.',
           example: "30",
@@ -316,7 +333,7 @@ exercises.openapi(
     },
   }),
   async (c) => {
-    const limit = historyLimit(c.req.query("limit"));
+    const limit = historyLimit(c.req.valid("query").limit);
     const exerciseId = await resolveExerciseId(c.req.valid("param").ref);
     const [exercise] = await sql`
     select id, name, measure from exercises where id = ${exerciseId}`;
@@ -386,6 +403,7 @@ exercises.openapi(
     description:
       "Prose and labels change freely. `measure` and `stimulus_type` freeze at the first logged set — every one of them was validated and counted under the current values. The muscle classification and the aliases have their own surfaces.",
     request: {
+      query: query({}),
       params: z.object({ ref: ref() }),
       body: {
         content: {
@@ -500,6 +518,7 @@ const aliasSurface = {
 
 addAliasRoute(exercises, {
   ...aliasSurface,
+  assertFree: assertExerciseAliasesFree,
   created: "The exercise, with the alias now among its names.",
   neither:
     'Send "alias" (a string) or "aliases" (an array of non-empty strings).',
@@ -524,7 +543,7 @@ exercises.openapi(
     path: "/{ref}",
     tags: ["Exercises"],
     summary: "Delete an unreferenced exercise",
-    request: { params: z.object({ ref: ref() }) },
+    request: { params: z.object({ ref: ref() }), query: query({}) },
     responses: {
       200: {
         description: "The name of the exercise that was deleted.",
@@ -586,6 +605,7 @@ exercises.openapi(
     description:
       "The complete replacement classification, not a patch. Retroactive by design — a wrong classification was wrong when written — and refused while any plan holding the exercise is still running, because it rewrites the very volume numbers that plan is being judged on.",
     request: {
+      query: query({}),
       params: z.object({ ref: ref() }),
       body: {
         content: {
@@ -670,6 +690,7 @@ muscles.openapi(
     path: "/",
     tags: ["Exercises"],
     summary: "Known muscles",
+    request: { query: query({}) },
     responses: {
       200: {
         description: "Every muscle an exercise can be classified against.",
@@ -695,6 +716,7 @@ muscles.openapi(
     tags: ["Exercises"],
     summary: "Add a muscle",
     request: {
+      query: query({}),
       body: {
         content: { "application/json": { schema: body({ name: text() }) } },
       },

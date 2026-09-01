@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
-import { romeDate } from "../record/calendar.ts";
+import { romeClock } from "../record/calendar.ts";
 import {
   activeTarget,
   activeTransients,
@@ -9,7 +9,7 @@ import {
   slopePctBwWeek,
 } from "../record/nutrition_read.ts";
 import { sumMacros } from "../rules/nutrition.ts";
-import { macroTotals } from "../http/schema.ts";
+import { clock, macroTotals, query } from "../http/schema.ts";
 
 // The nutrition analogue of /training-state: everything true about eating as
 // of now, fetched at the start of any nutrition conversation. Separate from
@@ -125,8 +125,14 @@ const Slope = z.object({
   pct_bw_week: z.number(),
 });
 
+// First key, and it carries the hour rather than only the date. A relative
+// day — "ieri", "stasera", "this morning" — is interpreted against this and
+// never against a timestamp left over from an earlier turn: a stale client
+// clock read at 14:58 on one day and applied on the next moves everything
+// logged in that conversation to the wrong date, and the record cannot tell
+// afterwards that it happened.
 const NutritionState = z.object({
-  today: z.string(),
+  now: clock(),
   today_so_far: z.object({
     entries: z.array(Entry),
     totals: macroTotals(),
@@ -179,6 +185,7 @@ nutritionState.openapi(
     summary: "Everything true about eating, as of now",
     description:
       "The read that opens a nutrition conversation. Today's entries and totals against the active target, trend weight and its slopes, the expenditure estimate with its band and status, the active target and transients, the last thirteen finished days, and logging and weigh-in adherence.",
+    request: { query: query({}) },
     responses: {
       200: {
         description: "The complete current nutrition picture.",
@@ -187,9 +194,8 @@ nutritionState.openapi(
     },
   }),
   async (c) => {
-    const [clock] = await sql`
-    select ${romeDate()} as today`;
-    const today = clock.today as string;
+    const now = await romeClock();
+    const today = now.date;
 
     const entries = await sql<z.infer<typeof Entry>[]>`
     select i.id, i.grams::float8, i.kcal::float8, i.protein_g::float8,
@@ -284,7 +290,7 @@ nutritionState.openapi(
       : null;
 
     return c.json({
-      today,
+      now,
       today_so_far: { entries, totals, vs_target: vsTarget },
       trend_weight: latest
         ? {

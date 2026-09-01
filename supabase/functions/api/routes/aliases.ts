@@ -1,7 +1,7 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { ApiError, requireRow } from "../http/errors.ts";
-import { aliasList, body, text } from "../http/schema.ts";
+import { aliasList, body, query, text } from "../http/schema.ts";
 
 // Exercises, foods and meals all answer to more than one name, and the rule
 // is one rule: a synonym never becomes a second row, because that splits one
@@ -49,6 +49,9 @@ export function addAliasRoute<Body>(
     // Refused when neither field arrives. Foods and exercises do not phrase
     // this alike and neither may change.
     neither: string;
+    // Refuses the call naming the alias and its current owner, before the
+    // insert reaches a constraint that knows neither.
+    assertFree: (aliases: readonly string[]) => Promise<void>;
   },
 ) {
   router.openapi(
@@ -59,6 +62,7 @@ export function addAliasRoute<Body>(
       summary: "Add a synonym",
       request: {
         params: z.object({ ref: surface.ref() }),
+        query: query({}),
         body: {
           content: {
             "application/json": {
@@ -83,6 +87,7 @@ export function addAliasRoute<Body>(
       const b = c.req.valid("json");
       const aliases = b.alias !== undefined ? [b.alias] : (b.aliases ?? []);
       if (aliases.length === 0) throw new ApiError(422, surface.neither);
+      await surface.assertFree(aliases);
       await sql.begin(async (tx) => {
         for (const alias of aliases) {
           await tx`
@@ -120,6 +125,7 @@ export function releaseAliasRoute<Body>(
         : { description: surface.description }),
       request: {
         params: z.object({ ref: surface.ref(), alias: z.string().min(1) }),
+        query: query({}),
       },
       responses: {
         200: {

@@ -203,6 +203,17 @@ export function optionalRequestId() {
 
 // --------------------------------------------------------------- responses
 
+// What record/calendar.ts's romeClock returns, declared once because both
+// state reads open with it.
+export function clock() {
+  return z.object({
+    date: z.string(),
+    time: z.string(),
+    weekday: z.string(),
+    tz: z.string(),
+  });
+}
+
 // The shape sumMacros returns, which is not the shape a naive reading expects
 // and is the reason this lives here rather than being retyped per route.
 //
@@ -271,6 +282,54 @@ export function dayParam() {
 // field silently stops being readable off the parsed body.
 type WithRequestId<T extends z.ZodRawShape> = "request_id" extends keyof T ? T
   : T & { request_id: ReturnType<typeof optionalRequestId> };
+
+// The same rule, on the other half of a request.
+//
+// A body field this endpoint does not read is refused; a query parameter was
+// dropped in silence, and the convention in docs/index promises no such
+// distinction. The cost is not theoretical: GET /intake falls back to today
+// when "day" is absent, so a near miss on the name — ?date=, ?from= — answered
+// 200 with today's food under a date the caller never asked about. A wrong
+// answer shaped exactly like the right one is worse than a refusal.
+//
+// Declared on every read, including the ones that take nothing: a parameter
+// invented for an endpoint with no parameters at all is the same guess, and
+// GET /nutrition-state?day=… silently answering about today is the same
+// failure as GET /intake did.
+export function query<T extends z.ZodRawShape>(shape: T) {
+  const names = Object.keys(shape);
+  const accepted = names.length > 0
+    ? `Accepted: ${names.join(", ")}.`
+    : "This endpoint reads no query parameters.";
+  return z.strictObject(shape, {
+    error: (iss: Issue) => {
+      if (iss.code !== "unrecognized_keys") return undefined;
+      const named = iss.keys.map((k: string) => `"${k}"`).join(", ");
+      return `Unknown query parameter${
+        iss.keys.length > 1 ? "s" : ""
+      } ${named}. ${accepted} ` +
+        "An unrecognised parameter is refused rather than ignored: dropped in " +
+        "silence, a guessed or misspelled name lets the call answer 200 with a " +
+        "result that does not mean what was asked.";
+    },
+  });
+}
+
+// A whole number of rows, as a query parameter. Number("abc") is NaN, and a
+// NaN reaching Postgres as a limit throws where the handler can only answer
+// "internal error" — the same reasoning as idParam, on the other parameter
+// every list endpoint takes.
+export function limitParam(opts: { default: number; max: number }) {
+  const error = () =>
+    `"limit" must be a whole number between 1 and ${opts.max}. Omit it for ${opts.default}.`;
+  return z.string({ error })
+    .refine((v) => {
+      const n = Number(v);
+      return Number.isInteger(n) && n >= 1 && n <= opts.max;
+    }, { error })
+    .transform((v) => Number(v))
+    .optional();
+}
 
 // `what` names the thing being refused, the way assertKnownFields' third
 // argument did: a nested object says 'an entry in "items"' rather than "the

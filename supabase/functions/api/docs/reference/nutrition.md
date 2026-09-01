@@ -11,7 +11,7 @@ Europe/Rome calendar dates.
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /nutrition-state` | The complete current picture: today's entries and totals against the active target, trend weight and its 7/21-day slope, the expenditure estimate with band and status, active target, active transients, the last 13 finished days, logging and weigh-in adherence. The start of every nutrition conversation. |
+| `GET /nutrition-state` | The complete current picture, opening with `now`: today's entries and totals against the active target, trend weight and its 7/21-day slope, the expenditure estimate with band and status, active target, active transients, the last 13 finished days, logging and weigh-in adherence. The start of every nutrition conversation. |
 | `GET /nutrition/weekly` | Finished weeks: mean kcal and protein, days logged and flagged, weigh-ins, trend start/end/delta, the week's own `rate_pct_bw_week`, implied expenditure, events, and **the target that governed that week**. `?weeks=N` (default 8). |
 | `GET /nutrition-targets` | Every target ever set, plus the active one. |
 | `GET /nutrition-events` | Registered transients, plus those still inside the damping window. |
@@ -268,6 +268,25 @@ no-op, and a different value for the same day and method is rejected rather than
 silently overwritten. A typo is removed with `DELETE /bodyfat/:id` and re-entered — 41%
 instead of 14% moves fat mass by 22 kg, which moves the energy density and therefore the
 calorie target.
+
+## `now`, and relative days
+
+`GET /nutrition-state` opens with the server's clock:
+
+```json
+"now": { "date": "2026-08-27", "time": "23:40", "weekday": "Thursday", "tz": "Europe/Rome" }
+```
+
+It is the first key because it governs how everything Marco says is read. "Ieri",
+"stasera", "this morning", "last Monday" are all relative to this and to nothing
+else — not to a timestamp from an earlier turn, not to a client-side clock, not to
+what the date was when the conversation started. A chat can span midnight, and one
+that does will date a whole evening's food to the wrong day if the coach anchors on
+the answer it got yesterday.
+
+The hour is there for the same reason the date is: at 23:40 "stasera" is today and
+"yesterday" is the day whose number is already one behind. Read `now`, then pass an
+explicit `day` on the write.
 
 ## The expenditure estimate
 

@@ -36,6 +36,31 @@ export function romeIsoDow() {
   return sql`extract(isodow from ${romeNow()})::int`;
 }
 
+/**
+ * Now, as the coach has to read it.
+ *
+ * A bare date was already the first key of both state reads, and it was not
+ * enough: at 23:40 on a Sunday "stasera" and "yesterday" both resolve off the
+ * hour, not the date, and a reader holding only "2026-08-30" has to guess.
+ * The weekday is here for the same reason — "last Monday" is arithmetic
+ * nobody should do from a date alone — and the zone is named in the payload
+ * rather than assumed, because everything else in this API is stated.
+ *
+ * One statement, so the four fields cannot straddle midnight between them.
+ */
+export async function romeClock(): Promise<{
+  date: string;
+  time: string;
+  weekday: string;
+  tz: string;
+}> {
+  const [row] = await sql<{ date: string; time: string; weekday: string }[]>`
+    select ${romeDate()} as date,
+      to_char(${romeNow()}, 'HH24:MI') as time,
+      trim(to_char(${romeNow()}, 'Day')) as weekday`;
+  return { ...row, tz: "Europe/Rome" };
+}
+
 export async function romeToday(): Promise<string> {
   const [row] = await sql<{ today: string }[]>`
     select ${romeDate()} as today`;

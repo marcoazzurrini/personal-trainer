@@ -20,6 +20,7 @@ import {
   optionalDate,
   optionalNumber,
   optionalText,
+  query,
   requestId,
 } from "../http/schema.ts";
 
@@ -128,8 +129,8 @@ intake.openapi(
     tags: ["Nutrition"],
     summary: "A day's entries, totals and flags",
     request: {
-      query: z.object({
-        day: z.string().optional().meta({
+      query: query({
+        day: dayParam().optional().meta({
           description: "YYYY-MM-DD. Defaults to today in Europe/Rome.",
         }),
       }),
@@ -142,7 +143,7 @@ intake.openapi(
     },
   }),
   async (c) => {
-    const day = c.req.query("day") ?? await romeToday();
+    const day = c.req.valid("query").day ?? await romeToday();
     return c.json(await dayView(day));
   },
 );
@@ -156,6 +157,7 @@ intake.openapi(
     description:
       'Exactly one of "meal", "food" or "adhoc_kcal". A meal writes one row per item, each carrying the food\'s numbers as they are now — the snapshot that keeps March\'s breakfast the breakfast that was eaten in March.',
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -343,6 +345,7 @@ intake.openapi(
       '"grams" re-scales from the food as it is now; the macro fields override outright. The two cannot be combined. "day" moves the entry to another date without touching its numbers.',
     request: {
       params: z.object({ id: idParam("intake entry") }),
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -473,7 +476,10 @@ intake.openapi(
     path: "/{id}",
     tags: ["Nutrition"],
     summary: "Remove a logged entry",
-    request: { params: z.object({ id: idParam("intake entry") }) },
+    request: {
+      params: z.object({ id: idParam("intake entry") }),
+      query: query({}),
+    },
     responses: {
       200: {
         description: "The day it was removed from, as it now stands.",
@@ -516,6 +522,7 @@ days.openapi(
       "`incomplete` takes the day out of the expenditure window entirely, rather than letting it enter as zero intake and drag the mean.",
     request: {
       params: z.object({ day: dayParam() }),
+      query: query({}),
       body: {
         content: {
           "application/json": { schema: body({ flag: oneOf(FLAGS) }) },
@@ -552,6 +559,7 @@ days.openapi(
     summary: "Unflag a day",
     request: {
       params: z.object({ day: dayParam(), flag: z.string().min(1) }),
+      query: query({}),
     },
     responses: {
       200: {
@@ -578,7 +586,7 @@ days.openapi(
     path: "/{day}",
     tags: ["Nutrition"],
     summary: "One day's entries, totals and flags",
-    request: { params: z.object({ day: dayParam() }) },
+    request: { params: z.object({ day: dayParam() }), query: query({}) },
     responses: {
       200: {
         description: "Everything logged on that day.",

@@ -682,7 +682,7 @@ Deno.test("nutrition tracking", async (t) => {
     // everything derived from those must be absent rather than defaulted.
     const { status, body } = await api.get("/nutrition-state");
     assertEquals(status, 200);
-    assertEquals(body.today, today());
+    assertEquals(body.now.date, today());
     assert(body.today_so_far.entries.length > 0);
     assert(body.today_so_far.totals.kcal > 0);
     assertEquals(body.today_so_far.vs_target, null);
@@ -730,6 +730,6 @@ Deno.test("nutrition tracking", async (t) => {
     const { body } = await api.get("/nutrition-state");
     assertEquals(body.adherence.weigh_ins_last_7, 1);
     assertEquals(body.adherence.weigh_ins_last_21, 1);
-    assertEquals(body.adherence.last_weigh_in, body.today);
+    assertEquals(body.adherence.last_weigh_in, body.now.date);
   });
 });

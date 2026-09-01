@@ -3,7 +3,7 @@ import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { checkEnergy, checkMacroMass } from "../rules/nutrition.ts";
 import { writeOnce } from "../record/idempotency.ts";
-import { resolveFoodId } from "../record/resolve.ts";
+import { assertFoodAliasesFree, resolveFoodId } from "../record/resolve.ts";
 import {
   aliasList,
   body,
@@ -11,6 +11,7 @@ import {
   oneOf,
   optionalNumber,
   optionalText,
+  query,
   requestId,
   text,
 } from "../http/schema.ts";
@@ -93,7 +94,7 @@ foods.openapi(
     tags: ["Nutrition"],
     summary: "Search the food registry",
     request: {
-      query: z.object({
+      query: query({
         q: z.string().optional().meta({
           description:
             "Substring of a name, brand or alias. Omit for the whole registry.",
@@ -116,7 +117,7 @@ foods.openapi(
     },
   }),
   async (c) => {
-    const q = c.req.query("q")?.trim();
+    const q = c.req.valid("query").q?.trim();
     if (!q) return c.json({ foods: await selectFoods() });
     const like = `%${q}%`;
     const rows = await selectFoods(sql`
@@ -139,6 +140,7 @@ foods.openapi(
     description:
       "Values are per 100 g, always — including for foods bought by the piece. Set grams_per_unit on those and intake can then be logged in units.",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -175,7 +177,10 @@ foods.openapi(
         description:
           "The macros do not weigh what they claim, or the energy they imply is not the energy stated.",
       },
-      409: { description: "A food with that name already exists." },
+      409: {
+        description:
+          "A food with that name already exists, or one of the aliases already belongs to another food — which one, and to what, is named in the error.",
+      },
     },
   }),
   async (c) => {
@@ -190,6 +195,9 @@ foods.openapi(
       }),
       write: async () => {
         const aliases = b.aliases ?? [];
+        // Before the insert, not after: the constraint underneath can only say
+        // that one of these was taken, and this says which and by what.
+        await assertFoodAliasesFree(aliases);
 
         checkMacroMass(b.protein_100g, b.carbs_100g, b.fat_100g);
         checkEnergy(
@@ -233,7 +241,7 @@ foods.openapi(
     path: "/{ref}",
     tags: ["Nutrition"],
     summary: "One food, by id, name or alias",
-    request: { params: z.object({ ref: ref() }) },
+    request: { params: z.object({ ref: ref() }), query: query({}) },
     responses: {
       200: {
         description: "The food, with its aliases.",
@@ -274,6 +282,7 @@ foods.openapi(
     description:
       "Only ever for fixing a mistake. A different product — another brand, a reformulated recipe — is a new food, not an edit. Changing macros rewrites every intake entry ever logged against this food, and the response says how many and over what dates.",
     request: {
+      query: query({}),
       params: z.object({ ref: ref() }),
       body: {
         content: {
@@ -434,6 +443,7 @@ const aliasSurface = {
 
 addAliasRoute(foods, {
   ...aliasSurface,
+  assertFree: assertFoodAliasesFree,
   created: "The food, with the alias now among its names.",
   neither: 'Send "alias" (a string) or "aliases" (an array of strings).',
 });
@@ -457,7 +467,7 @@ foods.openapi(
     path: "/{ref}",
     tags: ["Nutrition"],
     summary: "Delete an unused food",
-    request: { params: z.object({ ref: ref() }) },
+    request: { params: z.object({ ref: ref() }), query: query({}) },
     responses: {
       200: {
         description: "The name of the food that was deleted.",

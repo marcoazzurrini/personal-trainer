@@ -17,6 +17,7 @@ import {
   body,
   idParam,
   optionalText,
+  query,
   requestId,
   text,
 } from "../http/schema.ts";
@@ -121,6 +122,7 @@ issues.openapi(
     path: "/",
     tags: ["Issues"],
     summary: "Open reports the coach has filed",
+    request: { query: query({}) },
     responses: {
       200: {
         description: "Every open coach-filed issue in the repository.",
@@ -152,6 +154,7 @@ issues.openapi(
     description:
       "Files a GitHub issue. `evidence` is required for a bug — the call, the response, and when — because a bug that cannot be reproduced cannot be fixed. An improvement is allowed to start as an idea.",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -296,6 +299,7 @@ issues.openapi(
     description:
       "Hitting the same problem again belongs on the open issue: the value of a repeat is that it makes a pattern, and a pattern split across two issues reads as two anecdotes.",
     request: {
+      query: query({}),
       params: z.object({ number: idParam("issue") }),
       body: {
         content: { "application/json": { schema: body({ note: text() }) } },

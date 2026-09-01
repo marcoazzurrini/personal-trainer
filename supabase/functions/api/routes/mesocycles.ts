@@ -22,6 +22,7 @@ import {
   oneOf,
   optionalDate,
   optionalText,
+  query,
   requestId,
   text,
 } from "../http/schema.ts";
@@ -224,6 +225,7 @@ mesocycles.openapi(
     description:
       "A mesocycle arrives complete: intent plus the exercise list, in one transaction. The load goals and the progression mechanism belong in `intent` — only the weekly dose is structured.",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -314,7 +316,7 @@ mesocycles.openapi(
     path: "/{id}",
     tags: ["Planning"],
     summary: "One plan",
-    request: { params: z.object({ id: selector() }) },
+    request: { params: z.object({ id: selector() }), query: query({}) },
     responses: {
       200: {
         description: "The plan, its exercise list, and which week it is on.",
@@ -343,6 +345,7 @@ mesocycles.openapi(
     description:
       "Trivial single-field edits only. Structural change — exercises, intent — goes through a revision, which requires a decision.",
     request: {
+      query: query({}),
       params: z.object({ id: selector() }),
       body: {
         content: {
@@ -407,6 +410,7 @@ mesocycles.openapi(
     description:
       "Exercise-list changes and/or a full intent replacement, all-or-nothing in one transaction. The decision is required: there is no way to change the plan without saying why.",
     request: {
+      query: query({}),
       params: z.object({ id: selector() }),
       body: {
         content: {
@@ -591,6 +595,7 @@ mesocycles.openapi(
     description:
       'A review outcome of "hold", the reasoning behind an early end, a local back-off, a declared light week.',
     request: {
+      query: query({}),
       params: z.object({ id: selector() }),
       body: {
         content: {
@@ -650,7 +655,7 @@ mesocycles.openapi(
     summary: "The plan's decision log",
     description:
       "Every change to the plan carries one, so this is the plan's history — including the intent each revision replaced.",
-    request: { params: z.object({ id: selector() }) },
+    request: { params: z.object({ id: selector() }), query: query({}) },
     responses: {
       200: {
         description: "Decisions oldest first, with any intent they replaced.",

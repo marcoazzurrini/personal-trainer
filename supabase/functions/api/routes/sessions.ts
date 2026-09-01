@@ -12,11 +12,13 @@ import {
   body,
   date,
   idParam,
+  limitParam,
   oneOf,
   optionalInt,
   optionalNumber,
   optionalText,
   optionalTimestamp,
+  query,
   requestId,
   text,
 } from "../http/schema.ts";
@@ -208,11 +210,11 @@ sessions.openapi(
     tags: ["Training"],
     summary: "Recent sessions",
     request: {
-      query: z.object({
-        limit: z.string().optional().meta({
-          description: "How many, newest first. Default 20, capped at 100.",
+      query: query({
+        limit: limitParam({ default: 20, max: 100 }).meta({
+          description: "How many, newest first. Default 20, maximum 100.",
         }),
-        mesocycle: z.string().optional().meta({
+        mesocycle: z.string().min(1).optional().meta({
           description:
             "Keep only sessions containing work for this plan — a session is no longer owned by one.",
         }),
@@ -230,8 +232,8 @@ sessions.openapi(
     },
   }),
   async (c) => {
-    const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-    const mesoParam = c.req.query("mesocycle");
+    const { limit: asked, mesocycle: mesoParam } = c.req.valid("query");
+    const limit = asked ?? 20;
     const mesoId = mesoParam ? (await resolveMesocycle(mesoParam)).id : null;
     // Filtering by plan asks which sessions contained work for it, because a
     // session is no longer owned by one.
@@ -256,7 +258,7 @@ sessions.openapi(
     path: "/{id}",
     tags: ["Training"],
     summary: "One session, with its sets",
-    request: { params: z.object({ id: idParam("session") }) },
+    request: { params: z.object({ id: idParam("session") }), query: query({}) },
     responses: {
       200: {
         description: "The session and every set in it, in position order.",
@@ -286,6 +288,7 @@ sessions.openapi(
     description:
       "Two shapes. Upcoming: sets carrying targets, the session about to be trained. Retro-logged: a past date and sets carrying actuals. Never both on one set — a target written after the work would always match what was done.",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -385,6 +388,7 @@ sessions.openapi(
       "Records what was done, so it carries actuals and never targets. Appends at the end of the session.",
     request: {
       params: z.object({ id: idParam("session") }),
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -477,6 +481,7 @@ sessions.openapi(
       "Finishing a workout is completed_at changing, not a separate action.",
     request: {
       params: z.object({ id: idParam("session") }),
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -549,7 +554,7 @@ sessions.openapi(
     summary: "Discard an untouched draft",
     description:
       "Only a planned session nothing has touched can be discarded. The moment any set carries an actual, or the session was started or finished, it happened — and history is corrected, never deleted.",
-    request: { params: z.object({ id: idParam("session") }) },
+    request: { params: z.object({ id: idParam("session") }), query: query({}) },
     responses: {
       200: {
         description: "The draft that was discarded.",

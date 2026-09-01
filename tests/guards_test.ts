@@ -264,6 +264,89 @@ Deno.test("an unused food deletes even when it carries aliases", async () => {
   assertEquals((await api.get("/foods/lo yogurt sbagliato")).status, 422);
 });
 
+// The alias that is already taken says so by name, and says what holds it.
+//
+// The constraint underneath can only report that *an* alias collided: it does
+// not know which of the several sent, nor what owns it. A coach sending two
+// synonyms for a new product was told to go and search for the answer the
+// server already had — and because the aliases are inserted in the same
+// transaction as the row, that refusal threw away a fully sourced food.
+Deno.test("a taken alias names itself and its owner", async (t) => {
+  await resetNutrition();
+
+  const classic = await api.post("/foods", {
+    name: "Magnum Classic",
+    brand: "Algida",
+    kcal_100g: 300,
+    protein_100g: 3.5,
+    carbs_100g: 30,
+    fat_100g: 19,
+    grams_per_unit: 75,
+    source: "label",
+    aliases: ["magnum"],
+    request_id: uuid(),
+  });
+  assertEquals(classic.status, 201, classic.body.error);
+
+  await t.step(
+    "the refusal names the alias and the food holding it",
+    async () => {
+      const { status, body } = await api.post("/foods", {
+        name: "Magnum Pistacchio",
+        brand: "Algida",
+        kcal_100g: 330,
+        protein_100g: 4,
+        carbs_100g: 30,
+        fat_100g: 22,
+        grams_per_unit: 75,
+        source: "label",
+        aliases: ["magnum pistacchio", "magnum"],
+        request_id: uuid(),
+      });
+      assertEquals(status, 409);
+      assert(body.error.includes('"magnum"'), body.error);
+      assert(body.error.includes("Magnum Classic"), body.error);
+      assert(
+        body.error.includes(String(classic.body.food.id)),
+        `it should name the owning id: ${body.error}`,
+      );
+      // The free alias is not blamed for the taken one.
+      assert(
+        !body.error.includes('"magnum pistacchio"'),
+        body.error,
+      );
+    },
+  );
+
+  await t.step("and the retry without it costs one word", async () => {
+    const { status, body } = await api.post("/foods", {
+      name: "Magnum Pistacchio",
+      brand: "Algida",
+      kcal_100g: 330,
+      protein_100g: 4,
+      carbs_100g: 30,
+      fat_100g: 22,
+      grams_per_unit: 75,
+      source: "label",
+      aliases: ["magnum pistacchio"],
+      request_id: uuid(),
+    });
+    assertEquals(status, 201, body.error);
+    assertEquals(body.food.aliases, ["magnum pistacchio"]);
+  });
+
+  // The same sentence from the other door, where the alias is added later.
+  await t.step("adding one afterwards is refused the same way", async () => {
+    const { status, body } = await api.post(
+      "/foods/Magnum Pistacchio/aliases",
+      { alias: "magnum" },
+    );
+    assertEquals(status, 409);
+    assert(body.error.includes('"magnum"'), body.error);
+    assert(body.error.includes("Magnum Classic"), body.error);
+  });
+});
+
 Deno.test("a food correction reports only what it changed", async (t) => {
   await resetNutrition();
   await api.post("/foods", {
@@ -327,7 +410,7 @@ Deno.test("every day field is a bare Rome date", async () => {
   const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
   const { body } = await api.get("/nutrition-state");
 
-  assert(ISO_DAY.test(body.today), body.today);
+  assert(ISO_DAY.test(body.now.date), body.now.date);
   assertEquals(body.recent_days.length, 13);
   for (const row of body.recent_days) {
     assert(ISO_DAY.test(row.day), `recent_days carried ${row.day}`);
@@ -462,4 +545,72 @@ Deno.test("an unrecognised field is refused, not dropped", async (t) => {
       `request_id is universal, but: ${body.error}`,
     );
   });
+});
+
+// The same rule on the other half of a request. docs/index states it without
+// qualifying it to bodies, and for a long time only bodies kept it: a query
+// string was filtered through a non-strict schema, so an unrecognised
+// parameter was dropped and the call answered 200 with the unfiltered set.
+Deno.test("an unrecognised query parameter is refused too", async (t) => {
+  await t.step("on an endpoint that takes others", async () => {
+    const { status, body } = await api.get("/sessions?from=2026-08-18");
+    assertEquals(status, 422);
+    assert(body.error.includes('"from"'), body.error);
+    assert(body.error.includes("limit"), "it should list what is accepted");
+    assert(body.error.includes("mesocycle"), body.error);
+  });
+
+  // The expensive one. GET /intake falls back to today when "day" is absent,
+  // so a near miss on the name used to answer 200 with today's food under a
+  // date the caller never asked about — a wrong answer shaped exactly like
+  // the right one, which is worse than a refusal.
+  await t.step("including the one that silently meant today", async () => {
+    const { status, body } = await api.get("/intake?date=2026-08-28");
+    assertEquals(status, 422);
+    assert(body.error.includes('"date"'), body.error);
+    assert(body.error.includes("day"), body.error);
+  });
+
+  await t.step("and on an endpoint that takes none at all", async () => {
+    const { status, body } = await api.get("/nutrition-state?day=2026-08-28");
+    assertEquals(status, 422);
+    assert(body.error.includes('"day"'), body.error);
+    assert(
+      body.error.includes("no query parameters"),
+      `it should say there are none: ${body.error}`,
+    );
+  });
+
+  await t.step("a parameter that is accepted still works", async () => {
+    const { status } = await api.get("/sessions?limit=1");
+    assertEquals(status, 200);
+  });
+
+  // Number("abc") is NaN, and a NaN reaching Postgres as a limit throws where
+  // the handler can only answer "internal error".
+  await t.step("a limit that is not a number is a prompt", async () => {
+    const { status, body } = await api.get("/sessions?limit=abc");
+    assertEquals(status, 422);
+    assert(body.error.includes("limit"), body.error);
+  });
+});
+
+// Both state reads open with the server's clock, and the hour is part of it:
+// a coach holding only a date cannot tell whether "stasera" at 23:40 means
+// today or the day whose number is already one behind.
+Deno.test("both state reads say what time it is", async (t) => {
+  for (const path of ["/nutrition-state", "/training-state"]) {
+    await t.step(path, async () => {
+      const { status, body } = await api.get(path);
+      assertEquals(status, 200);
+      assertEquals(body.now.date, today());
+      assertEquals(body.now.tz, "Europe/Rome");
+      assert(/^\d{2}:\d{2}$/.test(body.now.time), body.now.time);
+      assert(
+        /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day$/.test(body.now.weekday),
+        body.now.weekday,
+      );
+      assertEquals(Object.keys(body)[0], "now", "it is the first key");
+    });
+  }
 });

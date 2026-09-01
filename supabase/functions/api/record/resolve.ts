@@ -18,6 +18,10 @@ interface Namespace {
   noSuchId: (ref: number) => string;
   unknownName: (name: string) => string;
   missingRef: string;
+  // What one of these is called, and the prefix its aliases hang off — the
+  // alias-clash refusal names both.
+  what: string;
+  route: string;
 }
 
 async function resolveNamed(ns: Namespace, ref: unknown): Promise<number> {
@@ -33,6 +37,14 @@ async function resolveNamed(ns: Namespace, ref: unknown): Promise<number> {
     // over an alias that happens to spell the same thing. A bare union with
     // limit 1 left the collision to whichever row the planner produced first,
     // which is a different exercise on a different day.
+    //
+    // Refusing the collision instead was tried and reverted. It reads as the
+    // safer answer — two real candidates, say so — but the two are not equal:
+    // a row's own name is what it *is*, and another row's synonym is a word
+    // someone attached to it. "Nordic Curl" is in the catalogue beside a
+    // "Nordic Hamstring Curl" that answers to the same phrase, and asking for
+    // the first by its exact name is not ambiguous in any sense the caller
+    // would recognise. The rank is the answer; reference_test holds it.
     const [row] = await sql`
       select id, 1 as rank from ${sql(ns.table)}
       where lower(name) = lower(${name})
@@ -58,6 +70,8 @@ const EXERCISES: Namespace = {
     `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`,
   missingRef:
     '"exercise" is required: an exercise id, canonical name, or alias.',
+  what: "exercise",
+  route: "/exercises",
 };
 
 const FOODS: Namespace = {
@@ -69,6 +83,8 @@ const FOODS: Namespace = {
   unknownName: (name) =>
     `Unknown food "${name}". GET /foods?q=<search> lists what exists — use the id, canonical name, or an alias. A food that genuinely does not exist yet is sourced (label, CREA, USDA, Open Food Facts) and saved with POST /foods — never invented. A synonym of a food that exists gets an alias instead: POST /foods/:ref/aliases.`,
   missingRef: '"food" is required: a food id, canonical name, or alias.',
+  what: "food",
+  route: "/foods",
 };
 
 const MEALS: Namespace = {
@@ -79,7 +95,62 @@ const MEALS: Namespace = {
   unknownName: (name) =>
     `Unknown meal "${name}". GET /meals lists what exists — use the id, canonical name, or an alias. A meal that has become a routine is saved with POST /meals. A one-off variation on a saved meal is not a new meal — log the meal and log the difference as a separate entry.`,
   missingRef: '"meal" is required: a meal id, canonical name, or alias.',
+  what: "meal",
+  route: "/meals",
 };
+
+// Which aliases in this call are already spoken for, asked before anything is
+// written rather than discovered by the unique constraint afterwards.
+//
+// The constraint's message could only say that *an* alias was taken: it does
+// not know which of the several sent collided, nor what owns it, so a caller
+// holding {"aliases": ["magnum pistacchio", "magnum"]} was told to go and
+// search for the answer the server already had. And because the insert runs
+// inside the same transaction as the row itself, that refusal threw away a
+// fully sourced food over one word.
+//
+// Naming the clash makes the retry a one-token edit. The constraint stays
+// underneath as the backstop for two calls racing.
+async function assertAliasesFree(
+  ns: Namespace,
+  aliases: readonly string[],
+): Promise<void> {
+  const wanted = aliases.map((a) => a.trim().toLowerCase());
+  if (wanted.length === 0) return;
+  const taken = await sql<{ alias: string; id: number; name: string }[]>`
+    select a.alias, e.id, e.name
+    from ${sql(ns.aliasTable)} a
+    join ${sql(ns.table)} e on e.id = a.${sql(ns.foreignKey)}
+    where lower(a.alias) = any(${wanted})
+    order by a.alias`;
+  if (taken.length === 0) return;
+
+  const clashes = taken
+    .map((t) =>
+      `"${t.alias}" already belongs to ${ns.what} ${t.id} (${t.name})`
+    )
+    .join("; ");
+  const one = taken.length === 1;
+  throw new ApiError(
+    409,
+    `${clashes}. Aliases are case-insensitive and globally unique — one name points at one ${ns.what}. Nothing was written: resend without ${
+      one ? "that alias" : "those aliases"
+    }, which costs only ${
+      one ? "that word" : "those words"
+    } and keeps the rest of the call. If ${
+      one ? "the name belongs" : "a name belongs"
+    } on this row instead, release it first with DELETE ${ns.route}/${
+      taken[0].id
+    }/aliases/${encodeURIComponent(taken[0].alias)}.`,
+  );
+}
+
+export const assertExerciseAliasesFree = (aliases: readonly string[]) =>
+  assertAliasesFree(EXERCISES, aliases);
+export const assertFoodAliasesFree = (aliases: readonly string[]) =>
+  assertAliasesFree(FOODS, aliases);
+export const assertMealAliasesFree = (aliases: readonly string[]) =>
+  assertAliasesFree(MEALS, aliases);
 
 export function resolveExerciseId(ref: unknown): Promise<number> {
   return resolveNamed(EXERCISES, ref);

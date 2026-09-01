@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "../db.ts";
 import { writeOnce } from "../record/idempotency.ts";
-import { body, requestId, text } from "../http/schema.ts";
+import { body, query, requestId, text } from "../http/schema.ts";
 
 export const userContext = new OpenAPIHono();
 
@@ -24,7 +24,7 @@ userContext.openapi(
     tags: ["Tracking"],
     summary: "What is known about Marco",
     request: {
-      query: z.object({
+      query: query({
         history: z.string().optional().meta({
           description:
             'Send "true" for every row ever written, in order, rather than the latest per topic.',
@@ -47,7 +47,7 @@ userContext.openapi(
     },
   }),
   async (c) => {
-    if (c.req.query("history") === "true") {
+    if (c.req.valid("query").history === "true") {
       const rows = await sql<EntryRow[]>`
       select id, topic, content, written_at
       from user_context
@@ -71,6 +71,7 @@ userContext.openapi(
     tags: ["Tracking"],
     summary: "Write down a fact about Marco",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {

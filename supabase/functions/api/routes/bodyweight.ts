@@ -9,6 +9,7 @@ import {
   number,
   optionalText,
   optionalTimestamp,
+  query,
 } from "../http/schema.ts";
 
 export const bodyweight = new OpenAPIHono();
@@ -40,6 +41,7 @@ bodyweight.openapi(
     path: "/",
     tags: ["Tracking"],
     summary: "Raw weigh-ins and the trend, in one call",
+    request: { query: query({}) },
     responses: {
       200: {
         description:
@@ -83,6 +85,7 @@ bodyweight.openapi(
     tags: ["Tracking"],
     summary: "Record a weigh-in",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -139,7 +142,10 @@ bodyweight.openapi(
     path: "/{id}",
     tags: ["Tracking"],
     summary: "Delete a weigh-in",
-    request: { params: z.object({ id: idParam("bodyweight") }) },
+    request: {
+      params: z.object({ id: idParam("bodyweight") }),
+      query: query({}),
+    },
     responses: {
       200: {
         description: "The measurement that was deleted.",

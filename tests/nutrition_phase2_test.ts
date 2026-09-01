@@ -270,7 +270,7 @@ Deno.test("the estimate holds rather than extrapolating", async (t) => {
     const { body } = await api.get("/nutrition-state");
     assertEquals(body.expenditure.status, "stale");
     assert(body.expenditure.tdee_kcal !== null);
-    assert(body.expenditure.as_of < body.today);
+    assert(body.expenditure.as_of < body.now.date);
     assert(body.expenditure.reason.includes("Held from the window"));
   });
 

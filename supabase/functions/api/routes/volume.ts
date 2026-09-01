@@ -3,6 +3,7 @@ import { sql } from "../db.ts";
 import { ApiError } from "../http/errors.ts";
 import { resolveMesocycle } from "../record/resolve.ts";
 import { deliveredInDoseUnit } from "../rules/training.ts";
+import { query } from "../http/schema.ts";
 
 // Both endpoints read the views, which already enforce the rules: working
 // sets only, performed only, finished weeks only — plus, on weekly_volume
@@ -33,7 +34,7 @@ weeklyVolume.openapi(
     tags: ["Training"],
     summary: "Working sets per muscle per week",
     request: {
-      query: z.object({
+      query: query({
         mesocycle: MesocycleSelector.meta({
           description:
             'A mesocycle id, "current", or "current:<track>". "all" re-sums across every plan, off-plan work included. Defaults to "current".',
@@ -56,7 +57,7 @@ weeklyVolume.openapi(
     },
   }),
   async (c) => {
-    const param = c.req.query("mesocycle") ?? "current";
+    const param = c.req.valid("query").mesocycle ?? "current";
     if (param === "all") {
       // Re-summed across plans, off-plan work included: a muscle does not care
       // which plan loaded it, and the long view is about the muscle.
@@ -112,7 +113,7 @@ weeklyExerciseSets.openapi(
     path: "/",
     tags: ["Training"],
     summary: "Dose against delivery, per exercise per week",
-    request: { query: z.object({ mesocycle: MesocycleSelector }) },
+    request: { query: query({ mesocycle: MesocycleSelector }) },
     responses: {
       200: {
         description:
@@ -134,7 +135,7 @@ weeklyExerciseSets.openapi(
     },
   }),
   async (c) => {
-    const param = c.req.query("mesocycle") ?? "current";
+    const param = c.req.valid("query").mesocycle ?? "current";
     // Unlike /weekly-volume, which accepts it. Not an oversight: volume is sets
     // per muscle per calendar week and comparable across years, while week
     // numbers here are relative to a mesocycle's start — week 3 of one plan and

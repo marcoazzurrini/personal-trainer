@@ -8,6 +8,7 @@ import {
   oneOf,
   optionalDate,
   optionalText,
+  query,
   requestId,
 } from "../http/schema.ts";
 import { romeToday } from "../record/calendar.ts";
@@ -47,6 +48,7 @@ nutritionEvents.openapi(
     path: "/",
     tags: ["Nutrition"],
     summary: "Registered transients, and which are still damping",
+    request: { query: query({}) },
     responses: {
       200: {
         description:
@@ -82,6 +84,7 @@ nutritionEvents.openapi(
     tags: ["Nutrition"],
     summary: "Register a transient",
     request: {
+      query: query({}),
       body: {
         content: {
           "application/json": {
@@ -143,7 +146,10 @@ nutritionEvents.openapi(
     path: "/{id}",
     tags: ["Nutrition"],
     summary: "Withdraw a registered transient",
-    request: { params: z.object({ id: idParam("nutrition event") }) },
+    request: {
+      params: z.object({ id: idParam("nutrition event") }),
+      query: query({}),
+    },
     responses: {
       200: {
         description: "The event that was withdrawn.",
