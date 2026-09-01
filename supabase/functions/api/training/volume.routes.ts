@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { dosePerExercise, volumePerMuscle } from "./volume.ts";
-import { query } from "../http/schema.ts";
+import { query } from "../shared/schema.ts";
 
 export const weeklyVolume = new OpenAPIHono();
 

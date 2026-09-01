@@ -18,9 +18,11 @@ import { assert, assertEquals } from "@std/assert";
 //
 // shared/ is not checked as a whole, and must not be. calendar.ts and
 // idempotency.ts belong to no topic and reach the database on purpose, so a
-// rule over that folder would be a rule the repository does not keep. Only
-// dates.ts is pure, and it is in the list below by name for exactly that
-// reason.
+// rule over that folder would be a rule the repository does not keep.
+// dates.ts is pure and is in the list below by name for exactly that reason.
+// errors.ts and schema.ts never ask Postgres anything either, and are left
+// out deliberately: this list means "holds a law the database cannot
+// express", and the envelope and the request shapes are a different thing.
 //
 // The walk is transitive, because a direct `import { sql }` is not how this
 // rule realistically breaks — that one is conspicuous in review. It breaks by

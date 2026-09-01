@@ -15,7 +15,7 @@ import {
   query,
   requestId,
   text,
-} from "../http/schema.ts";
+} from "../shared/schema.ts";
 import { releaseAliasRoute } from "../shared/aliases.routes.ts";
 
 export const meals = new OpenAPIHono();

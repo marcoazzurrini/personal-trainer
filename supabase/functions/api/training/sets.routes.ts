@@ -10,7 +10,7 @@ import {
   optionalText,
   optionalTimestamp,
   query,
-} from "../http/schema.ts";
+} from "../shared/schema.ts";
 
 export const sets = new OpenAPIHono();
 

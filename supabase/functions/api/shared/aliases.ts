@@ -12,7 +12,7 @@
 // on a surface that belongs to no topic.
 
 import { sql } from "../db.ts";
-import { requireRow } from "../http/errors.ts";
+import { requireRow } from "./errors.ts";
 
 /**
  * Adds every alias to one owner, or none of them.

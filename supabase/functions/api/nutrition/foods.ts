@@ -3,7 +3,7 @@
 // twice and the numbers stop depending on who remembered what.
 
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import { checkEnergy, checkMacroMass } from "./rules.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import { assertFoodAliasesFree, resolveFoodId } from "./resolve.ts";

@@ -3,7 +3,7 @@ import { sql } from "../db.ts";
 
 // The retry answer, in one place.
 //
-// Every creating POST carries a request_id, and http/schema.ts promises the
+// Every creating POST carries a request_id, and schema.ts promises the
 // caller what it buys: "resending the same id returns the original result
 // instead of writing a second row." That promise is kept by a preamble — look
 // the id up, answer the original if it is there, write only if it is not —

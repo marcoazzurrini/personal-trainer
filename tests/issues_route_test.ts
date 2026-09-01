@@ -40,7 +40,7 @@ Deno.test(
       "../supabase/functions/api/surfaces/issues.routes.ts"
     );
     const { errorResponse } = await import(
-      "../supabase/functions/api/http/errors.ts"
+      "../supabase/functions/api/shared/errors.ts"
     );
     const { Hono } = await import("@hono/hono");
     const { sql } = await import("../supabase/functions/api/db.ts");

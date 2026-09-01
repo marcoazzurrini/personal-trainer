@@ -17,7 +17,7 @@ import {
   query,
   requestId,
   text,
-} from "../http/schema.ts";
+} from "../shared/schema.ts";
 
 // The goal, expressed as a rate of bodyweight change. Append-only: the latest
 // effective_from is active and the history is the record of the phase

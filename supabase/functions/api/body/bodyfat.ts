@@ -12,7 +12,7 @@ import { sql } from "../db.ts";
 import { romeToday } from "../shared/calendar.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import { requireNotFuture } from "../shared/dates.ts";
-import { ApiError, requireRow } from "../http/errors.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 
 export const METHODS = ["bia", "dxa", "caliper", "visual", "other"] as const;
 export type Method = (typeof METHODS)[number];

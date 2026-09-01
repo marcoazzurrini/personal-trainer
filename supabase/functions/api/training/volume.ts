@@ -3,7 +3,7 @@
 // alone, strength stimulus only.
 
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import { resolveMesocycle } from "./resolve.ts";
 import { deliveredInDoseUnit } from "./rules.ts";
 

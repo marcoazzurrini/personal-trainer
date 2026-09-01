@@ -18,7 +18,7 @@ import {
   query,
   requestId,
   text,
-} from "../http/schema.ts";
+} from "../shared/schema.ts";
 
 export const mesocycles = new OpenAPIHono();
 

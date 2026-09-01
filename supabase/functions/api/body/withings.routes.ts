@@ -1,9 +1,9 @@
 import { Hono } from "@hono/hono";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import { catchUp, configuredUserId, syncNotifiedWindow } from "./withings.ts";
 import { WithingsError } from "./withings_client.ts";
-import { query } from "../http/schema.ts";
+import { query } from "../shared/schema.ts";
 
 // The routes Withings itself calls. Mounted ahead of the bearer-token
 // middleware, because Withings has no way to send our token and a notification

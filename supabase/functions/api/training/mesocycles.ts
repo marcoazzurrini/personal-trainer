@@ -5,7 +5,7 @@
 // at every session generation.
 
 import { sql, type Tx } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import { romeDate } from "../shared/calendar.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import {

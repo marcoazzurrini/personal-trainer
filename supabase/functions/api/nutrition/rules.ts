@@ -1,4 +1,4 @@
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 
 // The arithmetic the coach is not allowed to do in its head. Two jobs:
 // scaling a food's per-100g values to an amount eaten, and refusing numbers

@@ -2,7 +2,7 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { sql } from "./db.ts";
-import { errorResponse, validationHook } from "./http/errors.ts";
+import { errorResponse, validationHook } from "./shared/errors.ts";
 import {
   bodyfat,
   bodyweight,

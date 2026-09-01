@@ -6,7 +6,7 @@
 // so nothing here touches them.
 
 import { sql } from "../db.ts";
-import { ApiError, requireRow } from "../http/errors.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 import {
   assertEffort,
   assertSetMeasures,

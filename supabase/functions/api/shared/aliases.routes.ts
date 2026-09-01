@@ -1,7 +1,7 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "./errors.ts";
 import { addAliases, releaseAlias } from "./aliases.ts";
-import { aliasList, body, query, text } from "../http/schema.ts";
+import { aliasList, body, query, text } from "./schema.ts";
 
 // Exercises, foods and meals all answer to more than one name, and the rule
 // is one rule: a synonym never becomes a second row, because that splits one

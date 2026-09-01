@@ -19,7 +19,7 @@ import {
   query,
   requestId,
   text,
-} from "../http/schema.ts";
+} from "../shared/schema.ts";
 import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 
 export const foods = new OpenAPIHono();

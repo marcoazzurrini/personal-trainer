@@ -7,7 +7,7 @@
 
 import { sql } from "../db.ts";
 import { recordBodyweight } from "./bodyweight.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import {
   getWeights,
   type MeasureRange,

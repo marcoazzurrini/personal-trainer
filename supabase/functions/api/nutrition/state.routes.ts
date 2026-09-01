@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { nutritionState as readState } from "./state.ts";
 import { Entry } from "./intake.routes.ts";
 import { Target } from "./targets.routes.ts";
-import { clock, macroTotals, query } from "../http/schema.ts";
+import { clock, macroTotals, query } from "../shared/schema.ts";
 
 // The declaration only; state.ts holds what it answers with.
 

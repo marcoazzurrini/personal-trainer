@@ -1,5 +1,5 @@
 import { sql, type Tx } from "../db.ts";
-import { ApiError, requireRow } from "../http/errors.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 import { TRACKS } from "./rules.ts";
 import {
   assertAliasesFree,

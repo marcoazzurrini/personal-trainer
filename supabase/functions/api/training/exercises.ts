@@ -7,7 +7,7 @@
 // muscle classification only between plans.
 
 import { sql, type Tx } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import { romeNow } from "../shared/calendar.ts";
 import {
   assertExerciseAliasesFree,

@@ -19,7 +19,7 @@ import {
   optionalText,
   query,
   requestId,
-} from "../http/schema.ts";
+} from "../shared/schema.ts";
 
 export const intake = new OpenAPIHono();
 

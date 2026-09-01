@@ -14,7 +14,7 @@
 
 import { sql, type Tx } from "../db.ts";
 import { requireNotFuture } from "../shared/dates.ts";
-import { ApiError, requireRow } from "../http/errors.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 import {
   foodMacros,
   gramsEaten,

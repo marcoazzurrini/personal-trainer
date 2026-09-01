@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { GOALS } from "./expenditure.ts";
 import { finishedWeeks } from "./weekly.ts";
-import { query } from "../http/schema.ts";
+import { query } from "../shared/schema.ts";
 
 export const nutritionWeekly = new OpenAPIHono();
 

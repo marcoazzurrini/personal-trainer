@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { trainingState as readState } from "./state.ts";
 import { Entry as ContextEntry } from "./user_context.routes.ts";
-import { clock, query } from "../http/schema.ts";
+import { clock, query } from "../shared/schema.ts";
 
 // The declaration only; state.ts holds what it answers with.
 

@@ -4,7 +4,7 @@ import {
   contextHistory,
   currentContext,
 } from "./user_context.ts";
-import { body, query, requestId, text } from "../http/schema.ts";
+import { body, query, requestId, text } from "../shared/schema.ts";
 
 export const userContext = new OpenAPIHono();
 

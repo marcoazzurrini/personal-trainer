@@ -6,7 +6,7 @@
 // the half it would have to guess at.
 
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import { isDocName, MAX_DOC_NAME } from "./docs.ts";
 import {

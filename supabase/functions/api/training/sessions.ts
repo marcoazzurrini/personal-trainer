@@ -8,7 +8,7 @@
 // record of what was asked that day.
 
 import { sql } from "../db.ts";
-import { ApiError, requireRow } from "../http/errors.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import {
   resolveExercise,

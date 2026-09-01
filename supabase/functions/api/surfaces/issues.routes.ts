@@ -8,7 +8,7 @@ import {
   query,
   requestId,
   text,
-} from "../http/schema.ts";
+} from "../shared/schema.ts";
 
 // The only enum on the endpoint, and it decides what else is required. Its
 // message carries the whole distinction rather than listing two words,

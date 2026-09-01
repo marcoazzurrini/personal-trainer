@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { writeWeekSchedule } from "./week_schedule.ts";
-import { body, optionalDate, query, text } from "../http/schema.ts";
+import { body, optionalDate, query, text } from "../shared/schema.ts";
 
 export const weekSchedule = new OpenAPIHono();
 

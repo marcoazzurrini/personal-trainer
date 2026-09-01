@@ -14,7 +14,7 @@
 
 import { sql } from "../db.ts";
 import { requireNotFutureInstant } from "../shared/dates.ts";
-import { ApiError, requireRow } from "../http/errors.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 import { type TrendPoint, trendSeries } from "./trend.ts";
 
 // A weigh-in outside this band is not a weigh-in. The band is deliberately

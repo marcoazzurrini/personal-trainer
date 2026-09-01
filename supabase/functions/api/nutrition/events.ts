@@ -3,7 +3,7 @@
 // updates while the water settles, instead of reading it as metabolism.
 
 import { sql } from "../db.ts";
-import { requireRow } from "../http/errors.ts";
+import { requireRow } from "../shared/errors.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import { romeToday } from "../shared/calendar.ts";
 import { addDays } from "../shared/dates.ts";

@@ -1,5 +1,5 @@
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "./errors.ts";
 
 // Exercises, foods and meals resolve the same way — id, name, or alias,
 // case-insensitively, server-side — so voice-to-text phrasing ("il solito

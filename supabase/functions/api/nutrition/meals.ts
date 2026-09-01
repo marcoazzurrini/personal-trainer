@@ -7,7 +7,7 @@
 // instead of pointing at one.
 
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import {
   foodMacros,
   type MacroTotals,

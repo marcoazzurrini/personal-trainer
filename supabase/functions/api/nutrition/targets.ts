@@ -3,7 +3,7 @@
 // structure. A target is never edited — a changed mind is a new row saying why.
 
 import { sql } from "../db.ts";
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import {
   energyDensity,

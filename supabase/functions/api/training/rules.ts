@@ -1,4 +1,4 @@
-import { ApiError } from "../http/errors.ts";
+import { ApiError } from "../shared/errors.ts";
 
 // The closed vocabularies of the training half, and the three rules that
 // connect them: which fields a set of an exercise may carry, which dose units
