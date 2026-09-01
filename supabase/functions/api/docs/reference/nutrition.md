@@ -16,7 +16,6 @@ Europe/Rome calendar dates.
 | `GET /nutrition-targets` | Every target ever set, plus the active one. |
 | `GET /nutrition-events` | Registered transients, plus those still inside the damping window. |
 | `GET /intake` | Today's entries, totals, and flags. `?day=YYYY-MM-DD` for another day. |
-| `GET /days/:day` | The same view for one day. |
 | `GET /bodyweight` | Two series in one call: `bodyweight` (raw instants) and `trend` (one point per day, the EMA the estimate runs on). The bodyweight chart's single read. |
 | `GET /foods?q=<search>` | Foods matching a substring of name, brand, or alias. No `q` returns the whole registry. |
 | `GET /foods/:idOrName` | One food, with its aliases. Resolves by id, name, or alias. |

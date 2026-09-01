@@ -579,22 +579,3 @@ days.openapi(
     return c.json(await dayView(day));
   },
 );
-
-days.openapi(
-  createRoute({
-    method: "get",
-    path: "/{day}",
-    tags: ["Nutrition"],
-    summary: "One day's entries, totals and flags",
-    request: { params: z.object({ day: dayParam() }), query: query({}) },
-    responses: {
-      200: {
-        description: "Everything logged on that day.",
-        content: { "application/json": { schema: DayView } },
-      },
-    },
-  }),
-  async (c) => {
-    return c.json(await dayView(c.req.valid("param").day));
-  },
-);
