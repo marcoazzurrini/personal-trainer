@@ -1,22 +1,22 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { sql } from "../db.ts";
-import { writeOnce } from "../record/idempotency.ts";
+import {
+  appendContext,
+  contextHistory,
+  currentContext,
+} from "./user_context.ts";
 import { body, query, requestId, text } from "../http/schema.ts";
 
 export const userContext = new OpenAPIHono();
 
-const Entry = z.object({
+// Exported: training state answers with the same rows, and used to declare a
+// copy of this without `id` over a second copy of the query.
+export const Entry = z.object({
   id: z.int(),
   topic: z.string(),
   content: z.string(),
   written_at: z.string(),
 });
 
-type EntryRow = z.infer<typeof Entry>;
-
-// All current entries together (latest row per topic), never a filtered
-// subset: a coach's picture of a person is coherent.
-// ?history=true returns every row ever written, in order.
 userContext.openapi(
   createRoute({
     method: "get",
@@ -46,20 +46,10 @@ userContext.openapi(
       },
     },
   }),
-  async (c) => {
-    if (c.req.valid("query").history === "true") {
-      const rows = await sql<EntryRow[]>`
-      select id, topic, content, written_at
-      from user_context
-      order by written_at, id`;
-      return c.json({ history: rows });
-    }
-    const rows = await sql<EntryRow[]>`
-    select distinct on (topic) id, topic, content, written_at
-    from user_context
-    order by topic, written_at desc, id desc`;
-    return c.json({ context: rows });
-  },
+  async (c) =>
+    c.req.valid("query").history === "true"
+      ? c.json({ history: await contextHistory() })
+      : c.json({ context: await currentContext() }),
 );
 
 // Append only. Correcting or retiring a fact means writing a new row on the
@@ -101,23 +91,7 @@ userContext.openapi(
     },
   }),
   async (c) => {
-    const b = c.req.valid("json");
-
-    // Append-only, so nothing else would ever collide: two identical rows on the
-    // same topic are indistinguishable from having written the fact twice.
-    const { body: answer, status } = await writeOnce({
-      table: "user_context",
-      requestId: b.request_id,
-      select: sql`id, topic, content, written_at`,
-      replay: (existing: EntryRow) => ({ entry: existing }),
-      write: async () => {
-        const [row] = await sql<EntryRow[]>`
-        insert into user_context (topic, content, request_id)
-        values (${b.topic}, ${b.content}, ${b.request_id})
-        returning id, topic, content, written_at`;
-        return { entry: row };
-      },
-    });
-    return c.json(answer, status);
+    const { row, created } = await appendContext(c.req.valid("json"));
+    return created ? c.json({ entry: row }, 201) : c.json({ entry: row }, 200);
   },
 );

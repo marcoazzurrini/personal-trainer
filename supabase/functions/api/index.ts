@@ -27,14 +27,14 @@ import {
   muscles,
   sessions,
   sets,
+  trainingState,
+  userContext,
   weeklyExerciseSets,
   weeklyVolume,
   weekSchedule,
 } from "./training/index.ts";
 import { docs } from "./routes/docs.ts";
 import { issues } from "./routes/issues.ts";
-import { trainingState } from "./routes/training_state.ts";
-import { userContext } from "./routes/user_context.ts";
 
 // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
 // mounted below stays an ordinary Hono router and keeps working untouched.
