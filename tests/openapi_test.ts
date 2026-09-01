@@ -55,14 +55,34 @@ Deno.test("every described GET actually routes", async (t) => {
   }
 });
 
-async function routeFiles(): Promise<string[]> {
+async function filesUnder(dir: string): Promise<string[]> {
   const found: string[] = [];
-  for await (const entry of Deno.readDir(`${API_DIR}/routes`)) {
-    if (entry.isFile && entry.name.endsWith(".ts")) {
-      found.push(`${API_DIR}/routes/${entry.name}`);
-    }
+  for await (const entry of Deno.readDir(dir)) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory) found.push(...await filesUnder(path));
+    else if (entry.name.endsWith(".ts")) found.push(path);
   }
-  return found.sort();
+  return found;
+}
+
+// The whole tree, not one directory. routes/ is being drained a topic at a
+// time, and a scan of that folder would go on passing while checking less and
+// less of the surface with every move — green, silent, and covering nothing by
+// the end. The failure it protects against is a route registered with .get()
+// instead of .openapi(), which is invisible by construction, so a check that
+// quietly stops looking is the same failure one level up.
+//
+// A non-empty guard would not catch it: it stays green with one file left. So
+// the set is defined by what a route file *is* rather than by where it sits —
+// the *.routes.ts convention ADR-0006 establishes, plus whatever has not moved
+// out of routes/ yet.
+async function routeFiles(): Promise<string[]> {
+  const files = await filesUnder(API_DIR);
+  return files
+    .filter((f) =>
+      f.endsWith(".routes.ts") || f.startsWith(`${API_DIR}/routes/`)
+    )
+    .sort();
 }
 
 Deno.test("no route hides from the document", async () => {
