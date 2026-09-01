@@ -1,7 +1,7 @@
 # Planning — API reference
 
-Blocks, mesocycles, revisions, decisions: payload shapes and schema rules. The
-procedure and the judgment live in `tasks/programming`.
+Blocks, mesocycles, decisions: payload shapes and schema rules. The procedure
+and the judgment live in `tasks/programming`.
 
 A mesocycle belongs to a **track** — the line of training it is: `hypertrophy`,
 `strength`, `speed`, `endurance`. One mesocycle can be active per track, so a
@@ -77,35 +77,43 @@ POST /mesocycles
   It is per plan, and the numbers across plans do not add up — one session can
   serve two.
 
-## Revising mid-mesocycle
+## Changing a plan
 
-One all-or-nothing call, refused without its decision. It can change the exercise
-list, change a dose, replace the intent, or any combination:
+One call, all-or-nothing, and never without `what_changed` and `why`. It can
+change the exercise list, change a dose, replace the intent, end the plan, any
+combination — or none of them:
 
 ```json
-POST /mesocycles/current:speed/revisions
+POST /mesocycles/current:speed/decisions
 {
   "request_id": "<fresh uuid>",
-  "decision": { "what_changed": "...", "why": "..." },
+  "what_changed": "...",
+  "why": "...",
   "remove": ["back squat"],
   "add": [ { "...": "same shape as a creation entry" } ],
   "redose": [ { "exercise": "sprint", "weekly_dose": 0.32, "weekly_dose_unit": "km" } ],
-  "intent": "<optional: the full replacement intent>"
+  "intent": "<optional: the full replacement intent>",
+  "ended_on": "<optional: YYYY-MM-DD>"
 }
 ```
 
+**Send no change fields and it is still a decision** — a review outcome of
+"hold", a declared light week, a local back-off. Same call, same log. There is
+one door onto a plan's history and everything that touches the plan goes
+through it.
+
 `redose` changes the weekly dose of an exercise already in the plan; one that
 isn't in it is refused — add it instead. A dose change is a plan change like any
-other, so there is no path to one without a decision.
+other, so there is no path to one without a reason.
 
-`intent`, when present, replaces the whole text — never a fragment. The revision
-records the replaced text on its decision row (`prior_intent` in
+`intent`, when present, replaces the whole text — never a fragment. The replaced
+text is recorded on the decision row (`prior_intent` in
 `GET /mesocycles/:id/decisions`), so history is never lost. Changing the intent
-any other way is refused — it is the plan, and plans change only with a decision.
+any other way is refused — it is the plan, and plans change only with a reason.
 
-Ending: `PATCH /mesocycles/:id` with `ended_on`, which frees that track for the
-next plan. Recording a review that changes nothing:
-`POST /mesocycles/:id/decisions` with `what_changed` and `why`.
+`ended_on` ends the plan and frees that track for the next one. It is a plan
+change like any other, so it carries its reason in the same call: `PATCH` will
+refuse it. `PATCH /mesocycles/:id` renames a plan and does nothing else.
 
 ## Field values
 
@@ -118,7 +126,7 @@ next plan. Recording a review that changes nothing:
   deserve the freshest slots in a session.
 - `weekly_dose` / `weekly_dose_unit` — how much of this exercise the plan asks for
   each week. Units: `sets` | `minutes` | `km`. Flat, not a per-week ramp: it is the
-  current truth, and changing it is a revision. Must be greater than zero — an
+  current truth, and changing it is a decision. Must be greater than zero — an
   exercise that should not be trained this week either leaves the plan or is backed
   off by a decision saying for how long.
 - Which units are legal depends on how the exercise is measured

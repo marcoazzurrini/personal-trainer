@@ -139,10 +139,6 @@ Deno.test("every creating POST that could duplicate requires a request_id", asyn
         weekly_dose_unit: "sets",
       }],
     }],
-    ["mesocycle revisions", "/mesocycles/current/revisions", {
-      decision: { what_changed: "x", why: "y" },
-      remove: ["squat"],
-    }],
     ["mesocycle decisions", "/mesocycles/current/decisions", {
       what_changed: "x",
       why: "y",
@@ -309,15 +305,10 @@ Deno.test("resending a request_id replays the original result", async (t) => {
   // bodyweight and nothing else.
   await seedWeighIns([daysBefore(lastFinishedSunday(), 1)], 82);
 
-  // `created` is what the first call answers. It is 201 wherever a row is
-  // created, and 200 on the one route that revises a plan rather than making
-  // one — there a replay is invisible in the status, and the proof is that the
-  // second call does not refuse a change already applied.
   interface Replay {
     label: string;
     path: string;
     body: unknown;
-    created?: 200 | 201;
     identity: (b: ApiResponse["body"]) => unknown;
   }
 
@@ -437,20 +428,16 @@ Deno.test("resending a request_id replays the original result", async (t) => {
     // "current" alone is ambiguous once a second one exists.
     //
     // Without the preamble the repeat would reach the plan a second time and
-    // refuse — "bench press" is no longer in it to remove — so answering 200
-    // is the assertion that the retry never got that far.
+    // refuse — "bench press" is no longer in it to remove — so replaying the
+    // original is the assertion that the retry never got that far.
     {
-      label: "mesocycle revisions",
-      path: "/mesocycles/current:hypertrophy/revisions",
-      body: {
-        decision: { what_changed: "x", why: "y" },
-        remove: ["bench press"],
-      },
-      created: 200,
-      identity: (b) => b.mesocycle.id,
+      label: "a decision that changes the plan",
+      path: "/mesocycles/current:hypertrophy/decisions",
+      body: { what_changed: "x", why: "y", remove: ["bench press"] },
+      identity: (b) => b.decision.id,
     },
     {
-      label: "mesocycle decisions",
+      label: "a decision that changes nothing",
       path: "/mesocycles/current:hypertrophy/decisions",
       body: { what_changed: "x", why: "y" },
       identity: (b) => b.decision.id,
@@ -467,7 +454,7 @@ Deno.test("resending a request_id replays the original result", async (t) => {
       const first = await api.postRaw(replay.path, sent);
       assertEquals(
         first.status,
-        replay.created ?? 201,
+        201,
         `${replay.path} first call: ${first.body.error}`,
       );
 
@@ -529,6 +516,42 @@ Deno.test("resending a request_id replays the original result", async (t) => {
       again.body.bodyfat_estimate.day,
       recorded,
       "the replay carried the day the retry arrived on, not the day it recorded",
+    );
+  });
+
+  // The retry guarantee is per plan, not per table.
+  //
+  // mesocycle_decisions is the one table two endpoints wrote, and the lookup
+  // asked only whether the id had been seen — so an id spent on one plan
+  // replayed for another, answering 200 with a plan nothing had touched. The
+  // endpoints are one now and the lookup is scoped, which leaves the reuse
+  // visible: it reaches the write and the unique constraint refuses it.
+  await t.step("a decision id spent on one plan is not another's", async () => {
+    const id = uuid();
+
+    const first = await api.postRaw(
+      "/mesocycles/current:hypertrophy/decisions",
+      { what_changed: "held", why: "reps climbing", request_id: id },
+    );
+    assertEquals(first.status, 201, `first call: ${first.body.error}`);
+
+    const crossed = await api.postRaw(
+      "/mesocycles/current:strength/decisions",
+      { what_changed: "held", why: "reps climbing", request_id: id },
+    );
+    assertEquals(
+      crossed.status,
+      409,
+      `an id spent on another plan answered ${crossed.status} — a replay here ` +
+        `reports success for a decision that was never recorded: ` +
+        `${crossed.body.error}`,
+    );
+
+    const log = await api.get("/mesocycles/current:strength/decisions");
+    assertEquals(
+      log.body.decisions.length,
+      0,
+      "the crossed id recorded a decision against the wrong plan",
     );
   });
 });

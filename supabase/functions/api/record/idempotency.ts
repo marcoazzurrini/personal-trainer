@@ -23,6 +23,15 @@ import { sql } from "../db.ts";
 // through its detail function, and one answers with the day rather than the
 // entry.
 //
+// The lookup assumes one table has one writer, which held everywhere but
+// mesocycle_decisions: revisions and plain decisions both appended there, so
+// "has this id been seen?" could not say which endpoint spent it nor on which
+// plan, and answered 200 for work that never happened. The endpoints are one
+// now, which settles the first half; `scope` settles the second, narrowing
+// the lookup to the row's owner so an id spent on one plan cannot replay for
+// another. A cross-owner reuse falls through to the write and is refused by
+// the unique constraint — loudly, which is the point.
+//
 // The status codes are part of the guarantee and are decided here too. 201
 // means this call wrote the row; 200 means an earlier one did and this is its
 // answer arriving again. A handler that chose its own could tell a retry it
@@ -50,6 +59,7 @@ export async function writeOnce<Found extends object, Replayed, Created>(
     table: string;
     requestId: string;
     select: Fragment;
+    scope?: Fragment;
     replay: (found: Found) => Replayed | Promise<Replayed>;
     write: () => Created | Promise<Created>;
   },
@@ -67,7 +77,7 @@ export async function writeOnce<Found extends object, Replayed, Created>(
   // and any of them proves the write happened — which is all this asks.
   const [found] = await sql<Found[]>`
     select ${spec.select} from ${sql(spec.table)}
-    where request_id = ${spec.requestId} limit 1`;
+    where request_id = ${spec.requestId} ${spec.scope ?? sql``} limit 1`;
   if (found !== undefined) {
     return { body: await spec.replay(found), status: 200 };
   }

@@ -27,7 +27,10 @@ prescription
 **Redose**: Changing an exercise's dose mid-mesocycle. Takes effect from the day
 it was decided and never rewrites how earlier weeks were judged.
 
-**Decision**: The recorded reason a plan changed. Every plan change carries one.
+**Decision**: The recorded reason behind a plan's shape. Every change to a plan
+carries one — including ending it — and a review that deliberately changed
+nothing leaves one too, because "we looked and held" is a judgment the next
+review needs. One call records both. _Avoid_: Revision
 
 ## The training record
 

@@ -2,6 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import {
   api,
   daysBefore,
+  endPlan,
   ensureCatalogue,
   lastMonday,
   lastTuesday,
@@ -257,13 +258,14 @@ Deno.test("two plans running side by side", async (t) => {
     // with it, and the delivery read joins the dose in force at each week's
     // end. Before the history existed this read showed 12 against every
     // week, and the only record of the 9 was prose in the decision log.
-    const revision = await api.post(`/mesocycles/${hypId}/revisions`, {
-      decision: { what_changed: "squat 9 -> 12 sets", why: "recovering well" },
+    const redose = await api.post(`/mesocycles/${hypId}/decisions`, {
+      what_changed: "squat 9 -> 12 sets",
+      why: "recovering well",
       redose: [
         { exercise: "squat", weekly_dose: 12, weekly_dose_unit: "sets" },
       ],
     });
-    assertEquals(revision.status, 200);
+    assertEquals(redose.status, 201);
 
     const { body } = await api.get(`/weekly-exercise-sets?mesocycle=${hypId}`);
     const week1 = body.weekly_exercise_sets.find(
@@ -331,7 +333,7 @@ Deno.test("two plans running side by side", async (t) => {
   );
 
   await t.step("ending one plan leaves the other running", async () => {
-    await api.patch(`/mesocycles/${speedId}`, { ended_on: today() });
+    await endPlan(speedId);
     const { status, body } = await api.get("/mesocycles/current");
     assertEquals(status, 200); // no longer ambiguous
     assertEquals(body.mesocycle.id, hypId);

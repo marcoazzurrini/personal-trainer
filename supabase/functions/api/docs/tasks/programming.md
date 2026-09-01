@@ -139,14 +139,14 @@ itself as off-plan, measured against nothing, which is the honest place for it.
 
 ## Changing a plan mid-mesocycle
 
-One call, all-or-nothing, and refused without its decision — there is no way to change
-the plan without saying why (`POST /mesocycles/current/revisions`; shape in
-`reference/planning`). A revision can change the exercise list, change a dose (`redose`), replace the intent,
-or any combination; the decision log keeps the history, and a review that changes
-nothing is still recorded (`POST /mesocycles/:id/decisions`). A dose is a plan number
-like any other: there is no way to move it without saying why.
+One call, all-or-nothing, and refused without `what_changed` and `why` — there is no way
+to change the plan without saying why (`POST /mesocycles/current/decisions`; shape in
+`reference/planning`). It can change the exercise list, change a dose (`redose`), replace
+the intent, end the plan, or any combination; the decision log keeps the history, and a
+review that changes nothing is the same call with no change fields. A dose is a plan
+number like any other: there is no way to move it without saying why.
 
-**The bar for revising is high, and it is about evidence, not ideas.** Revise for pain,
+**The bar for changing a plan is high, and it is about evidence, not ideas.** Change it for pain,
 for equipment that disappeared, for an exercise that keeps being skipped, or for a
 diagnosis `evaluation` has actually reached. Do not revise because you thought of
 something better — swapping an exercise mid-mesocycle discards its progression record, and
@@ -181,6 +181,7 @@ non-adherence forever.
 
 ## Ending a mesocycle
 
-End it on time, or early when `evaluation` says the plan is the problem and revision isn't
-enough. Either way, `PATCH` the `ended_on` date and write a decision saying what happened
-and what it taught you. Six weeks later, "why did we stop that one" must have an answer.
+End it on time, or early when `evaluation` says the plan is the problem and changing it
+isn't enough. Either way it is one call — `POST /mesocycles/:id/decisions` with `ended_on`,
+`what_changed` and `why` — because the ending and the reason for it are the same fact.
+Six weeks later, "why did we stop that one" must have an answer.

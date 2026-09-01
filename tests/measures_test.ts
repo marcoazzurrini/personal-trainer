@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  endPlan,
   ensureCatalogue,
   lastMonday,
   resetTraining,
@@ -242,7 +243,7 @@ Deno.test("a dose is stated in a unit the exercise can deliver", async (t) => {
       plan("squat", 9, "sets"),
     );
     assertEquals(status, 201);
-    await api.patch(`/mesocycles/${body.mesocycle.id}`, { ended_on: today() });
+    await endPlan(body.mesocycle.id);
   });
 
   await t.step("km needs an exercise that records distance", async () => {
@@ -252,9 +253,7 @@ Deno.test("a dose is stated in a unit the exercise can deliver", async (t) => {
 
     const good = await api.post("/mesocycles", plan("easy run", 30, "km"));
     assertEquals(good.status, 201);
-    await api.patch(`/mesocycles/${good.body.mesocycle.id}`, {
-      ended_on: today(),
-    });
+    await endPlan(good.body.mesocycle.id);
   });
 
   await t.step("minutes needs an exercise that records time", async () => {
@@ -266,9 +265,7 @@ Deno.test("a dose is stated in a unit the exercise can deliver", async (t) => {
       plan("easy run", 150, "minutes"),
     );
     assertEquals(good.status, 201);
-    await api.patch(`/mesocycles/${good.body.mesocycle.id}`, {
-      ended_on: today(),
-    });
+    await endPlan(good.body.mesocycle.id);
   });
 
   await t.step("a dose of zero is not a dose", async () => {

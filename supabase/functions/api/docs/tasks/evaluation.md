@@ -50,9 +50,9 @@ The order matters because no answer is interpretable on its own:
   decision with a reason, and next time you'll want to know you looked.
 - **Sets delivered, effort honest, performance flat → now the plan is the problem.**
   Change something real: the volume is too high to recover from, the exercise doesn't suit
-  the person, fatigue has accumulated, or the method needs revisiting. Revise
-  (`POST /mesocycles/current/revisions`; shape in `reference/planning`) or end the
-  mesocycle early (`PATCH` `ended_on` plus a decision saying why).
+  the person, fatigue has accumulated, or the method needs revisiting. Change the plan or
+  end it early — the same call either way, with `ended_on` when it ends
+  (`POST /mesocycles/current/decisions`; shape in `reference/planning`).
 
 ## Check the constraints before diagnosing the plan
 

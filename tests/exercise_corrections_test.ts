@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  endPlan,
   ensureCatalogue,
   resetTraining,
   seedPlan,
@@ -129,9 +130,7 @@ Deno.test("the exercise correction surface", async (t) => {
     );
 
     // Between plans: allowed, and the response says what it rewrote.
-    await api.patch(`/mesocycles/${mesocycleId}`, {
-      ended_on: today(),
-    });
+    await endPlan(mesocycleId);
     const between = await api.put("/exercises/Scratch Press/muscles", {
       muscles: [
         { muscle: "chest", volume_factor: 1.0 },

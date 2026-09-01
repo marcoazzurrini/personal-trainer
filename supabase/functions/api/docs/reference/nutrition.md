@@ -395,7 +395,7 @@ the rate. Sending an explicit `kcal_target` bypasses the arithmetic and should b
   rather than quietly delivering something other than what was asked for, and
   `rate_used` is always the rate the delivered `kcal_target` implies, whichever
   guard set it.
-- `decision` is required, like a mesocycle revision's. Nothing changes what Marco eats
+- `decision` is required, like a mesocycle decision's. Nothing changes what Marco eats
   without a written reason.
 - Append-only. The latest row by `effective_from` (then id) is active; two targets can
   share a day and the later wins. Never edit a target — supersede it.

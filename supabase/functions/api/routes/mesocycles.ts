@@ -89,9 +89,9 @@ const Decision = z.object({
   prior_intent: z.string().nullable(),
 });
 
-// A decision as the standalone route answers it: named by its plan, and
-// without the prior intent, which only a revision replaces. Declared once so
-// the query returning it is typed by the same shape the document promises.
+// A decision as the write answers it: named by its plan, and without the
+// prior intent, which only an intent replacement carries. Declared once so the
+// query returning it is typed by the same shape the document promises.
 const Recorded = Decision.omit({ prior_intent: true }).extend({
   mesocycle_id: z.int(),
 });
@@ -126,7 +126,7 @@ const planEntry = () => body(planEntryShape, 'an entry in "exercises"');
 type PlanEntry = z.infer<ReturnType<typeof planEntry>>;
 
 // Validates one entry of the exercise list (same shape in creation and in a
-// revision's additions, so the caller learns it once).
+// decision's additions, so the caller learns it once).
 async function parsePlanExercise(e: PlanEntry): Promise<PlanExercise> {
   if (e.weekly_sets !== undefined) {
     throw new ApiError(
@@ -156,7 +156,7 @@ async function parsePlanExercise(e: PlanEntry): Promise<PlanExercise> {
 }
 
 // effectiveFrom is the first day the dose is in force: the plan's start when
-// the plan is being created, today when an exercise joins by revision.
+// the plan is being created, today when an exercise joins by decision.
 async function insertPlanExercise(
   tx: Tx,
   mesocycleId: number,
@@ -335,15 +335,16 @@ mesocycles.openapi(
   },
 );
 
-// Trivial single-field edits only. Structural change goes through revisions.
+// The name is a label on the plan, not the plan. Everything that is the plan
+// — exercises, dose, intent, and ending it — changes through a decision.
 mesocycles.openapi(
   createRoute({
     method: "patch",
     path: "/{id}",
     tags: ["Planning"],
-    summary: "Rename a plan, or end it",
+    summary: "Rename a plan",
     description:
-      "Trivial single-field edits only. Structural change — exercises, intent — goes through a revision, which requires a decision.",
+      "The name is a label, not the plan. Everything that is the plan — exercises, dose, intent, and ending it — changes through POST /mesocycles/:id/decisions, which does not accept a change without its reason.",
     request: {
       query: query({}),
       params: z.object({ id: selector() }),
@@ -351,10 +352,12 @@ mesocycles.openapi(
         content: {
           "application/json": {
             schema: body({
-              name: text().optional(),
-              ended_on: optionalDate(),
+              name: text(),
               intent: refusedField(
-                "The intent is the plan; changing it is a revision.",
+                "The intent is the plan; changing it is a decision.",
+              ),
+              ended_on: refusedField(
+                "Ending a plan is a plan change, so it carries its reason.",
               ),
             }),
           },
@@ -371,44 +374,53 @@ mesocycles.openapi(
         },
       },
       422: {
-        description: "Nothing was sent, or intent was — which is a revision.",
+        description:
+          "No name was sent, or intent or ended_on was — which are decisions.",
       },
     },
   }),
   async (c) => {
     const m = await resolveMesocycle(c.req.valid("param").id);
     const b = c.req.valid("json");
-    const fields: Record<string, unknown> = {};
-    if (b.name !== undefined) fields.name = b.name;
-    if (b.ended_on !== undefined) fields.ended_on = b.ended_on;
     if (b.intent !== undefined) {
       throw new ApiError(
         422,
-        "The intent is the plan; changing it is a revision. POST /mesocycles/:id/revisions with the full replacement intent and a decision.",
+        "The intent is the plan; changing it is a decision. POST /mesocycles/:id/decisions with the full replacement intent, what changed, and why.",
       );
     }
-    if (Object.keys(fields).length === 0) {
+    if (b.ended_on !== undefined) {
       throw new ApiError(
         422,
-        'Send at least one of "name", "ended_on". Structural changes (exercises, intent) go through POST /mesocycles/:id/revisions.',
+        'Ending a plan is a plan change, so it carries its reason: POST /mesocycles/:id/decisions with {"ended_on": "YYYY-MM-DD", "what_changed": …, "why": …}.',
       );
     }
-    await sql`update mesocycles set ${sql(fields)} where id = ${m.id}`;
+    await sql`update mesocycles set name = ${b.name} where id = ${m.id}`;
     return c.json({ mesocycle: await mesocycleDetail(m.id) });
   },
 );
 
-// The mid-mesocycle revision: exercise-list changes and/or a full intent
-// replacement, plus a required decision — all-or-nothing, one transaction.
-// There is no way to change the plan without saying why.
+// The one door onto a plan's history, and the only way the plan changes.
+//
+// Send change fields and the call changes the plan; send none and it is a
+// review that deliberately changed nothing. Both append the same row for the
+// same reason — the log is the plan's history — and neither is accepted
+// without what changed and why.
+//
+// This was two endpoints and a hole until #38. `/revisions` refused a call
+// that changed nothing and pointed at `/decisions`; `/decisions` existed only
+// for the case `/revisions` refused; and `PATCH ended_on` changed the plan
+// without writing here at all, so the one change that most needed a reason
+// was the only one never asked for one. Two doors onto one drawer, and the
+// drawer could not say which door had filled it — which is how a retry came
+// to answer 200 for work that never happened.
 mesocycles.openapi(
   createRoute({
     method: "post",
-    path: "/{id}/revisions",
+    path: "/{id}/decisions",
     tags: ["Planning"],
-    summary: "Revise a plan, with the reason",
+    summary: "Change a plan, or record why it was left alone",
     description:
-      "Exercise-list changes and/or a full intent replacement, all-or-nothing in one transaction. The decision is required: there is no way to change the plan without saying why.",
+      "Exercise-list changes, doses, a full intent replacement, ending the plan, or none of them — all-or-nothing in one transaction, and never without what changed and why. A review outcome that changed nothing is the same call with no change fields.",
     request: {
       query: query({}),
       params: z.object({ id: selector() }),
@@ -416,10 +428,8 @@ mesocycles.openapi(
         content: {
           "application/json": {
             schema: body({
-              decision: body({ what_changed: text(), why: text() }, "decision")
-                .meta({
-                  description: "Required. What changed, and why.",
-                }),
+              what_changed: text(),
+              why: text(),
               intent: optionalText(),
               add: z.array(planEntry()).optional(),
               remove: z.array(z.union([z.string(), z.number()])).optional()
@@ -434,6 +444,10 @@ mesocycles.openapi(
                   weekly_dose_unit: oneOf(DOSE_UNITS),
                 }, 'an entry in "redose"'),
               ).optional(),
+              ended_on: optionalDate().meta({
+                description:
+                  "Ends the plan, freeing its track for the next one. Earlier than planned is a plan cut short, and this is the reason it was. Null reopens a plan ended by mistake.",
+              }),
               weekly_sets: refusedField(
                 'Dose changes are "redose", for exercises already in the plan.',
               ),
@@ -447,18 +461,36 @@ mesocycles.openapi(
       },
     },
     responses: {
-      200: {
-        description:
-          "The plan as revised. Also the answer to a retry carrying a request_id already used.",
+      201: {
+        description: "The decision, and the plan as it now stands.",
         content: {
           "application/json": {
-            schema: z.object({ mesocycle: MesocycleDetail }),
+            schema: z.object({
+              mesocycle: MesocycleDetail,
+              decision: Recorded,
+            }),
           },
         },
       },
+      200: {
+        description:
+          "The decision this request_id already recorded, replayed exactly, with the plan as it stands now — which later decisions may have moved on.",
+        content: {
+          "application/json": {
+            schema: z.object({
+              mesocycle: MesocycleDetail,
+              decision: Recorded,
+            }),
+          },
+        },
+      },
+      409: {
+        description:
+          "That request_id was already spent on a different plan's decision.",
+      },
       422: {
         description:
-          "The revision changes nothing, names an exercise not in the plan, or carries a refused field.",
+          "Names an exercise not in the plan, or carries a refused field.",
       },
     },
   }),
@@ -466,13 +498,17 @@ mesocycles.openapi(
     const m = await resolveMesocycle(c.req.valid("param").id);
     const b = c.req.valid("json");
 
-    const { body: answer } = await writeOnce({
+    const { body: answer, status } = await writeOnce({
       table: "mesocycle_decisions",
       requestId: b.request_id,
-      select: sql`id`,
-      // A revision answers 200 either way: it changes a plan that already
-      // existed, so there is no created row to announce.
-      replay: async () => ({ mesocycle: await mesocycleDetail(m.id) }),
+      select: sql`id, mesocycle_id, made_at, what_changed, why`,
+      // Scoped to the plan, because one table-wide id was enough to replay
+      // one plan's decision as another's.
+      scope: sql`and mesocycle_id = ${m.id}`,
+      replay: async (existing: RecordedRow) => ({
+        mesocycle: await mesocycleDetail(m.id),
+        decision: existing,
+      }),
       write: async () => {
         if (b.weekly_sets !== undefined) {
           throw new ApiError(
@@ -487,22 +523,14 @@ mesocycles.openapi(
           );
         }
 
-        const whatChanged = b.decision.what_changed;
-        const why = b.decision.why;
-
         const newIntent = b.intent ?? null;
+        // Absent leaves the end date alone; an explicit null reopens a plan
+        // ended by mistake, which is why this asks for undefined and not for
+        // a falsy value.
+        const endsPlan = b.ended_on !== undefined;
         const removals = b.remove ?? [];
         const additions = b.add ?? [];
         const redoses = b.redose ?? [];
-        if (
-          removals.length + additions.length + redoses.length === 0 &&
-          newIntent === null
-        ) {
-          throw new ApiError(
-            422,
-            'The revision changes nothing. Send at least one of: "remove" (exercise refs), "add" (plan entries), "redose" (new weekly doses for exercises already in the plan), "intent" (the full replacement text). A review outcome with no change ("hold") is recorded with POST /mesocycles/:id/decisions instead.',
-          );
-        }
 
         // Resolve everything before touching the database.
         const removeIds: number[] = [];
@@ -526,7 +554,7 @@ mesocycles.openapi(
           });
         }
 
-        await sql.begin(async (tx) => {
+        const decision = await sql.begin(async (tx) => {
           for (const exerciseId of removeIds) {
             const [row] = await tx`
         select me.id from mesocycle_exercises me
@@ -568,79 +596,26 @@ mesocycles.openapi(
           if (newIntent !== null) {
             await tx`update mesocycles set intent = ${newIntent} where id = ${m.id}`;
           }
+          if (endsPlan) {
+            await tx`update mesocycles set ended_on = ${
+              b.ended_on ?? null
+            } where id = ${m.id}`;
+          }
           // A replaced intent is snapshotted on the decision row: the decision log
           // is the plan's history now that no table holds prior numbers.
-          await tx`
+          const [row] = await tx<RecordedRow[]>`
       insert into mesocycle_decisions
         (mesocycle_id, what_changed, why, request_id, prior_intent)
-      values (${m.id}, ${whatChanged}, ${why}, ${b.request_id},
-        ${newIntent === null ? null : m.intent})`;
+      values (${m.id}, ${b.what_changed}, ${b.why}, ${b.request_id},
+        ${newIntent === null ? null : m.intent})
+      returning id, mesocycle_id, made_at, what_changed, why`;
+          return row;
         });
 
-        return { mesocycle: await mesocycleDetail(m.id) };
-      },
-    });
-    return c.json(answer, 200);
-  },
-);
-
-// A decision that changes nothing (review outcome: hold; early end reasoning;
-// a local back-off or a declared light week — see tasks/programming).
-mesocycles.openapi(
-  createRoute({
-    method: "post",
-    path: "/{id}/decisions",
-    tags: ["Planning"],
-    summary: "Record a decision that changed nothing",
-    description:
-      'A review outcome of "hold", the reasoning behind an early end, a local back-off, a declared light week.',
-    request: {
-      query: query({}),
-      params: z.object({ id: selector() }),
-      body: {
-        content: {
-          "application/json": {
-            schema: body({
-              what_changed: text(),
-              why: text(),
-              request_id: requestId(),
-            }),
-          },
-        },
-      },
-    },
-    responses: {
-      201: {
-        description: "The decision that was recorded.",
-        content: {
-          "application/json": { schema: z.object({ decision: Recorded }) },
-        },
-      },
-      200: {
-        description:
-          "The decision this request_id already recorded. A retry, answered with the original result.",
-        content: {
-          "application/json": { schema: z.object({ decision: Recorded }) },
-        },
-      },
-    },
-  }),
-  async (c) => {
-    const m = await resolveMesocycle(c.req.valid("param").id);
-    const b = c.req.valid("json");
-
-    const { body: answer, status } = await writeOnce({
-      table: "mesocycle_decisions",
-      requestId: b.request_id,
-      select: sql`id, mesocycle_id, made_at, what_changed, why`,
-      replay: (existing: RecordedRow) => ({ decision: existing }),
-      write: async () => {
-        const [row] = await sql<RecordedRow[]>`
-        insert into mesocycle_decisions
-          (mesocycle_id, what_changed, why, request_id)
-        values (${m.id}, ${b.what_changed}, ${b.why}, ${b.request_id})
-        returning id, mesocycle_id, made_at, what_changed, why`;
-        return { decision: row };
+        return {
+          mesocycle: await mesocycleDetail(m.id),
+          decision,
+        };
       },
     });
     return c.json(answer, status);
@@ -654,7 +629,7 @@ mesocycles.openapi(
     tags: ["Planning"],
     summary: "The plan's decision log",
     description:
-      "Every change to the plan carries one, so this is the plan's history — including the intent each revision replaced.",
+      "Every change to the plan carries one and every review that changed nothing leaves one, so this is the plan's history — including the intent each replacement displaced.",
     request: { params: z.object({ id: selector() }), query: query({}) },
     responses: {
       200: {

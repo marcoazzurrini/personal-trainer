@@ -621,6 +621,26 @@ export function lastTuesday(): string {
   return addDays(mondayOf(ROME_TODAY), -6);
 }
 
+// Ending a plan is a plan change, so it goes through the decision log like
+// any other. Fixtures end plans constantly — to free a track, or to make
+// "current" unambiguous — and the reason they give is not the point of the
+// test that calls this.
+export function endPlan(ref: string | number, day = today()) {
+  return api.post(`/mesocycles/${ref}/decisions`, {
+    ended_on: day,
+    what_changed: "Ended the plan.",
+    why: "Test fixture.",
+  });
+}
+
+export function reopenPlan(ref: string | number) {
+  return api.post(`/mesocycles/${ref}/decisions`, {
+    ended_on: null,
+    what_changed: "Reopened the plan.",
+    why: "Test fixture.",
+  });
+}
+
 export function today(): string {
   return ROME_TODAY;
 }

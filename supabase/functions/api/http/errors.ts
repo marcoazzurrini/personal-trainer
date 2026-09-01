@@ -40,7 +40,9 @@ export const constraintMessages: Record<string, string> = {
     "That alias already points at an exercise (aliases are case-insensitive). Fetch GET /exercises to see which.",
   muscles_name_key: "That muscle already exists.",
   mesocycles_one_active_per_track:
-    'A mesocycle is already active on that track. End it first (PATCH /mesocycles/current:<track> with {"ended_on": "YYYY-MM-DD"}) or revise it instead of creating a new one. Plans on other tracks run alongside it and are not in the way.',
+    'A mesocycle is already active on that track. End it first (POST /mesocycles/current:<track>/decisions with {"ended_on": "YYYY-MM-DD"} and the reason) or change it instead of creating a new one. Plans on other tracks run alongside it and are not in the way.',
+  mesocycle_decisions_request_id_key:
+    "That request_id was already spent on a different plan's decision. A retry replays the call it was issued for; a new call needs a fresh uuid.",
   mesocycles_track_check:
     'track must be one of: hypertrophy, strength, speed, endurance. It also names the method document the coach reads (GET /docs/method/<track>). Rehab is not a track — it is a role an exercise plays inside a plan, so send "role": "rehab" on the exercise instead.',
   mesocycles_starts_on_monday:
@@ -52,7 +54,7 @@ export const constraintMessages: Record<string, string> = {
   mesocycle_exercises_weekly_dose_unit_check:
     "weekly_dose_unit must be one of: sets, minutes, km.",
   mesocycle_exercises_weekly_dose_positive:
-    "weekly_dose must be greater than 0. An exercise that should not be trained this week either leaves the plan (a revision) or is backed off by a decision saying for how long — a dose of 0 would read as a plan asking for nothing, forever.",
+    'weekly_dose must be greater than 0. An exercise that should not be trained this week either leaves the plan ("remove") or is backed off by a decision saying for how long — a dose of 0 would read as a plan asking for nothing, forever.',
   sets_weight_accompanies_a_measure:
     "weight_kg cannot stand on its own: a load is a modifier on a measurement, not a measurement. Send it with reps, distance_m, or duration_s.",
   sets_target_weight_accompanies_a_measure:

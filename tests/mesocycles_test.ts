@@ -1,8 +1,10 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   api,
+  endPlan,
   ensureCatalogue,
   lastMonday,
+  reopenPlan,
   resetTraining,
   today,
   uuid,
@@ -78,14 +80,14 @@ Deno.test("mesocycle lifecycle", async (t) => {
   await t.step(
     "an entry carrying weekly_sets is pointed at weekly_dose",
     async () => {
-      await api.patch(`/mesocycles/${mesoId}`, { ended_on: today() });
+      await endPlan(mesoId);
       const bad = planBody(uuid(), blockId);
       // deno-lint-ignore no-explicit-any
       (bad.exercises[0] as any).weekly_sets = [{ week: 1, sets: 10 }];
       const { status, body } = await api.post("/mesocycles", bad);
       assertEquals(status, 422);
       assert(body.error.includes("weekly_dose"), body.error);
-      await api.patch(`/mesocycles/${mesoId}`, { ended_on: null });
+      await reopenPlan(mesoId);
     },
   );
 
@@ -127,11 +129,11 @@ Deno.test("mesocycle lifecycle", async (t) => {
       }],
     });
     assertEquals(status, 201);
-    await api.patch(`/mesocycles/${body.mesocycle.id}`, { ended_on: today() });
+    await endPlan(body.mesocycle.id);
   });
 
   await t.step("a non-Monday start is rejected", async () => {
-    await api.patch(`/mesocycles/${mesoId}`, { ended_on: today() });
+    await endPlan(mesoId);
     const tuesday = new Date(`${lastMonday()}T00:00:00Z`);
     tuesday.setUTCDate(tuesday.getUTCDate() + 1);
     const { status, body } = await api.post("/mesocycles", {
@@ -141,7 +143,7 @@ Deno.test("mesocycle lifecycle", async (t) => {
     assertEquals(status, 422);
     assert(body.error.includes("Monday"));
     // reopen for the rest of the suite
-    await api.patch(`/mesocycles/${mesoId}`, { ended_on: null });
+    await reopenPlan(mesoId);
   });
 
   await t.step("current resolves to the active mesocycle", async () => {
@@ -151,51 +153,87 @@ Deno.test("mesocycle lifecycle", async (t) => {
 
   await t.step("the intent cannot be edited casually", async () => {
     const { status, body } = await api.patch(`/mesocycles/${mesoId}`, {
+      name: "still fine",
       intent: "new plan, no reason given",
     });
     assertEquals(status, 422);
-    assert(body.error.includes("revision"));
+    assert(body.error.includes("decision"), body.error);
+  });
+
+  // The hole this endpoint used to have: ending a plan is the plan change
+  // that most needs a reason, and it was the only one that never asked.
+  await t.step("a plan cannot be ended without a reason", async () => {
+    const { status, body } = await api.patch(`/mesocycles/${mesoId}`, {
+      name: "still fine",
+      ended_on: today(),
+    });
+    assertEquals(status, 422);
+    assert(body.error.includes("carries its reason"), body.error);
+  });
+
+  await t.step("ending a plan records why in the log", async () => {
+    const { status, body } = await api.post(
+      `/mesocycles/${mesoId}/decisions`,
+      {
+        ended_on: today(),
+        what_changed: "Ended the plan a week early.",
+        why: "Shoulder flared up.",
+      },
+    );
+    assertEquals(status, 201);
+    assertEquals(body.mesocycle.ended_on, today());
+    assertEquals(body.decision.why, "Shoulder flared up.");
+
+    const log = await api.get(`/mesocycles/${mesoId}/decisions`);
+    assert(
+      log.body.decisions.some(
+        (d: { why: string }) => d.why === "Shoulder flared up.",
+      ),
+    );
+    await reopenPlan(mesoId);
   });
 
   await t.step("an unknown exercise in a plan is a 422", async () => {
-    await api.patch(`/mesocycles/${mesoId}`, { ended_on: today() });
+    await endPlan(mesoId);
     const bad = planBody(uuid(), blockId);
     bad.exercises[0].exercise = "zercher yoke walk";
     const { status, body } = await api.post("/mesocycles", bad);
     assertEquals(status, 422);
     assert(body.error.includes("Unknown exercise"));
-    await api.patch(`/mesocycles/${mesoId}`, { ended_on: null });
+    await reopenPlan(mesoId);
   });
 
-  await t.step("a revision without a decision is rejected", async () => {
+  await t.step("a change without its reason is rejected", async () => {
     const { status, body } = await api.post(
-      "/mesocycles/current/revisions",
+      "/mesocycles/current/decisions",
       { remove: ["chin ups"] },
     );
     assertEquals(status, 422);
-    assert(body.error.includes("decision"));
+    assert(body.error.includes("what_changed"), body.error);
   });
 
-  await t.step("a revision with weekly_sets points at redose", async () => {
-    const { status, body } = await api.post("/mesocycles/current/revisions", {
-      decision: { what_changed: "x", why: "y" },
+  await t.step("a change with weekly_sets points at redose", async () => {
+    const { status, body } = await api.post("/mesocycles/current/decisions", {
+      what_changed: "x",
+      why: "y",
       weekly_sets: [{ exercise: "squat", week: 3, sets: 15 }],
     });
     assertEquals(status, 422);
     assert(body.error.includes("redose"), body.error);
   });
 
-  // A dose change is a plan change: same call, same mandatory decision.
-  await t.step("a dose changes only through a revision", async () => {
-    const { status, body } = await api.post("/mesocycles/current/revisions", {
-      decision: { what_changed: "squat 10 -> 12 sets", why: "recovering well" },
+  // A dose change is a plan change: same call, same mandatory reason.
+  await t.step("a dose changes only through a decision", async () => {
+    const { status, body } = await api.post("/mesocycles/current/decisions", {
+      what_changed: "squat 10 -> 12 sets",
+      why: "recovering well",
       redose: [{
         exercise: "squat",
         weekly_dose: 12,
         weekly_dose_unit: "sets",
       }],
     });
-    assertEquals(status, 200);
+    assertEquals(status, 201);
     const squat = body.mesocycle.exercises.find(
       (e: { exercise: string }) => e.exercise === "Back Squat",
     );
@@ -203,33 +241,24 @@ Deno.test("mesocycle lifecycle", async (t) => {
   });
 
   await t.step("redosing an exercise outside the plan is refused", async () => {
-    const { status, body } = await api.post("/mesocycles/current/revisions", {
-      decision: { what_changed: "x", why: "y" },
+    const { status, body } = await api.post("/mesocycles/current/decisions", {
+      what_changed: "x",
+      why: "y",
       redose: [{ exercise: "bench", weekly_dose: 8, weekly_dose_unit: "sets" }],
     });
     assertEquals(status, 422);
     assert(body.error.includes("not in this mesocycle's plan"), body.error);
   });
 
-  await t.step("an empty revision is rejected with guidance", async () => {
-    const { status, body } = await api.post("/mesocycles/current/revisions", {
-      decision: { what_changed: "nothing", why: "testing" },
-    });
-    assertEquals(status, 422);
-    assert(body.error.includes("decisions"));
-  });
-
   const REVISED_INTENT = INTENT.replace("6-10", "5-8");
 
   await t.step(
-    "a revision swaps exercises and replaces the intent atomically",
+    "a decision swaps exercises and replaces the intent atomically",
     async () => {
-      const { status, body } = await api.post("/mesocycles/current/revisions", {
+      const { status, body } = await api.post("/mesocycles/current/decisions", {
         request_id: uuid(),
-        decision: {
-          what_changed: "chin ups out, pull ups in; intent updated to match",
-          why: "elbow niggle",
-        },
+        what_changed: "chin ups out, pull ups in; intent updated to match",
+        why: "elbow niggle",
         remove: ["chin ups"],
         add: [{
           exercise: "pull ups",
@@ -240,7 +269,7 @@ Deno.test("mesocycle lifecycle", async (t) => {
         }],
         intent: REVISED_INTENT,
       });
-      assertEquals(status, 200);
+      assertEquals(status, 201);
       const names = body.mesocycle.exercises.map(
         (e: { exercise: string }) => e.exercise,
       );
@@ -252,16 +281,17 @@ Deno.test("mesocycle lifecycle", async (t) => {
 
   await t.step("the replaced intent survives in the decision log", async () => {
     const { body } = await api.get("/mesocycles/current/decisions");
-    const revision = body.decisions.find(
+    const replacement = body.decisions.find(
       (d: { prior_intent: string | null }) => d.prior_intent !== null,
     );
-    assertEquals(revision.prior_intent, INTENT);
+    assertEquals(replacement.prior_intent, INTENT);
   });
 
   await t.step("removing an exercise not in the plan fails whole", async () => {
     const before = await api.get("/mesocycles/current");
-    const { status } = await api.post("/mesocycles/current/revisions", {
-      decision: { what_changed: "x", why: "y" },
+    const { status } = await api.post("/mesocycles/current/decisions", {
+      what_changed: "x",
+      why: "y",
       remove: ["bench"],
       intent: "should never be written",
     });
@@ -270,6 +300,8 @@ Deno.test("mesocycle lifecycle", async (t) => {
     assertEquals(after.body.mesocycle, before.body.mesocycle); // nothing applied
   });
 
+  // The 422 that used to guard this was the whole argument for two endpoints:
+  // one door refused exactly what the other existed for.
   await t.step("a hold decision is recordable without a change", async () => {
     const { status } = await api.post("/mesocycles/current/decisions", {
       what_changed: "nothing — held the plan",
@@ -277,6 +309,8 @@ Deno.test("mesocycle lifecycle", async (t) => {
     });
     assertEquals(status, 201);
     const log = await api.get("/mesocycles/current/decisions");
-    assertEquals(log.body.decisions.length, 3); // swap + redose + hold
+    const last = log.body.decisions.at(-1);
+    assertEquals(last.what_changed, "nothing — held the plan");
+    assertEquals(last.prior_intent, null);
   });
 });
