@@ -9,5 +9,6 @@
 // sync trigger public — silently, and in production. Mount order is the auth
 // property, so it stays where the middleware is, in index.ts.
 
+export { bodyfat } from "./bodyfat.routes.ts";
 export { bodyweight } from "./bodyweight.routes.ts";
 export { withingsAdmin, withingsWebhook } from "./withings.routes.ts";

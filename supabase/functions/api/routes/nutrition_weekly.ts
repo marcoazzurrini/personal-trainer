@@ -3,7 +3,7 @@ import { sql } from "../db.ts";
 import { energyDensity, fatMassKg, GOALS } from "../rules/expenditure.ts";
 import { lastFinishedDay } from "../record/calendar.ts";
 import { loadTrend } from "../body/bodyweight.ts";
-import { latestBodyfat } from "../record/nutrition_read.ts";
+import { latestBodyfat } from "../body/bodyfat.ts";
 import { query } from "../http/schema.ts";
 
 // Finished weeks only, like every other weekly read in this system: the

@@ -1,6 +1,7 @@
 import { sql } from "../db.ts";
 import { lastFinishedDay } from "./calendar.ts";
 import { addDays, daysBetween } from "../rules/dates.ts";
+import { latestBodyfat } from "../body/bodyfat.ts";
 import type { TrendPoint } from "../body/trend.ts";
 import {
   backSolve,
@@ -41,13 +42,6 @@ async function loadIntake(from: string, to: string): Promise<IntakeWindow> {
     if (row.incomplete) excludedDays.add(row.day);
   }
   return { intakeByDay, excludedDays };
-}
-
-export async function latestBodyfat(): Promise<number | null> {
-  const [row] = await sql`
-    select percent::float8 from bodyfat_estimates
-    order by day desc, id desc limit 1`;
-  return row ? row.percent : null;
 }
 
 function windowDays(to: string, length: number): string[] {

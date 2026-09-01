@@ -3,9 +3,14 @@ import "@supabase/functions-js/edge-runtime.d.ts";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { sql } from "./db.ts";
 import { errorResponse, validationHook } from "./http/errors.ts";
+import {
+  bodyfat,
+  bodyweight,
+  withingsAdmin,
+  withingsWebhook,
+} from "./body/index.ts";
+import { catchUpIfDue } from "./body/withings.ts";
 import { blocks } from "./routes/blocks.ts";
-import { bodyfat } from "./routes/bodyfat.ts";
-import { bodyweight } from "./body/index.ts";
 import { docs } from "./routes/docs.ts";
 import { exercises, muscles } from "./routes/exercises.ts";
 import { foods } from "./routes/foods.ts";
@@ -23,8 +28,6 @@ import { trainingState } from "./routes/training_state.ts";
 import { userContext } from "./routes/user_context.ts";
 import { weekSchedule } from "./routes/week_schedule.ts";
 import { weeklyExerciseSets, weeklyVolume } from "./routes/volume.ts";
-import { withingsAdmin, withingsWebhook } from "./body/index.ts";
-import { catchUpIfDue } from "./body/withings.ts";
 
 // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
 // mounted below stays an ordinary Hono router and keeps working untouched.
