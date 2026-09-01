@@ -38,6 +38,8 @@ export const DOSE_UNITS = ["sets", "minutes", "km"] as const;
 // owning the list it comes from.
 export const KINDS = ["warmup", "working"] as const;
 export const EFFORTS = ["easy", "hard", "failure"] as const;
+export type Kind = typeof KINDS[number];
+export type Effort = typeof EFFORTS[number];
 
 // What kind of adaptation an exercise is trained for. Declared in the
 // exercises route while the rule that branches on it — assertEffort — spelled
