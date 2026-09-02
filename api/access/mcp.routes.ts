@@ -57,11 +57,10 @@ function config(): Config {
   };
 }
 
-// Where this function is reached from outside. The gateway strips
-// /functions/v1 before a request arrives, so the router sees /api/mcp and the
-// public URL has to put the prefix back; and it ends TLS, so the scheme is
-// worked out rather than read (publicOrigin says how). PUBLIC_ORIGIN
-// overrides both for the case neither rule fits.
+// Where this API is reached from outside. The proxy in front ends TLS, so
+// the scheme is worked out rather than read (publicOrigin says how); the path
+// is the one the router saw, since nothing strips a prefix on the way in.
+// PUBLIC_ORIGIN overrides the origin for the case the rule does not fit.
 function publicUrl(c: Context, cfg: Config, path: string): string {
   const url = new URL(c.req.url);
   const origin = cfg.publicOrigin ?? publicOrigin({
@@ -70,7 +69,7 @@ function publicUrl(c: Context, cfg: Config, path: string): string {
     host: url.host,
     forwardedProto: c.req.header("x-forwarded-proto") ?? null,
   });
-  return `${origin}/functions/v1${path}`;
+  return `${origin}${path}`;
 }
 
 const NO_STREAM =

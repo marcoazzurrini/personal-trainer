@@ -23,7 +23,7 @@ const deps = {
       token: `minted-for-${subject}`,
       expires_at: "2026-09-04T12:00:00.000Z",
     }),
-  baseUrl: "https://example.test/functions/v1/api",
+  baseUrl: "https://example.test/api",
   version: "1",
 };
 
@@ -121,7 +121,7 @@ Deno.test("the protocol, one message at a time", async (t) => {
       assertEquals(content[0].type, "text");
       assertEquals(JSON.parse(content[0].text), {
         token: "minted-for-user_01TEST",
-        base_url: "https://example.test/functions/v1/api",
+        base_url: "https://example.test/api",
         expires_at: "2026-09-04T12:00:00.000Z",
       });
     },
@@ -165,11 +165,11 @@ Deno.test("what a client is told before it signs in", async (t) => {
   await t.step("the discovery document", () => {
     assertEquals(
       protectedResourceMetadata(
-        "https://x.example/functions/v1/api/mcp",
+        "https://x.example/api/mcp",
         "https://x.example/auth/v1",
       ),
       {
-        resource: "https://x.example/functions/v1/api/mcp",
+        resource: "https://x.example/api/mcp",
         authorization_servers: ["https://x.example/auth/v1"],
         bearer_methods_supported: ["header"],
       },
@@ -177,33 +177,38 @@ Deno.test("what a client is told before it signs in", async (t) => {
   });
 
   await t.step("the origin is the one callers used, not the one seen", () => {
-    // Behind the gateway the runtime sees http; the outside world said https.
+    // Behind the proxy the runtime sees http; the outside world said https.
     const hosted = {
       protocol: "http:",
-      hostname: "cawwcmsmqhrqiyjlrhba.supabase.co",
-      host: "cawwcmsmqhrqiyjlrhba.supabase.co",
+      hostname: "trainer.marcoazzurrini.com",
+      host: "trainer.marcoazzurrini.com",
     };
     assertEquals(
       publicOrigin({ ...hosted, forwardedProto: null }),
-      "https://cawwcmsmqhrqiyjlrhba.supabase.co",
+      "https://trainer.marcoazzurrini.com",
     );
+    // Traefik's word, and it may be a list when proxies stack.
     assertEquals(
       publicOrigin({ ...hosted, forwardedProto: "https" }),
-      "https://cawwcmsmqhrqiyjlrhba.supabase.co",
+      "https://trainer.marcoazzurrini.com",
     );
-    // The local stack really is plain http, and says so.
+    assertEquals(
+      publicOrigin({ ...hosted, forwardedProto: "https, http" }),
+      "https://trainer.marcoazzurrini.com",
+    );
+    // The local server really is plain http, and says so.
     const local = {
       protocol: "http:",
       hostname: "127.0.0.1",
-      host: "127.0.0.1:54321",
+      host: "127.0.0.1:8000",
     };
     assertEquals(
       publicOrigin({ ...local, forwardedProto: null }),
-      "http://127.0.0.1:54321",
+      "http://127.0.0.1:8000",
     );
     assertEquals(
       publicOrigin({ ...local, forwardedProto: "http" }),
-      "http://127.0.0.1:54321",
+      "http://127.0.0.1:8000",
     );
   });
 
@@ -242,7 +247,7 @@ Deno.test("the connector before a sign-in", async (t) => {
       const match = challenge.match(/^Bearer resource_metadata="([^"]+)"$/);
       assert(match !== null, `unexpected challenge: ${challenge}`);
       assert(
-        match[1].endsWith("/functions/v1/api/mcp/oauth-protected-resource"),
+        match[1].endsWith("/api/mcp/oauth-protected-resource"),
         match[1],
       );
       assertStringIncludes(await envelope(res), "Sign in first");
@@ -307,7 +312,7 @@ Deno.test("the connector before a sign-in", async (t) => {
     assertEquals(res.status, 200);
     const doc = await res.json();
     assert(
-      String(doc.resource).endsWith("/functions/v1/api/mcp"),
+      String(doc.resource).endsWith("/api/mcp"),
       doc.resource,
     );
     assertEquals(Object.keys(doc).sort(), [

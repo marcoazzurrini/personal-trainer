@@ -17,7 +17,7 @@ import {
 // test signs is indistinguishable in shape from one the server would issue.
 
 const ISSUER = "https://auth.example.test";
-const AUDIENCE = "https://x.example/functions/v1/api/mcp";
+const AUDIENCE = "https://x.example/api/mcp";
 const NOW = 1_800_000_000; // seconds; a fixed clock so expiry is exact
 
 type Alg = "ES256" | "RS256";
@@ -157,7 +157,7 @@ Deno.test("a token the authorization server signed is read", async (t) => {
       await check(
         await s.sign({
           ...GOOD,
-          aud: "https://X.EXAMPLE/functions/v1/api/mcp/",
+          aud: "https://X.EXAMPLE/api/mcp/",
         }),
         s.jwks,
       );
@@ -257,7 +257,7 @@ Deno.test("every other token is refused with a sentence", async (t) => {
     void aud;
     await refused(await ec.sign(noAud), ec.jwks, "no resource");
     await refused(
-      await ec.sign({ ...GOOD, aud: "https://x.example/functions/v1/api" }),
+      await ec.sign({ ...GOOD, aud: "https://x.example/api" }),
       ec.jwks,
       "not for this endpoint",
     );
@@ -298,10 +298,10 @@ Deno.test("every other token is refused with a sentence", async (t) => {
 });
 
 Deno.test("one spelling of a resource", () => {
-  const same = "https://x.example/functions/v1/api/mcp";
+  const same = "https://x.example/api/mcp";
   assertEquals(canonicalResource(same + "/"), same);
   assertEquals(
-    canonicalResource("HTTPS://X.EXAMPLE/functions/v1/api/mcp"),
+    canonicalResource("HTTPS://X.EXAMPLE/api/mcp"),
     same,
   );
   assertEquals(canonicalResource(same + "#frag"), same);

@@ -28,7 +28,7 @@ Deno.test("the plugin's files are what Cowork expects", async (t) => {
     assertEquals(Object.keys(servers), ["personal-trainer"]);
     assertEquals(servers["personal-trainer"].type, "http");
     assert(
-      servers["personal-trainer"].url.endsWith("/functions/v1/api/mcp"),
+      servers["personal-trainer"].url.endsWith("/api/mcp"),
       servers["personal-trainer"].url,
     );
   });

@@ -109,9 +109,9 @@ app.doc("/openapi.json", {
   },
   security: [{ bearer: [] }],
   // Relative, so the page works against whichever origin served it — the
-  // deployed function and the local stack without a build step between them.
-  // Paths carry the /api the router mounts on, so the server stops short of it.
-  servers: [{ url: "/functions/v1" }],
+  // hosted API and the local one without a build step between them. Paths
+  // carry the /api the router mounts on, so the server is the origin itself.
+  servers: [{ url: "/" }],
 });
 
 // Scalar from a CDN script rather than its Hono middleware, which is npm-only
@@ -286,7 +286,12 @@ async function normalized(req: Request): Promise<Request> {
   return new Request(req.url, { method: req.method, headers, body: raw });
 }
 
-Deno.serve(async (req) => {
+// The port is the container's business, not the app's: PORT is what the
+// Dockerfile and the dev task set, and 8000 is what both default to.
+Deno.serve({
+  port: Number(Deno.env.get("PORT") ?? 8000),
+  hostname: "0.0.0.0",
+}, async (req) => {
   const url = new URL(req.url);
   const collapsed = url.pathname.replace(/^(\/api)+(?=\/|$)/, "/api");
   if (collapsed === url.pathname) return app.fetch(await normalized(req));

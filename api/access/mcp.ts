@@ -153,16 +153,15 @@ export async function handleMcp(
 
 // --- The origin the outside world sees ---------------------------------------
 
-// The function sits behind a gateway that ends TLS, so the request it sees
-// says http where every caller said https. The scheme the outside world used
-// is what a discovery document must carry, or a client is sent to an address
-// that does not exist. The gateway's own word (x-forwarded-proto) wins; with
-// no word, https is assumed for any host that is not the local stack, whose
+// The API sits behind a proxy that ends TLS, so the request it sees says
+// http where every caller said https. The scheme the outside world used is
+// what a discovery document must carry, or a client is sent to an address
+// that does not exist. The proxy's own word (x-forwarded-proto) wins; with no
+// word, https is assumed for any host that is not the local one, whose
 // addresses really are plain http.
 const LOCAL_HOSTS = new Set([
   "127.0.0.1",
   "localhost",
-  "kong",
   "host.docker.internal",
 ]);
 
