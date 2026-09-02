@@ -10,7 +10,7 @@ import {
   withingsWebhook,
 } from "./body/index.ts";
 import { catchUpIfDue } from "./body/withings.ts";
-import { docs, issues } from "./surfaces/index.ts";
+import { issues } from "./surfaces/index.ts";
 import { verifyToken } from "./access/tokens.ts";
 import { mcp } from "./access/index.ts";
 import {
@@ -77,7 +77,8 @@ app.route("/withings", withingsWebhook);
 //
 // It describes shape only. Why a food's source may not be dressed up as a
 // lookup, what an estimate obliges the coach to disclose — that judgment stays
-// in docs/, which this does not replace and cannot express.
+// in the coaching documents the plugin carries, which this does not replace
+// and cannot express.
 //
 // Public, and deliberately so — the third exemption after /health and the
 // webhook, and the only one that is a convenience rather than a necessity. A
@@ -106,7 +107,7 @@ app.doc("/openapi.json", {
     title: "Coach API",
     version: "1",
     description:
-      "Marco's training and nutrition record. Prose documents live at GET /docs/index; this describes request and response shape only.",
+      "Marco's training and nutrition record. The coaching documents ship in the plugin's skill; this describes request and response shape only.",
   },
   security: [{ bearer: [] }],
   // Relative, so the page works against whichever origin served it — the
@@ -145,8 +146,7 @@ app.route("/mcp", mcp);
 // Two ways in, for as long as the move from one to the other runs. The static
 // bearer is the path being retired: one secret pasted into a generated skill
 // file, two during a rotation (API_TOKEN and API_TOKEN_PREVIOUS), because
-// conversations hold it for as long as they live — the rotation procedure is
-// still in skill/generate-skill.sh. The minted token is the path replacing it:
+// conversations hold it for as long as they live. The minted token is the path replacing it:
 // issued by the plugin's connector after a sign-in and checked against its
 // hash in api_tokens (access/tokens.ts). Until the static branch goes, the
 // coach keeps working on the old token while the new one is proven. A server
@@ -229,7 +229,6 @@ app.route("/nutrition-state", nutritionState);
 app.route("/nutrition-targets", nutritionTargets);
 app.route("/nutrition-events", nutritionEvents);
 app.route("/nutrition/weekly", nutritionWeekly);
-app.route("/docs", docs);
 app.route("/issues", issues);
 // The manual sync trigger, on the same prefix as the webhook above but on this
 // side of the middleware.

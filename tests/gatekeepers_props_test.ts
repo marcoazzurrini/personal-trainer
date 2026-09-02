@@ -9,10 +9,9 @@ import {
 } from "../supabase/functions/api/shared/schema.ts";
 import { requireNotFuture } from "../supabase/functions/api/shared/dates.ts";
 import {
-  docUrl,
   isDocName,
   MAX_DOC_NAME,
-} from "../supabase/functions/api/surfaces/docs.ts";
+} from "../supabase/functions/api/surfaces/issues.ts";
 import { ApiError } from "../supabase/functions/api/shared/errors.ts";
 
 // The gatekeepers, tested as laws. Every request the API accepts or refuses
@@ -166,16 +165,20 @@ Deno.test("a valid timestamp round-trips to the same instant", () => {
   );
 });
 
-Deno.test("an accepted doc name can never leave the docs folder", () => {
-  // The safety of GET /docs/* is this one regex. For anything it accepts —
-  // and fc.string covers traversal attempts, URL tricks, and unicode — the
-  // resolved URL must still be inside docs/. What it rejects is someone
-  // else's problem; what it accepts must be safe.
-  const base = docUrl("index").href.replace(/index\.md$/, "");
+Deno.test("an accepted document name is a plain relative name", () => {
+  // The documents are files in the plugin now, and nothing on the server
+  // resolves a name to a path; what is left of the rule is what /issues
+  // accepts as the name of a document a report is about. For anything it
+  // accepts — and fc.string covers traversal attempts, URL tricks, and
+  // unicode — the name is lowercase words and slashes with no dot anywhere,
+  // so it could never spell a path that leaves a folder. What it rejects is
+  // someone else's problem; what it accepts must be safe.
   fc.assert(fc.property(fc.string({ maxLength: 120 }), (name) => {
     if (!isDocName(name)) return;
     assert(name.length <= MAX_DOC_NAME);
-    assert(docUrl(name).href.startsWith(base), name);
+    assert(!name.includes("."), name);
+    assert(!name.startsWith("/") && !name.endsWith("/"), name);
+    assert(!name.includes("//"), name);
   }));
   // The shapes an attack would actually take.
   for (const evil of ["../secrets", "a/../../x", "a//b", ".", "..", "a/.b"]) {

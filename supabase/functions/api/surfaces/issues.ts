@@ -8,7 +8,6 @@
 import { sql } from "../db.ts";
 import { ApiError } from "../shared/errors.ts";
 import { writeOnce } from "../shared/idempotency.ts";
-import { isDocName, MAX_DOC_NAME } from "./docs.ts";
 import {
   commentOnIssue,
   type GithubConfig,
@@ -18,6 +17,19 @@ import {
   listCoachIssues,
   openIssue,
 } from "./github.ts";
+
+// What a report may name as a document: lowercase words joined by hyphens,
+// nested with slashes — "tasks/programming", "method/hypertrophy" — the way
+// the plugin's index writes them. The documents themselves ship in the plugin
+// and never pass through this function; this only refuses a name that could
+// not be one, so an issue never cites a document that cannot exist.
+const DOC_NAME_RE = /^[a-z0-9-]+(\/[a-z0-9-]+)*$/;
+
+export const MAX_DOC_NAME = 80;
+
+export function isDocName(name: string): boolean {
+  return name.length <= MAX_DOC_NAME && DOC_NAME_RE.test(name);
+}
 
 const MAX_TITLE = 200;
 const MAX_PROBLEM = 4_000;

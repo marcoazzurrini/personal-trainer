@@ -9,10 +9,11 @@ allowed-tools: Bash, Read, Write, Edit
 Everything lives behind the API: the coaching role, the method, every procedure,
 for both halves of the job — strength training and nutrition.
 
-The entry point is `GET /docs/index` — fetch it first, before any other call or
-answer, and follow what it says. It routes to the right documents for whatever
-Marco has actually asked about, and names the two state reads: `/training-state`
-to open a training conversation, `/nutrition-state` to open a nutrition one.
+The entry point is `references/index.md`, beside this file — read it first,
+before any call or answer, and follow what it says. It routes to the right
+documents for whatever Marco has actually asked about (every one of them a file
+under `references/`), and names the two state reads: `/training-state` to open
+a training conversation, `/nutrition-state` to open a nutrition one.
 
 Never answer from memory or from general knowledge where a document exists.
 Never invent data — not a weight, not a calorie count, not a food's macros.
@@ -31,7 +32,7 @@ BASE="https://cawwcmsmqhrqiyjlrhba.supabase.co/functions/v1/api"
 AUTH="Authorization: Bearer <the token get_api_token returned>"
 
 # GET
-curl -s -H "$AUTH" "$BASE/docs/index"
+curl -s -H "$AUTH" "$BASE/training-state"
 
 # POST (JSON body)
 curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \

@@ -15,10 +15,13 @@ Two reflexes replace memory:
    shape, staleness, user context; or today's intake, adherence, bodyweight. They are
    deliberately separate: most conversations are one or the other, and fetching both
    when only one is in play is waste. Past chats are not a source.
-2. **Before doing a task, fetch its documents** — the task document from the first
+2. **Before doing a task, read its documents** — the task document from the first
    table and, before any write, the reference document for the endpoint family it
-   touches (task documents name the ones they need). What a document says overrides
-   your general knowledge. Fetch what the task needs; don't fetch what it doesn't.
+   touches (task documents name the ones they need). Every document named here is
+   a file in this skill's `references/` folder, beside this index: `tasks/logging`
+   is `references/tasks/logging.md`. Read it from disk; nothing about the documents
+   goes through the API. What a document says overrides your general knowledge.
+   Read what the task needs; don't read what it doesn't.
 
 ## Conventions that apply to every call
 
@@ -77,46 +80,46 @@ Two reflexes replace memory:
 
 One per thing a coach does.
 
-| Endpoint                             | Fetch when                                                                                  |
+| Document                             | Read when                                                                                  |
 | ------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `GET /docs/tasks/onboarding`         | `training-state` shows no mesocycle and little context — establishing the person before anything is programmed |
-| `GET /docs/tasks/programming`        | Creating or changing a mesocycle — anything that touches the plan                           |
-| `GET /docs/tasks/session-generation` | Marco asks what to do today                                                                 |
-| `GET /docs/tasks/pain`               | Marco reports pain, a tweak, or asks whether to train through something                     |
-| `GET /docs/tasks/logging`            | Something needs writing down: sessions done off-app, corrections, lasting facts, bodyweight |
-| `GET /docs/tasks/evaluation`         | Reviews and "is this working?" questions                                                    |
-| `GET /docs/tasks/charts`             | Marco asks to see progress, in either half — training, nutrition, or the two together      |
-| `GET /docs/tasks/reporting-problems` | Something in the system is in the way — a call failed or returned something wrong, an error message misled you, a procedure keeps producing friction, a document has proven incomplete |
-| `GET /docs/tasks/nutrition-onboarding` | `nutrition-state` shows no target and an empty registry — setting up weighing, staples and the first target before anything is logged |
-| `GET /docs/tasks/nutrition-logging`  | Marco says he ate something, wants to save a food or meal, or asks about today's intake     |
-| `GET /docs/tasks/nutrition-checkin`  | "How's the cut going", "should we adjust", setting up a goal phase or changing a target |
+| `tasks/onboarding`         | `training-state` shows no mesocycle and little context — establishing the person before anything is programmed |
+| `tasks/programming`        | Creating or changing a mesocycle — anything that touches the plan                           |
+| `tasks/session-generation` | Marco asks what to do today                                                                 |
+| `tasks/pain`               | Marco reports pain, a tweak, or asks whether to train through something                     |
+| `tasks/logging`            | Something needs writing down: sessions done off-app, corrections, lasting facts, bodyweight |
+| `tasks/evaluation`         | Reviews and "is this working?" questions                                                    |
+| `tasks/charts`             | Marco asks to see progress, in either half — training, nutrition, or the two together      |
+| `tasks/reporting-problems` | Something in the system is in the way — a call failed or returned something wrong, an error message misled you, a procedure keeps producing friction, a document has proven incomplete |
+| `tasks/nutrition-onboarding` | `nutrition-state` shows no target and an empty registry — setting up weighing, staples and the first target before anything is logged |
+| `tasks/nutrition-logging`  | Marco says he ate something, wants to save a food or meal, or asks about today's intake     |
+| `tasks/nutrition-checkin`  | "How's the cut going", "should we adjust", setting up a goal phase or changing a target |
 
 ## Reference documents — endpoints, payloads, field values
 
-One per endpoint family: the exact shapes and schema rules. Fetch before writing to
+One per endpoint family: the exact shapes and schema rules. Read before writing to
 that family; the task documents point at the right one at the right moment.
 
-| Endpoint                            | Covers                                                                    |
+| Document                            | Covers                                                                    |
 | ----------------------------------- | ------------------------------------------------------------------------- |
-| `GET /docs/reference/planning`      | Blocks, mesocycles, decisions                                             |
-| `GET /docs/reference/sessions`      | Sessions and sets: targets vs actuals, corrections, field values          |
-| `GET /docs/reference/exercises`     | The exercise catalogue: creating exercises and muscles, history, `volume_factor` |
-| `GET /docs/reference/tracking`      | Training state, weekly progress reads, user context, bodyweight           |
-| `GET /docs/reference/nutrition`     | Foods, meals, intake, corrections, body fat, expenditure, targets, events |
+| `reference/planning`      | Blocks, mesocycles, decisions                                             |
+| `reference/sessions`      | Sessions and sets: targets vs actuals, corrections, field values          |
+| `reference/exercises`     | The exercise catalogue: creating exercises and muscles, history, `volume_factor` |
+| `reference/tracking`      | Training state, weekly progress reads, user context, bodyweight           |
+| `reference/nutrition`     | Foods, meals, intake, corrections, body fat, expenditure, targets, events |
 
 ## Method documents — the coaching model
 
 One per training goal: what drives the adaptation, how to dose it, how to read whether
 it is happening. Every task document defers to the method document for the current
-mesocycle's goal, so fetch that one alongside.
+mesocycle's goal, so read that one alongside.
 
-| Endpoint                       | Goal                     |
+| Document                       | Goal                     |
 | ------------------------------ | ------------------------ |
-| `GET /docs/method/hypertrophy` | Training for muscle size |
-| `GET /docs/method/nutrition`   | Eating: energy balance, protein, rate of change, and the behavioural doctrine that decides most outcomes |
+| `method/hypertrophy` | Training for muscle size |
+| `method/nutrition`   | Eating: energy balance, protein, rate of change, and the behavioural doctrine that decides most outcomes |
 
-A training plan's **track** names its method document: `GET /docs/method/<track>`.
-Fetch one per active plan — two plans running means two method documents, and applying
+A training plan's **track** names its method document: `method/<track>`.
+Read one per active plan — two plans running means two method documents, and applying
 one line's method to the other is how a sprint session ends up programmed like a
 hypertrophy session.
 

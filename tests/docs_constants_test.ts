@@ -20,7 +20,7 @@ import {
 // by name. This is how the "planned dose lives in the intent as prose" class
 // of fossil gets caught at the commit instead of by an outside reviewer.
 
-const DOCS = "supabase/functions/api/docs";
+const DOCS = "plugin/skills/personal-trainer/references";
 const cache = new Map<string, string>();
 
 async function doc(name: string): Promise<string> {

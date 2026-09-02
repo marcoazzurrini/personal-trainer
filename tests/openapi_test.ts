@@ -90,13 +90,10 @@ Deno.test("no route hides from the document", async () => {
   // caught by reading the source rather than by hoping someone notices.
   //
   // The exceptions are named, each with the reason it cannot be declared.
-  const allowed = new Map([
-    [
-      "docs.get",
-      "the wildcard: /{name} compiles to /:name and stops at a slash, so " +
-      "method/… would 404. Described with registerPath instead.",
-    ],
-  ]);
+  // Empty today: the documents route was the one (a wildcard that
+  // createRoute could not express), and the documents ship in the plugin
+  // now. The map stays, so the next exception is argued for here.
+  const allowed = new Map<string, string>();
 
   const offenders: string[] = [];
   for (const file of await routeFiles()) {

@@ -1,8 +1,8 @@
 # Task — Nutrition logging
 
 Fetch when: Marco says he ate something, wants to save a food or meal, or asks
-about today's intake. Reference: `GET /docs/reference/nutrition`. Method:
-`GET /docs/method/nutrition` (behavioral doctrine applies to every log).
+about today's intake. Reference: `reference/nutrition`. Method:
+`method/nutrition` (behavioral doctrine applies to every log).
 
 Most messages arrive via voice-to-text: casual phrasing, aliases, no numbers.
 The procedure exists so that a logged day costs seconds.

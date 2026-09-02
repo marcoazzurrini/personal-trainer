@@ -1,147 +1,163 @@
 import { assert, assertEquals } from "@std/assert";
-import { isDocName } from "../supabase/functions/api/surfaces/docs.ts";
+import {
+  isDocName,
+  MAX_DOC_NAME,
+} from "../supabase/functions/api/surfaces/issues.ts";
 import {
   DOCUMENTED_TRACKS,
   TRACKS,
 } from "../supabase/functions/api/training/rules.ts";
-import { api, BASE } from "./helpers.ts";
 
-Deno.test("skill documents", async (t) => {
-  await t.step("docs are behind the token", async () => {
-    const res = await fetch(`${BASE}/docs/index`);
-    assertEquals(res.status, 401);
-    await res.body?.cancel();
-  });
+// The coaching documents are files in the plugin, read by the coach from
+// disk; the API never serves them. So this is a test of a folder: that the
+// index is a complete and honest map of it, that nothing points at a document
+// that is not there, and that nothing still speaks as if the documents were
+// routes. It runs from the repository root, like docs_constants_test.
 
-  await t.step("the index names the other documents", async () => {
-    const res = await fetch(`${BASE}/docs/index`, {
-      headers: {
-        Authorization: `Bearer ${(await import("./helpers.ts")).TOKEN}`,
-      },
-    });
-    assertEquals(res.status, 200);
-    const text = await res.text();
+const REFERENCES = "plugin/skills/personal-trainer/references";
+const KINDS = ["tasks", "reference", "method"] as const;
+
+async function read(name: string): Promise<string> {
+  return await Deno.readTextFile(`${REFERENCES}/${name}.md`);
+}
+
+async function exists(name: string): Promise<boolean> {
+  return await Deno.stat(`${REFERENCES}/${name}.md`).then(
+    () => true,
+    () => false,
+  );
+}
+
+async function filesUnder(kind: string): Promise<string[]> {
+  const names: string[] = [];
+  for await (const entry of Deno.readDir(`${REFERENCES}/${kind}`)) {
+    if (entry.isFile && entry.name.endsWith(".md")) {
+      names.push(`${kind}/${entry.name.slice(0, -3)}`);
+    }
+  }
+  return names.sort();
+}
+
+function namesIn(text: string): Set<string> {
+  return new Set(
+    [...text.matchAll(/`((?:tasks|reference|method)\/[a-z0-9-]+)`/g)].map((
+      m,
+    ) => m[1]),
+  );
+}
+
+Deno.test("the coaching documents", async (t) => {
+  const index = await read("index");
+
+  await t.step("the index names the documents a coach needs", () => {
     for (
       const name of [
+        "tasks/onboarding",
         "tasks/programming",
         "tasks/session-generation",
         "tasks/logging",
         "tasks/evaluation",
         "tasks/charts",
         "tasks/reporting-problems",
+        "tasks/nutrition-onboarding",
+        "tasks/nutrition-logging",
+        "tasks/nutrition-checkin",
         "reference/planning",
         "reference/sessions",
         "reference/exercises",
         "reference/tracking",
-        "tasks/nutrition-logging",
-        "tasks/nutrition-checkin",
         "reference/nutrition",
+        "method/hypertrophy",
         "method/nutrition",
       ]
     ) {
-      assert(text.includes(name), `index should mention ${name}`);
+      assert(index.includes(`\`${name}\``), `index should name ${name}`);
     }
   });
 
-  await t.step("every document the index names actually serves", async () => {
-    const token = (await import("./helpers.ts")).TOKEN;
-    const index = await fetch(`${BASE}/docs/index`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const text = await index.text();
-    // The index is the coach's map. A row pointing at a document that 404s
-    // sends it looking for a procedure that isn't there.
-    const named = [...text.matchAll(/GET \/docs\/([a-z0-9-]+\/[a-z0-9-]+)/g)]
-      .map((m) => m[1]);
-    assert(named.length >= 12);
-    for (const name of new Set(named)) {
-      const res = await fetch(`${BASE}/docs/${name}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      assertEquals(res.status, 200, `${name} should serve`);
-      await res.body?.cancel();
-    }
-  });
-
-  await t.step("documents never point at documents that 404", async () => {
-    const token = (await import("./helpers.ts")).TOKEN;
-    const auth = { Authorization: `Bearer ${token}` };
-    const index = await fetch(`${BASE}/docs/index`, { headers: auth });
-    const named = new Set(
-      [...(await index.text()).matchAll(
-        /GET \/docs\/([a-z0-9-]+\/[a-z0-9-]+)/g,
-      )]
-        .map((m) => m[1]),
-    );
-
-    // Cross-references inside the documents, not just the index's own table.
-    // A task doc telling the coach to fetch `tasks/training-onboarding` when
-    // the route is `tasks/onboarding` sends it looking for a procedure that
-    // isn't there, and the index-coverage check above cannot see that.
-    const seen = new Set<string>();
+  await t.step("every document the index names is on disk", async () => {
+    // The index is the coach's map. A row pointing at a document that is not
+    // there sends it looking for a procedure that does not exist.
+    const named = namesIn(index);
+    assert(named.size >= 12);
     for (const name of named) {
-      const res = await fetch(`${BASE}/docs/${name}`, { headers: auth });
-      assertEquals(res.status, 200, `${name} should serve`);
-      const body = await res.text();
-      for (
-        const m of body.matchAll(/`(tasks|reference|method)\/([a-z0-9-]+)`/g)
-      ) {
-        seen.add(`${m[1]}/${m[2]}`);
+      assert(await exists(name), `the index names ${name}, which is not there`);
+    }
+  });
+
+  await t.step("every document on disk is in the index", async () => {
+    // The other direction: a document nobody is told about is one nobody
+    // reads, and the index is the only place the coach learns what exists.
+    const named = namesIn(index);
+    for (const kind of KINDS) {
+      for (const name of await filesUnder(kind)) {
+        assert(named.has(name), `${name} exists but the index never names it`);
       }
     }
-    assert(seen.size >= 8, `expected cross-references, found ${seen.size}`);
-    for (const ref of seen) {
-      const res = await fetch(`${BASE}/docs/${ref}`, { headers: auth });
-      assertEquals(res.status, 200, `a document references ${ref}, which 404s`);
-      await res.body?.cancel();
-    }
-  });
-
-  await t.step("a reference document serves from its folder", async () => {
-    const res = await fetch(`${BASE}/docs/reference/sessions`, {
-      headers: {
-        Authorization: `Bearer ${(await import("./helpers.ts")).TOKEN}`,
-      },
-    });
-    assertEquals(res.status, 200);
-    const text = await res.text();
-    assert(text.includes("targets or actuals, never both"));
   });
 
   await t.step(
-    "a method document with a slash in its name serves",
+    "documents never point at documents that are not there",
     async () => {
-      const res = await fetch(`${BASE}/docs/method/hypertrophy`, {
-        headers: {
-          Authorization: `Bearer ${(await import("./helpers.ts")).TOKEN}`,
-        },
-      });
-      assertEquals(res.status, 200);
-      const text = await res.text();
-      assert(text.includes("# Hypertrophy"));
+      // Cross-references inside the documents, not just the index's own table.
+      // A task document naming `tasks/training-onboarding` when the file is
+      // `tasks/onboarding` sends the coach looking for a procedure that is not
+      // there, and the index check above cannot see that.
+      const seen = new Set<string>();
+      for (const kind of KINDS) {
+        for (const name of await filesUnder(kind)) {
+          for (const ref of namesIn(await read(name))) seen.add(ref);
+        }
+      }
+      assert(seen.size >= 8, `expected cross-references, found ${seen.size}`);
+      for (const ref of seen) {
+        assert(
+          await exists(ref),
+          `a document references ${ref}, which is not there`,
+        );
+      }
     },
   );
 
-  await t.step("the index lists the method document", async () => {
-    const res = await fetch(`${BASE}/docs/index`, {
-      headers: {
-        Authorization: `Bearer ${(await import("./helpers.ts")).TOKEN}`,
-      },
-    });
-    const text = await res.text();
-    assert(text.includes("method/hypertrophy"));
+  await t.step("no document still speaks of a route", async () => {
+    // The documents were once served by the API, and their pointers were
+    // routes. They are files now, and a route pointer would send the coach
+    // to a 404.
+    for (const kind of [...KINDS, ""]) {
+      const names = kind === "" ? ["index"] : await filesUnder(kind);
+      for (const name of names) {
+        const text = await read(name);
+        assert(!text.includes("GET /docs"), `${name} still says GET /docs`);
+        assert(!text.includes("/api/"), `${name} quotes an /api/ path`);
+      }
+    }
   });
 
-  await t.step("an unknown document points at the index", async () => {
-    const { status, body } = await api.get("/docs/nope");
-    assertEquals(status, 404);
-    assert(body.error.includes("/docs/index"));
+  await t.step("the documents read like documents", async () => {
+    assert(
+      (await read("reference/sessions")).includes(
+        "targets or actuals, never both",
+      ),
+    );
+    assert((await read("method/hypertrophy")).includes("# Hypertrophy"));
   });
 
-  await t.step("traversal-looking paths are rejected", async () => {
-    const { status } = await api.get("/docs/method/../../index.ts");
-    assertEquals(status, 404);
-  });
+  await t.step(
+    "every name on disk is a name the API would accept",
+    async () => {
+      // /issues lets the coach name the documents a report is about, and checks
+      // the name against the same rule. A file whose name broke it could never
+      // be reported on.
+      for (const kind of KINDS) {
+        for (const name of await filesUnder(kind)) {
+          assert(
+            isDocName(name),
+            name,
+          );
+        }
+      }
+    },
+  );
 });
 
 // DOCUMENTED_TRACKS says which tracks have a method document, so that
@@ -150,22 +166,20 @@ Deno.test("skill documents", async (t) => {
 // with its document on disk, or out of it with none.
 Deno.test("the documented tracks are the ones with a document", async () => {
   for (const track of TRACKS) {
-    const exists = await Deno.stat(
-      `supabase/functions/api/docs/method/${track}.md`,
-    ).then(() => true, () => false);
+    const onDisk = await exists(`method/${track}`);
     assertEquals(
       DOCUMENTED_TRACKS.includes(track),
-      exists,
+      onDisk,
       `${track}: DOCUMENTED_TRACKS says ${
         DOCUMENTED_TRACKS.includes(track)
-      }, the disk says ${exists}`,
+      }, the disk says ${onDisk}`,
     );
   }
 });
 
-// The rule that lets the docs route serve any merged file without an
-// allowlist, and that /issues reuses to validate the documents a report
-// names. No dots at all, so a name can never spell ".." and leave the folder.
+// The rule /issues applies to the documents a report names: lowercase words,
+// hyphens, slashes for nesting, no dots, no extension — the way the index
+// writes them.
 Deno.test("document names", () => {
   for (const good of ["index", "method/hypertrophy", "a-b/c-d/e2"]) {
     assert(isDocName(good), good);
@@ -175,5 +189,5 @@ Deno.test("document names", () => {
   ) {
     assert(!isDocName(bad), bad);
   }
-  assert(!isDocName("x".repeat(81)), "over the length cap");
+  assert(!isDocName("x".repeat(MAX_DOC_NAME + 1)), "over the length cap");
 });

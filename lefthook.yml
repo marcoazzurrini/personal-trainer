@@ -7,15 +7,13 @@ pre-commit:
       glob: "*.{ts,js,json,jsonc,md}"
       exclude:
         - docs/**
-        - supabase/functions/api/docs/**
-        # Never format skill/ or plugin/. SKILL.md opens with a YAML block
+        # Never format plugin/. SKILL.md opens with a YAML block
         # declaring the skill's name, its description, and allowed-tools:
         # Bash. deno fmt indents the keys that follow the long description
         # line, and YAML reads an indented line as a continuation of the
         # previous value — so allowed-tools gets swallowed into the
         # description and the skill loses permission to run curl. Same
         # exclusion in deno.json; tests/plugin_test.ts holds the shape.
-        - skill/**
         - plugin/**
       run: deno fmt {staged_files}
       stage_fixed: true

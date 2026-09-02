@@ -259,7 +259,7 @@ function assertMatchesDocument(
         `is generated from the routes, so the code and the description have split.`,
     );
   }
-  if (schema === null) return; // declared, but as prose alone (the markdown docs)
+  if (schema === null) return; // declared, but as prose alone — no route does today; the mechanism stays
 
   let validate = route.compiledFor.get(String(status));
   if (validate === undefined) {

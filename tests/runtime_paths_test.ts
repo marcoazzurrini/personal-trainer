@@ -1,8 +1,9 @@
 import { assert, assertEquals } from "@std/assert";
 import { api, BASE, resetTraining, TOKEN } from "./helpers.ts";
 
-// Documents serve as text, not JSON, so the helpers' envelope-checking client
-// cannot follow a path that might land on one. This is the raw follower.
+// The raw follower: a status and nothing else, for probes that only ask
+// whether a path routes and do not want the helpers' envelope and shape
+// checks in the way.
 async function follow(path: string): Promise<number> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { Authorization: `Bearer ${TOKEN}` },
@@ -39,8 +40,8 @@ async function filesUnder(dir: string, ext: string): Promise<string[]> {
 Deno.test("no runtime string quotes an /api-prefixed path", async () => {
   // The verb anchors the pattern to paths quoted *to the caller* — the
   // middleware that forgives the doubled prefix legitimately mentions
-  // /api/api in code, and a filesystem constant contains /api/docs. Neither
-  // carries a verb, so neither can false-positive here.
+  // /api/api in code, and that carries no verb, so it cannot false-positive
+  // here.
   const quotedApiPath = /(GET|POST|PATCH|DELETE) \/api\//;
   const offenders: string[] = [];
 
@@ -54,8 +55,7 @@ Deno.test("no runtime string quotes an /api-prefixed path", async () => {
   // to BASE, so /api/ must not appear there in any form.
   for (
     const file of [
-      ...await filesUnder(`${API_DIR}/docs`, ".md"),
-      "skill/SKILL.template.md",
+      ...await filesUnder("plugin/skills/personal-trainer/references", ".md"),
       "plugin/skills/personal-trainer/SKILL.md",
     ]
   ) {
@@ -78,11 +78,11 @@ Deno.test("a doubled /api prefix is forgiven, not 404ed", async (t) => {
   // are fixed. The router collapses the doubled prefix instead of teaching
   // the same lesson twice.
   await t.step("BASE + /api/… routes", async () => {
-    assertEquals(await follow("/api/docs/index"), 200);
+    assertEquals(await follow("/api/exercises"), 200);
   });
 
   await t.step("any depth of doubling collapses", async () => {
-    assertEquals(await follow("/api/api/docs/index"), 200);
+    assertEquals(await follow("/api/api/exercises"), 200);
   });
 
   await t.step("a genuinely unknown route still 404s", async () => {
@@ -91,24 +91,13 @@ Deno.test("a doubled /api prefix is forgiven, not 404ed", async (t) => {
   });
 });
 
-// A quoted path is followable when it is a GET with no placeholder left to
-// fill. POST/PATCH prompts are still collected by the regex — a typo'd verb
-// or truncated token would surface as a failed match downstream — but only
-// reads can be followed without writing to the record.
-function followablePaths(message: string): string[] {
-  const quoted = message.matchAll(/GET (\/[A-Za-z0-9\-_/]+)/g);
-  return [...quoted]
-    .map((m) => m[1])
-    .filter((p) => !p.endsWith("/")); // a trailing slash is a truncated :param
-}
-
 Deno.test("paths quoted in prompts actually route", async (t) => {
   await t.step("the cold-start note's instruction works", async () => {
     // The exact second call of a first conversation: training-state names the
-    // onboarding document, and the named document must exist. The note names
-    // it as a document — `tasks/onboarding` — not as a route, because the
-    // documents are the skill's to read; here, while the route still serves,
-    // that is where the name is checked.
+    // onboarding document, and the named document must exist. It names it as
+    // a document — `tasks/onboarding` — because the documents are files in
+    // the plugin the coach reads from disk, so that is where the name is
+    // checked.
     await resetTraining();
     const { body } = await api.get("/training-state");
     assert(body.note, "an empty record must route to onboarding");
@@ -116,30 +105,18 @@ Deno.test("paths quoted in prompts actually route", async (t) => {
       ...String(body.note).matchAll(
         /`((?:tasks|reference|method)\/[a-z0-9-]+)`/g,
       ),
-    ]
-      .map((m) => m[1]);
+    ].map((m) => m[1]);
     assert(names.length > 0, `no document named in: ${body.note}`);
     for (const name of names) {
-      assertEquals(
-        await follow(`/api/docs/${name}`),
-        200,
-        `the cold-start note names "${name}" but it does not answer`,
-      );
+      const onDisk = await Deno.stat(
+        `plugin/skills/personal-trainer/references/${name}.md`,
+      ).then(() => true, () => false);
+      assert(onDisk, `the cold-start note names "${name}", which is not there`);
     }
   });
 
-  await t.step(
-    "an unknown document's error points somewhere real",
-    async () => {
-      const { status, body } = await api.get("/docs/nope");
-      assertEquals(status, 404);
-      for (const path of followablePaths(body.error)) {
-        assertEquals(
-          await follow(path),
-          200,
-          `the error says "GET ${path}" but it does not answer`,
-        );
-      }
-    },
-  );
+  // There was a second step here, following the paths quoted by the documents
+  // route's 404. The route is gone with the documents; the property it held —
+  // that a path quoted to the caller routes — is carried by the step above,
+  // the doubled-prefix test and the static scan.
 });

@@ -6,7 +6,7 @@ and the judgment live in `tasks/programming`.
 A mesocycle belongs to a **track** — the line of training it is: `hypertrophy`,
 `strength`, `speed`, `endurance`. One mesocycle can be active per track, so a
 hypertrophy plan and a speed plan run side by side. The track also names the
-method document to read: `GET /docs/method/<track>`.
+method document to read: `method/<track>`.
 
 Rehab is not a track. It is a `role` an exercise plays inside a plan, so shoulder
 rehab lives in the hypertrophy mesocycle, and two rehab progressions are two

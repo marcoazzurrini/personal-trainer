@@ -1,11 +1,9 @@
-// The two surfaces that belong to no training or nutrition topic: the
-// coaching documents the coach reads, and the channel it files problems on.
-//
-// They share no table and no function, and ADR-0006 left open whether that
-// makes them one folder. What settles it for now is that neither belongs
-// anywhere else and each needs somewhere: docs/ is already the name of the
-// markdown itself, so the two sit together rather than each taking a folder
-// for one file. Revisit if either grows.
+// The surface that belongs to no training or nutrition topic: the channel
+// the coach files problems on. The coaching documents used to sit beside it
+// here, served by the function; they ship in the plugin now and the API
+// never sees them, so this folder holds one thing. It keeps its name because
+// the thing is still a surface — an outward face of the API that no topic
+// owns — and a folder of one file is cheaper than a rename every time the
+// count changes.
 
-export { docs } from "./docs.routes.ts";
 export { issues } from "./issues.routes.ts";
