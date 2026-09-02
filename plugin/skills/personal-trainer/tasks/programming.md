@@ -6,7 +6,7 @@ Two registers, kept apart on purpose: **what the API can express** — facts abo
 schema, which any methodology fits — and **how to decide what goes in it**, which belongs
 to the method document for this mesocycle's goal. Neither should be mistaken for the
 other. A schema fact is not a coaching opinion, and a coaching opinion is not a
-constraint. The schema facts and payload shapes live in `reference/planning`; fetch it
+constraint. The schema facts and payload shapes live in `reference/planning`; read it
 before writing (and `reference/exercises` if a new lift must enter the catalogue).
 
 ## Before deciding anything
@@ -14,10 +14,10 @@ before writing (and `reference/exercises` if a new lift must enter the catalogue
 1. **`GET /training-state`.** The complete current picture: every active plan with its
    intent, exercise list, doses and delivery, staleness, this week's shape, recent
    sessions, user context. Do not plan from memory of past conversations.
-2. **Fetch the method document for the track** — `method/hypertrophy` for muscle size,
+2. **Read the method document for the track** — `method/hypertrophy` for muscle size,
    and so on. It holds the dose, the effort target, the progression mechanism and the
    selection rules. Follow it over your own general knowledge; that is the entire point
-   of it existing. **If another plan is already running, fetch its method document too**:
+   of it existing. **If another plan is already running, read its method document too**:
    a new line of training has to be planned around the one that exists, not beside it in
    ignorance.
 3. **Know the person.** How many sessions a week they can genuinely do, what equipment

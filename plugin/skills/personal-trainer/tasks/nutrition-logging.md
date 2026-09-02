@@ -1,6 +1,6 @@
 # Task — Nutrition logging
 
-Fetch when: Marco says he ate something, wants to save a food or meal, or asks
+Read when: Marco says he ate something, wants to save a food or meal, or asks
 about today's intake. Reference: `reference/nutrition`. Method:
 `method/nutrition` (behavioral doctrine applies to every log).
 

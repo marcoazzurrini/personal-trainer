@@ -1,6 +1,6 @@
 # Task — Nutrition check-in (weekly) and target changes
 
-Fetch when: it is check-in time (weekly, or Marco asks "how's the cut going",
+Read when: it is check-in time (weekly, or Marco asks "how's the cut going",
 "should we adjust", "set me up for a cut/bulk"). Reference:
 `reference/nutrition`. Method: `method/nutrition` — the
 target and rate ranges there are binding.

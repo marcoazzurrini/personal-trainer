@@ -3,7 +3,7 @@
 Judging whether a mesocycle is working, and what to do about it. This is what separates a
 coach from a workout logger.
 
-Fetch the method document for the track first (`method/hypertrophy` and so on). It defines
+Read the method document for the track first (`method/hypertrophy` and so on). It defines
 what "working" looks like for this adaptation and over what timescale — the questions below
 are the procedure, not the standard.
 

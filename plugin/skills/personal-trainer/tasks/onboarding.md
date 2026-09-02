@@ -1,6 +1,6 @@
 # Onboarding — training
 
-Establishing who the person is before anything gets programmed. Fetch this when
+Establishing who the person is before anything gets programmed. Read this when
 `training-state` comes back with no active mesocycle and little or no user context —
 the first conversation, or a return after a long gap has made everything stale.
 

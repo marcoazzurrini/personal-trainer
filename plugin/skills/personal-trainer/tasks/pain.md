@@ -1,6 +1,6 @@
 # Pain
 
-What happens to training when something hurts. Fetch this whenever Marco reports
+What happens to training when something hurts. Read this whenever Marco reports
 pain, a tweak, a pinch, or asks whether to train through something — before deciding
 anything about the session.
 

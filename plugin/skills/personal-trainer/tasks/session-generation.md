@@ -13,7 +13,7 @@ sessions with their rationales, recent decisions, and user context.
 Each plan's exercises carry `dose` and `delivered_this_week` in the same unit, so what
 is behind is a subtraction the read has already set up for you. Read each intent for
 what the numbers can't say: the progression mechanism, the load goals, and how that
-line has to sit against the others. Then fetch **the method document for each active
+line has to sit against the others. Then read **the method document for each active
 track** (`method_doc` on the plan names it); each decides how its own targets get
 chosen, and applying one line's method to another is how a sprint session ends up
 programmed like a hypertrophy session. Payload shapes are in `reference/sessions`.
@@ -40,7 +40,7 @@ constraints in each intent, what the person said they can do this week, and the 
 rules — quality before fatigue, and hard legs away from sprint days.
 
 Then read what the person says about today: time, energy, soreness, equipment, mood.
-If any of it is pain — a tweak, a pinch, "should I train through this?" — fetch
+If any of it is pain — a tweak, a pinch, "should I train through this?" — read
 `tasks/pain` before deciding anything about the session.
 **Today's reality outranks the plan's ideal shape.** A plan is a set of intentions about
 an average week, and no week is average.

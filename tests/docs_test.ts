@@ -151,6 +151,23 @@ Deno.test("the coaching documents", async (t) => {
     }
   });
 
+  await t.step("a document is read, and the API is called", async () => {
+    // "Fetch" was the verb when the documents were served by the API, and
+    // it still reads as a GET. Two verbs now carry the split the skill's
+    // first paragraph states, and neither is this one.
+    const texts = [["SKILL.md", skill]];
+    for (const name of await everyDocument()) {
+      texts.push([name, await read(name)]);
+    }
+    for (const [name, text] of texts) {
+      const line = text.split("\n").find((l) => /\bfetch/i.test(l));
+      assert(
+        line === undefined,
+        `${name} says "fetch" — a document is read, the API is called: ${line}`,
+      );
+    }
+  });
+
   await t.step("the documents read like documents", async () => {
     assert(
       (await read("reference/sessions")).includes(

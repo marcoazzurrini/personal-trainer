@@ -1,6 +1,6 @@
 # Onboarding — nutrition
 
-Setting the nutrition system up before anything is logged. Fetch this when
+Setting the nutrition system up before anything is logged. Read this when
 `nutrition-state` comes back with no active target and an empty registry — no
 saved foods, no logged days — or when a long gap has left the record cold.
 

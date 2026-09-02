@@ -18,7 +18,7 @@ append-only records: user context and bodyweight.
 `mesocycles` is an array. Each entry stands alone:
 
 - `track` names the line of training and the method document.
-- `method_doc` is the document to fetch, or `null` when the track has none yet —
+- `method_doc` is the document to read, or `null` when the track has none yet —
   in which case `method_note` says so, and you are coaching that plan from general
   knowledge. Say that plainly rather than implying an authority you don't have.
 - `week` counts from **that plan's** Monday. Two plans that started on different
@@ -65,7 +65,7 @@ POST /user-context
 
 Rows are never edited. Correcting a fact means a new row on the same topic; the
 latest row per topic is the current truth. Retiring a topic means a final row
-saying it no longer applies. Reuse existing topic strings — fetch
+saying it no longer applies. Reuse existing topic strings — call
 `GET /user-context` first.
 
 ## Bodyweight
