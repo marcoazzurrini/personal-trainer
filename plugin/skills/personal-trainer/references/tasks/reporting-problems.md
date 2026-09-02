@@ -1,15 +1,18 @@
 # Reporting a problem
 
-Neither these documents nor the API behind them are fixed. When something in the
-system is in the way — a call that failed, a number that came back wrong, an
-error message that sent you somewhere useless, a procedure that produces the same
-friction every time — file an issue. Marco reads it and the change is written
-from the repository, where the code and its tests can actually be seen.
+Neither these documents nor the API are fixed. When something in the system is
+in the way — a call that failed, a number that came back wrong, an error message
+that sent you somewhere useless, a procedure that produces the same friction
+every time — file an issue. Marco reads it and the change is written from the
+repository, where the code and its tests can actually be seen.
 
-You do not edit anything here. You report. That split is deliberate: you have the
-conversations and none of the repository, so the thing only you can produce is
-evidence — what you called, what came back, how often, what it cost the session.
-The diagnosis and the fix belong where the code is visible.
+You do not edit anything here. You report. The documents are files beside this
+skill and you can open them, but what you can see is an installed copy: an edit
+to it never reaches the repository and is gone at the next update. The split is
+deliberate anyway: you have the conversations and none of the repository, so
+the thing only you can produce is evidence — what you called, what came back,
+how often, what it cost the session. The diagnosis and the fix belong where the
+code is visible.
 
 ## A bug: file it immediately, then carry on
 

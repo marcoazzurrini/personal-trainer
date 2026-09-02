@@ -286,7 +286,7 @@ type WithRequestId<T extends z.ZodRawShape> = "request_id" extends keyof T ? T
 // The same rule, on the other half of a request.
 //
 // A body field this endpoint does not read is refused; a query parameter was
-// dropped in silence, and the convention in docs/index promises no such
+// dropped in silence, and the skill's conventions promise no such
 // distinction. The cost is not theoretical: GET /intake falls back to today
 // when "day" is absent, so a near miss on the name — ?date=, ?from= — answered
 // 200 with today's food under a date the caller never asked about. A wrong

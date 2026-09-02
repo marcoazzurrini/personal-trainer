@@ -30,8 +30,11 @@ const LATEST_PROTOCOL_VERSION = "2025-06-18";
 const TOOL_DESCRIPTION =
   "Mint a fresh token for Marco's coach API. Call it once, at the start of a conversation about training or eating. It returns token, base_url and expires_at: send the token as `Authorization: Bearer <token>` on every curl call against base_url. A 401 from the API later in the conversation means the token expired — call this again and retry the call.";
 
+// What a client shows its model about this server. The documents are named
+// here only to say where they are not: a coach that read them through the API
+// once would otherwise go looking for the route that served them.
 const INSTRUCTIONS =
-  "This connector only signs the coach in. Everything else — reading the coaching documents, logging, planning — goes through the coach API with curl, using the token get_api_token returns.";
+  "This connector only signs the coach in. Everything else — logging, planning, every read and write of the record — goes through the coach API with curl, using the token get_api_token returns. The coaching documents are files in the skill, read from disk; the API serves none.";
 
 export interface McpDeps {
   issue(subject: string): Promise<{ token: string; expires_at: string }>;
