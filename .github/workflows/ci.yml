@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno fmt --check
+      - run: deno lint
+      - run: deno task check
+      # A Dockerfile that no longer builds must fail here, before a deploy.
+      - run: docker build -t personal-trainer:ci .
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      API_TOKEN: local-dev-token
+      API_TOKEN_PREVIOUS: local-dev-token-previous
+      AUTH_ISSUER: http://127.0.0.1:1
+      ALLOWED_SUBJECT: user_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno task migrate
+      - name: Start the API in the background
+        run: |
+          deno task serve > api.log 2>&1 &
+          curl -sf --retry 30 --retry-all-errors --retry-delay 1 -o /dev/null http://127.0.0.1:8000/api/health
+      - run: deno task test
+      - name: API log
+        if: failure()
+        run: cat api.log
+
+  # Only a green main reaches the host: Coolify's own deploy-on-push stays
+  # off, and this webhook is the one way a deploy starts. Until the secrets
+  # exist the step is skipped, not failed.
+  deploy:
+    needs: [checks, test]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    env:
+      COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+    steps:
+      - name: Ask Coolify to deploy
+        if: env.COOLIFY_WEBHOOK != ''
+        run: |
+          curl -fsS -X POST "$COOLIFY_WEBHOOK" -H "Authorization: Bearer $COOLIFY_TOKEN"
