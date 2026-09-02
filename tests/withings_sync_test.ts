@@ -63,9 +63,9 @@ Deno.test(
     );
 
     const { catchUp, catchUpIfDue, syncNotifiedWindow } = await import(
-      "../supabase/functions/api/body/withings.ts"
+      "../api/body/withings.ts"
     );
-    const { sql } = await import("../supabase/functions/api/db.ts");
+    const { sql } = await import("../api/db.ts");
 
     async function seedAuth(opts: { expiresInMs?: number } = {}) {
       await sql`delete from withings_auth`;

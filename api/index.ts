@@ -1,5 +1,3 @@
-// Type definitions for the Supabase Edge Runtime (Deno.serve, env, etc.)
-import "@supabase/functions-js/edge-runtime.d.ts";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { sql } from "./db.ts";
 import { errorResponse, validationHook } from "./shared/errors.ts";

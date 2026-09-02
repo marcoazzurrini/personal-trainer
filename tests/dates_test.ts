@@ -6,7 +6,7 @@ import {
   daysBetween,
   lastFinishedSunday,
   mondayOf,
-} from "../supabase/functions/api/shared/dates.ts";
+} from "../api/shared/dates.ts";
 
 // shared/dates.ts is one of two implementations of the calendar — the other is
 // Postgres's date_trunc, which the routes use in SQL. helpers.ts once carried

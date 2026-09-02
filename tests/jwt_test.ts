@@ -8,7 +8,7 @@ import {
   JwtError,
   metadataUrl,
   verifyJwt,
-} from "../supabase/functions/api/access/jwt.ts";
+} from "../api/access/jwt.ts";
 
 // In-process, no stack: the verifier is import-free, so it runs here against
 // tokens signed with keys this file generates. What an authorization server

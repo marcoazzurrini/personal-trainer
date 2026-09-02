@@ -11,7 +11,7 @@ import { assert, assertEquals } from "@std/assert";
 const BASE = Deno.env.get("API_URL") ??
   "http://127.0.0.1:54321/functions/v1/api";
 const TOKEN = Deno.env.get("API_TOKEN") ?? "local-dev-token";
-const API_DIR = "supabase/functions/api";
+const API_DIR = "api";
 
 // deno-lint-ignore no-explicit-any
 const spec: any = await (await fetch(`${BASE}/openapi.json`)).json();

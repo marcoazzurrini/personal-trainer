@@ -1,12 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
-import {
-  isDocName,
-  MAX_DOC_NAME,
-} from "../supabase/functions/api/surfaces/issues.ts";
-import {
-  DOCUMENTED_TRACKS,
-  TRACKS,
-} from "../supabase/functions/api/training/rules.ts";
+import { isDocName, MAX_DOC_NAME } from "../api/surfaces/issues.ts";
+import { DOCUMENTED_TRACKS, TRACKS } from "../api/training/rules.ts";
 import { documentPath, SKILL, SKILL_DIR } from "./skill.ts";
 
 // The coaching documents are files in the plugin, read by the coach from

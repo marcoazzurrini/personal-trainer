@@ -6,12 +6,9 @@ import {
   gramsEaten,
   scaleFood,
   sumMacros,
-} from "../supabase/functions/api/nutrition/rules.ts";
-import type {
-  FoodMacros,
-  Logged,
-} from "../supabase/functions/api/nutrition/rules.ts";
-import { ApiError } from "../supabase/functions/api/shared/errors.ts";
+} from "../api/nutrition/rules.ts";
+import type { FoodMacros, Logged } from "../api/nutrition/rules.ts";
+import { ApiError } from "../api/shared/errors.ts";
 
 // The laws behind the nutrition arithmetic. nutrition_test.ts checks these
 // functions through the API at chosen values; this file states what must hold

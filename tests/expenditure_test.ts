@@ -8,12 +8,12 @@ import {
   GOALS,
   proteinFromMultiplier,
   targetFromRate,
-} from "../supabase/functions/api/nutrition/expenditure.ts";
+} from "../api/nutrition/expenditure.ts";
 import {
   type DailyWeight,
   type TrendPoint,
   trendSeries,
-} from "../supabase/functions/api/body/trend.ts";
+} from "../api/body/trend.ts";
 
 // Pure functions, no stack. This is the arithmetic that would be invisible if
 // it were quietly wrong, so it gets tested against hand-computed values rather

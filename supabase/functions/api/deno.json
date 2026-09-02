@@ -1,8 +1,0 @@
-{
-  "imports": {
-    "@supabase/functions-js": "jsr:@supabase/functions-js@^2",
-    "@hono/hono": "jsr:@hono/hono@^4",
-    "@hono/zod-openapi": "jsr:@hono/zod-openapi@^1",
-    "postgres": "npm:postgres@^3.4"
-  }
-}

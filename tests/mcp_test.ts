@@ -6,7 +6,7 @@ import {
   protectedResourceMetadata,
   publicOrigin,
   TOOL_NAME,
-} from "../supabase/functions/api/access/mcp.ts";
+} from "../api/access/mcp.ts";
 
 // The connector, in two halves. The dispatch is import-free and runs here
 // with a stub minter, so every branch of the protocol is exercised without a

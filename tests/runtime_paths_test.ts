@@ -26,7 +26,7 @@ async function follow(path: string): Promise<number> {
 // 404). And a follow-the-prompt check asserts the property the other two only
 // approximate: a path quoted to the caller must actually route.
 
-const API_DIR = "supabase/functions/api";
+const API_DIR = "api";
 
 async function filesUnder(dir: string, ext: string): Promise<string[]> {
   const found: string[] = [];

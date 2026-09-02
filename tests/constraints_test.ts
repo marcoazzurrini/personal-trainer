@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import postgres from "postgres";
-import { constraintMessages } from "../supabase/functions/api/shared/errors.ts";
+import { constraintMessages } from "../api/shared/errors.ts";
 import { api, uuid } from "./helpers.ts";
 
 // The error map, held against the database it describes.

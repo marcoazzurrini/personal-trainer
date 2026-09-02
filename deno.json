@@ -2,7 +2,7 @@
   "tasks": {
     "fmt": "deno fmt",
     "lint": "deno lint",
-    "check": "cd supabase/functions/api && deno check index.ts",
+    "check": "deno check api/index.ts",
     "reload": "docker restart supabase_edge_runtime_personal-trainer && curl -sf --retry 40 --retry-all-errors --retry-delay 1 -o /dev/null http://127.0.0.1:54321/functions/v1/_internal/health",
     "test": "deno task reload && deno test --allow-net --allow-env --allow-read tests/",
     "hooks": "scripts/lefthook install"

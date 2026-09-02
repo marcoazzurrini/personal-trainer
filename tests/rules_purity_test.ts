@@ -31,7 +31,7 @@ import { assert, assertEquals } from "@std/assert";
 // failure names the whole chain: the entry point alone would say a rule was
 // broken without saying which import to take back.
 
-const API_DIR = "supabase/functions/api";
+const API_DIR = "api";
 const DB = `${API_DIR}/db.ts`;
 
 // The pure modules, named one by one.

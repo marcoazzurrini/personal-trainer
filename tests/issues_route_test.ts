@@ -37,13 +37,13 @@ Deno.test(
     );
 
     const { issues } = await import(
-      "../supabase/functions/api/surfaces/issues.routes.ts"
+      "../api/surfaces/issues.routes.ts"
     );
     const { errorResponse } = await import(
-      "../supabase/functions/api/shared/errors.ts"
+      "../api/shared/errors.ts"
     );
     const { Hono } = await import("@hono/hono");
-    const { sql } = await import("../supabase/functions/api/db.ts");
+    const { sql } = await import("../api/db.ts");
 
     const app = new Hono();
     app.onError(errorResponse);

@@ -1,7 +1,7 @@
 import { assertAlmostEquals, assertEquals } from "@std/assert";
 import fc from "fast-check";
-import { selectWeights } from "../supabase/functions/api/body/withings_client.ts";
-import type { MeasureGroup } from "../supabase/functions/api/body/withings_client.ts";
+import { selectWeights } from "../api/body/withings_client.ts";
+import type { MeasureGroup } from "../api/body/withings_client.ts";
 
 // What selectWeights must guarantee for the sync to be safe to repeat.
 // withings_test.ts covers the protocol; these are the selection's laws.

@@ -484,13 +484,13 @@ export async function seedCut(seed: CutSeed) {
 import {
   DEFAULT_WINDOW_DAYS as WINDOW_DAYS,
   MIN_WINDOW_DAYS as MIN_USABLE_DAYS,
-} from "../supabase/functions/api/nutrition/expenditure.ts";
+} from "../api/nutrition/expenditure.ts";
 export { MIN_USABLE_DAYS, WINDOW_DAYS };
 import {
   addDays,
   lastFinishedSunday as lastFinishedSundayOf,
   mondayOf,
-} from "../supabase/functions/api/shared/dates.ts";
+} from "../api/shared/dates.ts";
 
 /** The window the estimate reads: N days ending at the last finished Sunday, oldest first. */
 export function expenditureWindow(count = WINDOW_DAYS): string[] {

@@ -10,7 +10,7 @@ import {
   MIN_WINDOW_DAYS,
   PROTEIN_G_PER_KG_BW_RANGE,
   PROTEIN_G_PER_KG_FFM_RANGE,
-} from "../supabase/functions/api/nutrition/expenditure.ts";
+} from "../api/nutrition/expenditure.ts";
 import { documentPath } from "./skill.ts";
 
 // The server owns these numbers, and the docs quote them as literals — the
