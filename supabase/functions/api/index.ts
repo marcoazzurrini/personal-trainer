@@ -11,6 +11,7 @@ import {
 } from "./body/index.ts";
 import { catchUpIfDue } from "./body/withings.ts";
 import { docs, issues } from "./surfaces/index.ts";
+import { verifyToken } from "./access/tokens.ts";
 import {
   days,
   foods,
@@ -133,27 +134,30 @@ app.get("/reference", (c) =>
   </body>
 </html>`));
 
-// One static bearer token on every coach-API endpoint — two during a
-// rotation. API_TOKEN is current; API_TOKEN_PREVIOUS, when set, is the one
-// being retired. The grace window exists because conversations hold the
-// token in context for as long as they live: without it, turning the secret
-// 401s every chat mid-sentence. The procedure lives in skill/generate-skill.sh
-// next to the script that re-renders SKILL.md with the new value.
+// Two ways in, for as long as the move from one to the other runs. The static
+// bearer is the path being retired: one secret pasted into a generated skill
+// file, two during a rotation (API_TOKEN and API_TOKEN_PREVIOUS), because
+// conversations hold it for as long as they live — the rotation procedure is
+// still in skill/generate-skill.sh. The minted token is the path replacing it:
+// issued by the plugin's connector after a sign-in and checked against its
+// hash in api_tokens (access/tokens.ts). Until the static branch goes, the
+// coach keeps working on the old token while the new one is proven. A server
+// with no API_TOKEN configured is no longer a misconfiguration, only a server
+// that accepts minted tokens alone.
 app.use(async (c, next) => {
-  const expected = Deno.env.get("API_TOKEN");
-  if (!expected) {
-    return c.json({ error: "API_TOKEN is not configured on the server." }, 500);
-  }
-  const previous = Deno.env.get("API_TOKEN_PREVIOUS");
-  const sent = c.req.header("authorization");
-  const accepted = sent === `Bearer ${expected}` ||
-    (previous !== undefined && previous !== "" &&
-      sent === `Bearer ${previous}`);
-  if (!accepted) {
-    return c.json({
-      error:
-        "Missing or wrong bearer token. Send an Authorization: Bearer <token> header.",
-    }, 401);
+  const refusal = {
+    error:
+      "Missing or wrong bearer token. Send an Authorization: Bearer <token> header.",
+  };
+  const sent = c.req.header("authorization") ?? "";
+  const bearer = sent.startsWith("Bearer ") ? sent.slice("Bearer ".length) : "";
+  if (bearer === "") return c.json(refusal, 401);
+  const isStatic = [
+    Deno.env.get("API_TOKEN"),
+    Deno.env.get("API_TOKEN_PREVIOUS"),
+  ].some((known) => known !== undefined && known !== "" && bearer === known);
+  if (!isStatic && (await verifyToken(bearer)) === null) {
+    return c.json(refusal, 401);
   }
   await next();
 });

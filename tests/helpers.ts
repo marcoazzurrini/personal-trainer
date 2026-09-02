@@ -314,6 +314,70 @@ export const api = {
     request("DELETE", path, undefined, token),
 };
 
+// The token every test sends is a row, not a secret. The API accepts a bearer
+// whose SHA-256 sits in api_tokens with an expiry still ahead, so a test that
+// needs one mints it here the way the connector would: hash it, write the row,
+// hand back the plaintext. The hash is computed in this file rather than
+// imported from the function on purpose — a second, independent statement of
+// the format, so a change to one side is caught by the other.
+export async function mintToken(opts: {
+  token?: string;
+  email?: string;
+  expiresInMs?: number;
+} = {}): Promise<string> {
+  const token = opts.token ?? crypto.randomUUID();
+  const expiresAt = new Date(
+    Date.now() + (opts.expiresInMs ?? 60 * 60 * 1000),
+  );
+  const db = postgres(DB_URL);
+  try {
+    await db`
+      insert into api_tokens (token_hash, user_email, issued_at, expires_at)
+      values (
+        ${await sha256Hex(token)},
+        ${opts.email ?? "test@example.com"},
+        ${new Date(expiresAt.getTime() - 60 * 60 * 1000)},
+        ${expiresAt}
+      )
+      on conflict (token_hash) do update
+        set user_email = excluded.user_email,
+            issued_at = excluded.issued_at,
+            expires_at = excluded.expires_at`;
+  } finally {
+    await db.end();
+  }
+  return token;
+}
+
+// Revocation is deleting the row; the API has no endpoint for it, and a test
+// of that property goes straight to the table like an operator would.
+export async function revokeToken(token: string): Promise<void> {
+  const db = postgres(DB_URL);
+  try {
+    await db`delete from api_tokens where token_hash = ${await sha256Hex(
+      token,
+    )}`;
+  } finally {
+    await db.end();
+  }
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return Array.from(
+    new Uint8Array(digest),
+    (b) => b.toString(16).padStart(2, "0"),
+  )
+    .join("");
+}
+
+// The shared TOKEN exists as a row before any test runs, whichever file runs
+// alone: importing helpers is what guarantees it.
+await mintToken({ token: TOKEN });
+
 // Wipes the training record and plan, keeping the exercise catalogue.
 // Listing every table in one statement lets Postgres order the FK deletes.
 export async function resetTraining() {

@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { api } from "./helpers.ts";
+import { api, mintToken, revokeToken } from "./helpers.ts";
 
 Deno.test("auth and error envelope", async (t) => {
   await t.step("/health is public", async () => {
@@ -31,6 +31,29 @@ Deno.test("auth and error envelope", async (t) => {
       assertEquals(status, 200);
     },
   );
+
+  await t.step("a minted token opens a coach endpoint", async () => {
+    // The path the connector uses: a fresh token whose hash is a row in
+    // api_tokens with its expiry ahead. Nothing about it is configured on the
+    // server, which is the point — the static token above is being retired.
+    const minted = await mintToken();
+    const { status } = await api.get("/exercises", minted);
+    assertEquals(status, 200);
+  });
+
+  await t.step("a token past its expiry is refused", async () => {
+    const stale = await mintToken({ expiresInMs: -1000 });
+    const { status } = await api.get("/exercises", stale);
+    assertEquals(status, 401);
+  });
+
+  await t.step("a token whose row is gone is refused", async () => {
+    // Revocation is a delete; there is no state on the token itself.
+    const revoked = await mintToken();
+    assertEquals((await api.get("/exercises", revoked)).status, 200);
+    await revokeToken(revoked);
+    assertEquals((await api.get("/exercises", revoked)).status, 401);
+  });
 
   await t.step("unknown routes return JSON with guidance", async () => {
     const { status, body } = await api.get("/nope");
