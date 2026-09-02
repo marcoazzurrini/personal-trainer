@@ -35,7 +35,7 @@ if (!databaseUrl || !callbackUrl) {
   Deno.exit(1);
 }
 
-const env = parseEnv(await Deno.readTextFile("supabase/functions/.env"));
+const env = parseEnv(await Deno.readTextFile(".env"));
 const cfg = {
   apiBase: API_BASE,
   clientId: env.WITHINGS_CLIENT_ID,

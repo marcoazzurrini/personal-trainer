@@ -1,7 +1,7 @@
 // Seeds the single withings_auth row from a refresh token obtained by hand.
 //
 // Run once per environment. Nothing secret is passed on the command line; it all
-// comes from supabase/functions/.env, which git already ignores.
+// comes from .env at the repo root, which git already ignores.
 //
 // To seed the linked project, put its database password in that file as
 // DB_PASSWORD and run:
@@ -21,7 +21,7 @@
 import postgres from "postgres";
 import { refreshTokens } from "../api/body/withings_client.ts";
 
-const ENV_PATH = "supabase/functions/.env";
+const ENV_PATH = ".env";
 const POOLER_PATH = "supabase/.temp/pooler-url";
 const API_BASE = "https://wbsapi.withings.net";
 

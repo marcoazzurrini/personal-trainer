@@ -1,0 +1,19 @@
+# Local development needs one thing Docker provides: Postgres. The API itself
+# runs natively (deno task dev), so this is the whole stack.
+services:
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  pgdata:

@@ -2,10 +2,13 @@
   "tasks": {
     "fmt": "deno fmt",
     "lint": "deno lint",
-    "check": "deno check api/index.ts",
-    "migrate": "deno run --allow-net --allow-env --allow-read=db/migrations db/migrate.ts",
-    "reload": "docker restart supabase_edge_runtime_personal-trainer && curl -sf --retry 40 --retry-all-errors --retry-delay 1 -o /dev/null http://127.0.0.1:54321/functions/v1/_internal/health",
-    "test": "deno task reload && deno test --allow-net --allow-env --allow-read tests/",
+    "check": "deno check api/index.ts db/migrate.ts",
+    "db": "docker compose up -d --wait",
+    "migrate": "deno run --env-file --allow-net --allow-env --allow-read=db/migrations db/migrate.ts",
+    "serve": "deno run --env-file --allow-net --allow-env --allow-read api/index.ts",
+    "dev": "deno task migrate && deno run --env-file --watch --allow-net --allow-env --allow-read api/index.ts",
+    "start": "deno run --allow-net --allow-env --allow-read=db/migrations db/migrate.ts && deno run --allow-net --allow-env --allow-read api/index.ts",
+    "test": "deno test --allow-net --allow-env --allow-read tests/",
     "hooks": "scripts/lefthook install"
   },
   "imports": {
