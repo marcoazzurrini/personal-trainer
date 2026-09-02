@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { api, BASE, resetTraining, TOKEN } from "./helpers.ts";
+import { documentPath, SKILL_DIR } from "./skill.ts";
 
 // The raw follower: a status and nothing else, for probes that only ask
 // whether a path routes and do not want the helpers' envelope and shape
@@ -53,12 +54,7 @@ Deno.test("no runtime string quotes an /api-prefixed path", async () => {
   }
   // The docs hold the same contract from the other side: paths are relative
   // to BASE, so /api/ must not appear there in any form.
-  for (
-    const file of [
-      ...await filesUnder("plugin/skills/personal-trainer/references", ".md"),
-      "plugin/skills/personal-trainer/SKILL.md",
-    ]
-  ) {
+  for (const file of await filesUnder(SKILL_DIR, ".md")) {
     const lines = (await Deno.readTextFile(file)).split("\n");
     lines.forEach((line, i) => {
       if (line.includes("/api/")) offenders.push(`${file}:${i + 1}`);
@@ -108,9 +104,10 @@ Deno.test("paths quoted in prompts actually route", async (t) => {
     ].map((m) => m[1]);
     assert(names.length > 0, `no document named in: ${body.note}`);
     for (const name of names) {
-      const onDisk = await Deno.stat(
-        `plugin/skills/personal-trainer/references/${name}.md`,
-      ).then(() => true, () => false);
+      const onDisk = await Deno.stat(documentPath(name)).then(
+        () => true,
+        () => false,
+      );
       assert(onDisk, `the cold-start note names "${name}", which is not there`);
     }
   });

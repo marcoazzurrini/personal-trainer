@@ -17,7 +17,7 @@ Three parts, and the split between them is the whole design:
   totals, trends, targets — and decides nothing about training or eating. It
   serves no documents.
 
-The entry point is `references/index.md`, beside this file — read it first,
+The entry point is `index.md`, beside this file — read it first,
 before any call or answer, and follow what it says. It routes to the right
 documents for whatever Marco has actually asked about, and names the two state
 reads: `/training-state` to open a training conversation, `/nutrition-state` to

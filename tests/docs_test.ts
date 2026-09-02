@@ -7,6 +7,7 @@ import {
   DOCUMENTED_TRACKS,
   TRACKS,
 } from "../supabase/functions/api/training/rules.ts";
+import { documentPath, SKILL_DIR } from "./skill.ts";
 
 // The coaching documents are files in the plugin, read by the coach from
 // disk; the API never serves them. So this is a test of a folder: that the
@@ -14,15 +15,14 @@ import {
 // that is not there, and that nothing still speaks as if the documents were
 // routes. It runs from the repository root, like docs_constants_test.
 
-const REFERENCES = "plugin/skills/personal-trainer/references";
 const KINDS = ["tasks", "reference", "method"] as const;
 
 async function read(name: string): Promise<string> {
-  return await Deno.readTextFile(`${REFERENCES}/${name}.md`);
+  return await Deno.readTextFile(documentPath(name));
 }
 
 async function exists(name: string): Promise<boolean> {
-  return await Deno.stat(`${REFERENCES}/${name}.md`).then(
+  return await Deno.stat(documentPath(name)).then(
     () => true,
     () => false,
   );
@@ -30,7 +30,7 @@ async function exists(name: string): Promise<boolean> {
 
 async function filesUnder(kind: string): Promise<string[]> {
   const names: string[] = [];
-  for await (const entry of Deno.readDir(`${REFERENCES}/${kind}`)) {
+  for await (const entry of Deno.readDir(`${SKILL_DIR}/${kind}`)) {
     if (entry.isFile && entry.name.endsWith(".md")) {
       names.push(`${kind}/${entry.name.slice(0, -3)}`);
     }

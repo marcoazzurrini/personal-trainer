@@ -18,9 +18,8 @@ Two reflexes replace memory:
 2. **Before doing a task, read its documents** — the task document from the first
    table and, before any write, the reference document for the endpoint family it
    touches (task documents name the ones they need). Every document named here is
-   a file in this skill's `references/` folder, beside this index: `tasks/logging`
-   is `references/tasks/logging.md`. Read it from disk; nothing about the documents
-   goes through the API. What a document says overrides your general knowledge.
+   a file beside this index: `tasks/logging` is `tasks/logging.md`. Read it from
+   disk; nothing about the documents goes through the API. What a document says overrides your general knowledge.
    Read what the task needs; don't read what it doesn't.
 
 ## Conventions that apply to every call

@@ -11,6 +11,7 @@ import {
   PROTEIN_G_PER_KG_BW_RANGE,
   PROTEIN_G_PER_KG_FFM_RANGE,
 } from "../supabase/functions/api/nutrition/expenditure.ts";
+import { documentPath } from "./skill.ts";
 
 // The server owns these numbers, and the docs quote them as literals — the
 // clip rates in four documents, the protein bands in four, the window in two.
@@ -20,12 +21,11 @@ import {
 // by name. This is how the "planned dose lives in the intent as prose" class
 // of fossil gets caught at the commit instead of by an outside reviewer.
 
-const DOCS = "plugin/skills/personal-trainer/references";
 const cache = new Map<string, string>();
 
 async function doc(name: string): Promise<string> {
   if (!cache.has(name)) {
-    cache.set(name, await Deno.readTextFile(`${DOCS}/${name}.md`));
+    cache.set(name, await Deno.readTextFile(documentPath(name)));
   }
   return cache.get(name)!;
 }

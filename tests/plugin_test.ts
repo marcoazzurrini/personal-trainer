@@ -1,14 +1,11 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { PLUGIN, SKILL } from "./skill.ts";
 
 // The plugin is files on disk that Cowork reads, so this is the one test that
 // reads them the way Cowork would: the manifest, the connector, the
 // marketplace entry that points at it, and the skill's frontmatter — which
-// is load-bearing and fragile. generate-skill.sh used to check that block
-// every time it rendered the file; the script is going, and the check moves
-// here so it outlives it.
-
-const PLUGIN = "plugin";
-const SKILL = `${PLUGIN}/skills/personal-trainer/SKILL.md`;
+// is load-bearing and fragile. A generator script used to check that block
+// every time it rendered the file; the check outlives the script here.
 
 async function json(path: string): Promise<Record<string, unknown>> {
   return JSON.parse(await Deno.readTextFile(path));
