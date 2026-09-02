@@ -56,6 +56,7 @@ Deno.test("no runtime string quotes an /api-prefixed path", async () => {
     const file of [
       ...await filesUnder(`${API_DIR}/docs`, ".md"),
       "skill/SKILL.template.md",
+      "plugin/skills/personal-trainer/SKILL.md",
     ]
   ) {
     const lines = (await Deno.readTextFile(file)).split("\n");

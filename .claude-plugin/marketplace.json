@@ -1,0 +1,13 @@
+{
+  "name": "personal-trainer",
+  "owner": {
+    "name": "Marco Azzurrini"
+  },
+  "plugins": [
+    {
+      "name": "personal-trainer",
+      "source": "./plugin",
+      "description": "Marco's strength and nutrition coach: the skill, its coaching documents, and the connector that signs him in."
+    }
+  ]
+}
