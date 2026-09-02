@@ -146,6 +146,34 @@ export async function handleMcp(
   }
 }
 
+// --- The origin the outside world sees ---------------------------------------
+
+// The function sits behind a gateway that ends TLS, so the request it sees
+// says http where every caller said https. The scheme the outside world used
+// is what a discovery document must carry, or a client is sent to an address
+// that does not exist. The gateway's own word (x-forwarded-proto) wins; with
+// no word, https is assumed for any host that is not the local stack, whose
+// addresses really are plain http.
+const LOCAL_HOSTS = new Set([
+  "127.0.0.1",
+  "localhost",
+  "kong",
+  "host.docker.internal",
+]);
+
+export function publicOrigin(seen: {
+  protocol: string;
+  hostname: string;
+  host: string;
+  forwardedProto: string | null;
+}): string {
+  const scheme = seen.forwardedProto?.split(",")[0].trim() ||
+    (LOCAL_HOSTS.has(seen.hostname)
+      ? seen.protocol.replace(/:$/, "")
+      : "https");
+  return `${scheme}://${seen.host}`;
+}
+
 // --- Telling a client where to sign in ---------------------------------------
 
 // The protected resource metadata (RFC 9728): the one document a client reads

@@ -12,6 +12,7 @@ import {
   challengeHeader,
   handleMcp,
   protectedResourceMetadata,
+  publicOrigin,
 } from "./mcp.ts";
 
 // The connector's endpoint. Mounted ahead of the bearer-token middleware,
@@ -57,11 +58,17 @@ function config(): Config {
 
 // Where this function is reached from outside. The gateway strips
 // /functions/v1 before a request arrives, so the router sees /api/mcp and the
-// public URL has to put the prefix back. The origin is the request's own
-// unless PUBLIC_ORIGIN says otherwise — the override exists for the case the
-// runtime sees a scheme or host the outside world does not.
+// public URL has to put the prefix back; and it ends TLS, so the scheme is
+// worked out rather than read (publicOrigin says how). PUBLIC_ORIGIN
+// overrides both for the case neither rule fits.
 function publicUrl(c: Context, cfg: Config, path: string): string {
-  const origin = cfg.publicOrigin ?? new URL(c.req.url).origin;
+  const url = new URL(c.req.url);
+  const origin = cfg.publicOrigin ?? publicOrigin({
+    protocol: url.protocol,
+    hostname: url.hostname,
+    host: url.host,
+    forwardedProto: c.req.header("x-forwarded-proto") ?? null,
+  });
   return `${origin}/functions/v1${path}`;
 }
 

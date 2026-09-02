@@ -4,6 +4,7 @@ import {
   challengeHeader,
   handleMcp,
   protectedResourceMetadata,
+  publicOrigin,
   TOOL_NAME,
 } from "../supabase/functions/api/access/mcp.ts";
 
@@ -173,6 +174,37 @@ Deno.test("what a client is told before it signs in", async (t) => {
         bearer_methods_supported: ["header"],
         scopes_supported: ["email"],
       },
+    );
+  });
+
+  await t.step("the origin is the one callers used, not the one seen", () => {
+    // Behind the gateway the runtime sees http; the outside world said https.
+    const hosted = {
+      protocol: "http:",
+      hostname: "cawwcmsmqhrqiyjlrhba.supabase.co",
+      host: "cawwcmsmqhrqiyjlrhba.supabase.co",
+    };
+    assertEquals(
+      publicOrigin({ ...hosted, forwardedProto: null }),
+      "https://cawwcmsmqhrqiyjlrhba.supabase.co",
+    );
+    assertEquals(
+      publicOrigin({ ...hosted, forwardedProto: "https" }),
+      "https://cawwcmsmqhrqiyjlrhba.supabase.co",
+    );
+    // The local stack really is plain http, and says so.
+    const local = {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      host: "127.0.0.1:54321",
+    };
+    assertEquals(
+      publicOrigin({ ...local, forwardedProto: null }),
+      "http://127.0.0.1:54321",
+    );
+    assertEquals(
+      publicOrigin({ ...local, forwardedProto: "http" }),
+      "http://127.0.0.1:54321",
     );
   });
 
