@@ -41,14 +41,24 @@ const spec: any = await (await fetch(`${BASE}/openapi.json`, {
 // bearer token on a page load, so a documentation page behind the middleware
 // is one nobody can open. The Withings pair is called by Withings, which has
 // no way to send our token, and a notification that 401s vanishes without a
-// trace; what guards it is that nothing in the body is believed.
+// trace; what guards it is that nothing in the body is believed. The
+// sign-in pair belongs to the plugin's connector: the consent page is where
+// Marco arrives with no token yet, and the discovery document is what a
+// client reads before it has one — it says where to sign in and nothing
+// else, the way /openapi.json says the shape and never the data.
 const PUBLIC: Array<{ method: string; path: string }> = [
   { method: "GET", path: "/health" },
   { method: "GET", path: "/openapi.json" },
   { method: "GET", path: "/reference" },
+  { method: "GET", path: "/consent" },
+  { method: "GET", path: "/mcp/oauth-protected-resource" },
   { method: "GET", path: "/withings/callback" },
   { method: "HEAD", path: "/withings/notify" },
 ];
+
+// Routers mounted above the middleware, whose public routes are listed above
+// and whose other routes answer for themselves.
+const MOUNTED_PUBLIC_PREFIXES = ["/withings", "/mcp"];
 
 // A tokenless request is refused before any handler runs, so a placeholder is
 // enough to reach the middleware and nothing downstream ever sees it.
@@ -145,6 +155,13 @@ Deno.test("no plain router serves traffic unseen", async () => {
       "send our token. Guarded by believing nothing in the body: the payload " +
       "carries no weight, and one naming the wrong account is dropped.",
     ],
+    [
+      `${API_DIR}/access/mcp.routes.ts`,
+      "the plugin's connector, guarded by a Supabase sign-in token checked " +
+      "on every call rather than by the coach token. A tokenless call is " +
+      "answered 401 with where to sign in; its one credential-free route is " +
+      "the discovery document, which says that and nothing else.",
+    ],
   ]);
 
   const found: string[] = [];
@@ -163,10 +180,10 @@ Deno.test("no plain router serves traffic unseen", async () => {
   );
 });
 
-Deno.test("nothing is registered on the app but the public three", async () => {
+Deno.test("nothing is registered on the app but the public four", async () => {
   // The composition root is the other way out: a route registered directly on
   // `app` rather than mounted, above the middleware and therefore public
-  // forever. These three are, deliberately. A fourth has to be argued for
+  // forever. These four are, deliberately. A fifth has to be argued for
   // here before it can serve.
   const source = await Deno.readTextFile(`${API_DIR}/index.ts`);
   const registered = [
@@ -175,7 +192,23 @@ Deno.test("nothing is registered on the app but the public three", async () => {
 
   assertEquals(
     registered.sort(),
-    PUBLIC.filter((p) => !p.path.startsWith("/withings")).map((p) => p.path)
-      .sort(),
+    PUBLIC.filter((p) =>
+      !MOUNTED_PUBLIC_PREFIXES.some((prefix) => p.path.startsWith(prefix))
+    ).map((p) => p.path).sort(),
   );
+});
+
+Deno.test("the connector refuses a tokenless call and says where to sign in", async () => {
+  // The third kind of route, named so it is not mistaken for either of the
+  // other two: neither behind the coach token nor public, but guarded by a
+  // credential of its own. What a tokenless caller gets is the pointer to
+  // the discovery document, which is the public route listed above.
+  const res = await fetch(`${BASE}/mcp`, { method: "POST", body: "{}" });
+  assertEquals(res.status, 401);
+  const challenge = res.headers.get("www-authenticate") ?? "";
+  assert(
+    challenge.startsWith("Bearer resource_metadata="),
+    `no pointer to sign in: ${challenge}`,
+  );
+  assertEquals(Object.keys(await res.json()), ["error"]);
 });

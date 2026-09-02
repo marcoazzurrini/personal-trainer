@@ -99,20 +99,19 @@ function pickKey(jwks: Jwks, kid: unknown): JsonWebKey {
   return jwks.keys[0];
 }
 
-export async function verifyJwt(
+// The header alone: the shape of the token and the algorithm it claims, read
+// before any key is fetched or touched. A token claiming "none" or an HMAC
+// algorithm is refused here, so no key material ever meets a signature it was
+// not made for; and a caller can learn which key the token names before it
+// goes looking for one.
+export function readHeader(
   token: string,
-  opts: { issuer: string; jwks: Jwks; now?: number },
-): Promise<Identity> {
+): { kid: string | null; segments: [string, string, string] } {
   const parts = token.split(".");
   if (parts.length !== 3) {
     throw new JwtError("The token is not three dot-separated segments.");
   }
-  const [headerSegment, payloadSegment, signatureSegment] = parts;
-
-  // The algorithm is checked before any key is touched. A token claiming
-  // "none" or an HMAC algorithm is refused on its header alone, so no key
-  // material ever meets a signature it was not made for.
-  const header = decodeJson(headerSegment, "header");
+  const header = decodeJson(parts[0], "header");
   if (header.alg !== "ES256") {
     throw new JwtError(
       `The token is signed with "${
@@ -120,8 +119,20 @@ export async function verifyJwt(
       }"; only ES256 is accepted.`,
     );
   }
+  return {
+    kid: typeof header.kid === "string" ? header.kid : null,
+    segments: [parts[0], parts[1], parts[2]],
+  };
+}
 
-  const key = await importKey(pickKey(opts.jwks, header.kid));
+export async function verifyJwt(
+  token: string,
+  opts: { issuer: string; jwks: Jwks; now?: number },
+): Promise<Identity> {
+  const { kid, segments } = readHeader(token);
+  const [headerSegment, payloadSegment, signatureSegment] = segments;
+
+  const key = await importKey(pickKey(opts.jwks, kid));
   const signed = new TextEncoder().encode(
     `${headerSegment}.${payloadSegment}`,
   );
