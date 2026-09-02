@@ -17,9 +17,11 @@
 export const TOOL_NAME = "get_api_token";
 
 // The versions this server has read the specification for. A client naming
-// one of these is answered in kind; any other is answered with the latest,
-// which is what the specification asks of a server meeting a version it does
-// not know.
+// one of these is answered in kind. Any other is answered with 2025-06-18
+// rather than the newest entry below: it is the version this server was
+// checked against end to end, and nothing this server does — one tool, no
+// stream, no session — differs between the two, so a client that names no
+// known version is safest on it.
 export const PROTOCOL_VERSIONS = [
   "2025-03-26",
   "2025-06-18",
