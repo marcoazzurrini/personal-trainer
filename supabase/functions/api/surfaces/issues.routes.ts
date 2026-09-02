@@ -81,7 +81,7 @@ issues.openapi(
                 error: docsError,
               }).optional().meta({
                 description:
-                  'Document names as the index document writes them, like ["tasks/programming"].',
+                  'Document names as the skill writes them, like ["tasks/programming"].',
               }),
               request_id: requestId(),
             }),

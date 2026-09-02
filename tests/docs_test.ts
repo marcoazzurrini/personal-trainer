@@ -7,13 +7,14 @@ import {
   DOCUMENTED_TRACKS,
   TRACKS,
 } from "../supabase/functions/api/training/rules.ts";
-import { documentPath, SKILL_DIR } from "./skill.ts";
+import { documentPath, SKILL, SKILL_DIR } from "./skill.ts";
 
 // The coaching documents are files in the plugin, read by the coach from
-// disk; the API never serves them. So this is a test of a folder: that the
-// index is a complete and honest map of it, that nothing points at a document
-// that is not there, and that nothing still speaks as if the documents were
-// routes. It runs from the repository root, like docs_constants_test.
+// disk; the API never serves them. So this is a test of a folder: that
+// SKILL.md is a complete and honest map of it, that nothing points at a
+// document that is not there, and that nothing still speaks as if the
+// documents were routes. It runs from the repository root, like
+// docs_constants_test.
 
 const KINDS = ["tasks", "reference", "method"] as const;
 
@@ -38,6 +39,12 @@ async function filesUnder(kind: string): Promise<string[]> {
   return names.sort();
 }
 
+async function everyDocument(): Promise<string[]> {
+  const names: string[] = [];
+  for (const kind of KINDS) names.push(...await filesUnder(kind));
+  return names;
+}
+
 function namesIn(text: string): Set<string> {
   return new Set(
     [...text.matchAll(/`((?:tasks|reference|method)\/[a-z0-9-]+)`/g)].map((
@@ -47,9 +54,9 @@ function namesIn(text: string): Set<string> {
 }
 
 Deno.test("the coaching documents", async (t) => {
-  const index = await read("index");
+  const skill = await Deno.readTextFile(SKILL);
 
-  await t.step("the index names the documents a coach needs", () => {
+  await t.step("SKILL.md names the documents a coach needs", () => {
     for (
       const name of [
         "tasks/onboarding",
@@ -71,43 +78,54 @@ Deno.test("the coaching documents", async (t) => {
         "method/nutrition",
       ]
     ) {
-      assert(index.includes(`\`${name}\``), `index should name ${name}`);
+      assert(skill.includes(`\`${name}\``), `SKILL.md should name ${name}`);
     }
   });
 
-  await t.step("every document the index names is on disk", async () => {
-    // The index is the coach's map. A row pointing at a document that is not
+  await t.step("every document SKILL.md names is on disk", async () => {
+    // SKILL.md is the coach's map. A row pointing at a document that is not
     // there sends it looking for a procedure that does not exist.
-    const named = namesIn(index);
+    const named = namesIn(skill);
     assert(named.size >= 12);
     for (const name of named) {
-      assert(await exists(name), `the index names ${name}, which is not there`);
+      assert(
+        await exists(name),
+        `SKILL.md names ${name}, which is not there`,
+      );
     }
   });
 
-  await t.step("every document on disk is in the index", async () => {
+  await t.step("every document on disk is named by SKILL.md", async () => {
     // The other direction: a document nobody is told about is one nobody
-    // reads, and the index is the only place the coach learns what exists.
-    const named = namesIn(index);
-    for (const kind of KINDS) {
-      for (const name of await filesUnder(kind)) {
-        assert(named.has(name), `${name} exists but the index never names it`);
-      }
+    // reads, and SKILL.md is the only place the coach learns what exists.
+    const named = namesIn(skill);
+    for (const name of await everyDocument()) {
+      assert(named.has(name), `${name} exists but SKILL.md never names it`);
+    }
+  });
+
+  await t.step("SKILL.md links every document it names", () => {
+    // A name is what the API quotes; a link is how the skill loader is told
+    // where the file is. The two have to agree, or the coach reads a name it
+    // cannot open.
+    for (const name of namesIn(skill)) {
+      assert(
+        skill.includes(`](${name}.md)`),
+        `SKILL.md names ${name} without linking ${name}.md`,
+      );
     }
   });
 
   await t.step(
     "documents never point at documents that are not there",
     async () => {
-      // Cross-references inside the documents, not just the index's own table.
-      // A task document naming `tasks/training-onboarding` when the file is
-      // `tasks/onboarding` sends the coach looking for a procedure that is not
-      // there, and the index check above cannot see that.
+      // Cross-references inside the documents, not just SKILL.md's own
+      // tables. A task document naming `tasks/training-onboarding` when the
+      // file is `tasks/onboarding` sends the coach looking for a procedure
+      // that is not there, and the check above cannot see that.
       const seen = new Set<string>();
-      for (const kind of KINDS) {
-        for (const name of await filesUnder(kind)) {
-          for (const ref of namesIn(await read(name))) seen.add(ref);
-        }
+      for (const name of await everyDocument()) {
+        for (const ref of namesIn(await read(name))) seen.add(ref);
       }
       assert(seen.size >= 8, `expected cross-references, found ${seen.size}`);
       for (const ref of seen) {
@@ -123,13 +141,13 @@ Deno.test("the coaching documents", async (t) => {
     // The documents were once served by the API, and their pointers were
     // routes. They are files now, and a route pointer would send the coach
     // to a 404.
-    for (const kind of [...KINDS, ""]) {
-      const names = kind === "" ? ["index"] : await filesUnder(kind);
-      for (const name of names) {
-        const text = await read(name);
-        assert(!text.includes("GET /docs"), `${name} still says GET /docs`);
-        assert(!text.includes("/api/"), `${name} quotes an /api/ path`);
-      }
+    const texts = [["SKILL.md", skill]];
+    for (const name of await everyDocument()) {
+      texts.push([name, await read(name)]);
+    }
+    for (const [name, text] of texts) {
+      assert(!text.includes("GET /docs"), `${name} still says GET /docs`);
+      assert(!text.includes("/api/"), `${name} quotes an /api/ path`);
     }
   });
 
@@ -148,13 +166,8 @@ Deno.test("the coaching documents", async (t) => {
       // /issues lets the coach name the documents a report is about, and checks
       // the name against the same rule. A file whose name broke it could never
       // be reported on.
-      for (const kind of KINDS) {
-        for (const name of await filesUnder(kind)) {
-          assert(
-            isDocName(name),
-            name,
-          );
-        }
+      for (const name of await everyDocument()) {
+        assert(isDocName(name), name);
       }
     },
   );
@@ -178,10 +191,10 @@ Deno.test("the documented tracks are the ones with a document", async () => {
 });
 
 // The rule /issues applies to the documents a report names: lowercase words,
-// hyphens, slashes for nesting, no dots, no extension — the way the index
+// hyphens, slashes for nesting, no dots, no extension — the way SKILL.md
 // writes them.
 Deno.test("document names", () => {
-  for (const good of ["index", "method/hypertrophy", "a-b/c-d/e2"]) {
+  for (const good of ["tasks", "method/hypertrophy", "a-b/c-d/e2"]) {
     assert(isDocName(good), good);
   }
   for (

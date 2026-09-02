@@ -95,7 +95,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   suspect.
 - **`suggestion`** is welcome and is not binding. You are describing code you
   cannot read; say what would help, not what to write.
-- **`docs`** names the documents involved, as the index document writes them.
+- **`docs`** names the documents involved, as `SKILL.md` lists them.
   Leave it out when none are.
 - **`request_id`** is a fresh UUID, as on every creating call. Resending it
   returns the issue you already filed instead of filing a second.

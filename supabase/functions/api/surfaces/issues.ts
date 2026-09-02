@@ -20,7 +20,7 @@ import {
 
 // What a report may name as a document: lowercase words joined by hyphens,
 // nested with slashes — "tasks/programming", "method/hypertrophy" — the way
-// the plugin's index writes them. The documents themselves ship in the plugin
+// the skill writes them. The documents themselves ship in the plugin
 // and never pass through this function; this only refuses a name that could
 // not be one, so an issue never cites a document that cannot exist.
 const DOC_NAME_RE = /^[a-z0-9-]+(\/[a-z0-9-]+)*$/;
@@ -100,7 +100,7 @@ function parseDocs(raw: string[] | null | undefined): string[] {
     if (!isDocName(name)) {
       throw new ApiError(
         422,
-        `"docs[${i}]" must be a document name as the index document writes them: lowercase words, hyphens, slashes for nesting, no extension — like "tasks/programming" (max ${MAX_DOC_NAME} chars).`,
+        `"docs[${i}]" must be a document name as the skill writes them: lowercase words, hyphens, slashes for nesting, no extension — like "tasks/programming" (max ${MAX_DOC_NAME} chars).`,
       );
     }
     return name;
