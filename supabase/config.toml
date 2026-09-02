@@ -160,7 +160,7 @@ site_url = "http://127.0.0.1:54321"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://127.0.0.1:54321/functions/v1/api/consent**"]
+additional_redirect_urls = ["http://127.0.0.1:54321/consent**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -377,14 +377,15 @@ enabled = false
 
 # OAuth server configuration
 # The sign-in the plugin's connector uses. Mirrors the hosted project, which
-# is configured in the dashboard: the consent page is served by the api
-# function, and Claude registers itself as a client rather than being
+# is configured in the dashboard: the consent page is the static file in
+# web/consent/, served from the Site URL's host (edge functions cannot serve
+# HTML), and Claude registers itself as a client rather than being
 # registered by hand.
 [auth.oauth_server]
 # Enable OAuth server functionality
 enabled = true
 # Path for OAuth consent flow UI
-authorization_url_path = "/functions/v1/api/consent"
+authorization_url_path = "/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = true
 

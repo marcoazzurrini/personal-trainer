@@ -42,15 +42,13 @@ const spec: any = await (await fetch(`${BASE}/openapi.json`, {
 // is one nobody can open. The Withings pair is called by Withings, which has
 // no way to send our token, and a notification that 401s vanishes without a
 // trace; what guards it is that nothing in the body is believed. The
-// sign-in pair belongs to the plugin's connector: the consent page is where
-// Marco arrives with no token yet, and the discovery document is what a
-// client reads before it has one — it says where to sign in and nothing
-// else, the way /openapi.json says the shape and never the data.
+// discovery document belongs to the plugin's connector: it is what a client
+// reads before it has a token — it says where to sign in and nothing else,
+// the way /openapi.json says the shape and never the data.
 const PUBLIC: Array<{ method: string; path: string }> = [
   { method: "GET", path: "/health" },
   { method: "GET", path: "/openapi.json" },
   { method: "GET", path: "/reference" },
-  { method: "GET", path: "/consent" },
   { method: "GET", path: "/mcp/oauth-protected-resource" },
   { method: "GET", path: "/withings/callback" },
   { method: "HEAD", path: "/withings/notify" },
@@ -180,10 +178,10 @@ Deno.test("no plain router serves traffic unseen", async () => {
   );
 });
 
-Deno.test("nothing is registered on the app but the public four", async () => {
+Deno.test("nothing is registered on the app but the public three", async () => {
   // The composition root is the other way out: a route registered directly on
   // `app` rather than mounted, above the middleware and therefore public
-  // forever. These four are, deliberately. A fifth has to be argued for
+  // forever. These three are, deliberately. A fourth has to be argued for
   // here before it can serve.
   const source = await Deno.readTextFile(`${API_DIR}/index.ts`);
   const registered = [

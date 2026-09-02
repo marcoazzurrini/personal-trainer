@@ -13,7 +13,6 @@ import { catchUpIfDue } from "./body/withings.ts";
 import { docs, issues } from "./surfaces/index.ts";
 import { verifyToken } from "./access/tokens.ts";
 import { mcp } from "./access/index.ts";
-import { consentPage } from "./access/consent.ts";
 import {
   days,
   foods,
@@ -135,23 +134,6 @@ app.get("/reference", (c) =>
     </script>
   </body>
 </html>`));
-
-// The page where Marco says yes to the plugin's connector. Supabase's sign-in
-// server sends the browser here with an authorization_id; the page signs him
-// in with Google and hands the browser back with the answer. Public because
-// the person arriving has no token yet — a token is what they came for. What
-// it renders in is the anon key, which every browser client of this project
-// already holds and which authorizes nothing on its own.
-app.get("/consent", (c) => {
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  if (!anonKey) {
-    return c.json(
-      { error: "SUPABASE_ANON_KEY is not configured on the server." },
-      500,
-    );
-  }
-  return c.html(consentPage(anonKey));
-});
 
 // The connector: the one endpoint the plugin talks MCP to, whose one tool
 // mints the coach's token. Above the middleware because it carries its own

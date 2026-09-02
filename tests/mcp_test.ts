@@ -320,19 +320,29 @@ Deno.test("the connector before a sign-in", async (t) => {
   });
 
   await t.step(
-    "the consent page renders with the project's key in it",
+    "the consent page is a static file that talks to this project",
     async () => {
-      const res = await fetch(`${BASE}/consent`);
-      assertEquals(res.status, 200);
-      assertStringIncludes(res.headers.get("content-type") ?? "", "text/html");
-      const page = await res.text();
+      // Not a route: the function cannot serve HTML on the default domain,
+      // so the page lives in web/ and is hosted apart. What is checked is
+      // that it talks to this project and does the two things the flow
+      // needs.
+      const page = await Deno.readTextFile("web/consent/index.html");
       assertStringIncludes(
         page,
-        "supabase.createClient(location.origin, ANON_KEY)",
+        'var SUPABASE_URL = "https://cawwcmsmqhrqiyjlrhba.supabase.co"',
+      );
+      const key = page.match(/var ANON_KEY = "([^"]+)"/);
+      assert(
+        key !== null && key[1].length > 20 && !key[1].startsWith("__"),
+        "no anon key in the page",
+      );
+      assertStringIncludes(
+        page,
+        "supabase.createClient(SUPABASE_URL, ANON_KEY)",
       );
       assertStringIncludes(page, "authorization_id");
-      const key = page.match(/var ANON_KEY = "([^"]+)"/);
-      assert(key !== null && key[1].length > 20, "no anon key rendered in");
+      assertStringIncludes(page, "approveAuthorization");
+      assertStringIncludes(page, "denyAuthorization");
     },
   );
 });
