@@ -257,6 +257,12 @@ export async function verifyJwt(
 // call against the authorization server.
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const REFETCH_INTERVAL_MS = 60 * 1000;
+// A read of the metadata or the keys that has not answered in this long is
+// treated as unreachable. Without a bound, a server that accepts the
+// connection and never answers — or a name that never resolves — would hold
+// the request open for as long as the runtime allows, and the caller would
+// wait with it instead of being told to try again.
+const FETCH_MS = 5_000;
 const jwksCache = new Map<string, { jwks: Jwks; fetchedAt: number }>();
 const metadataCache = new Map<string, { jwksUrl: string; fetchedAt: number }>();
 
@@ -291,7 +297,7 @@ export async function discoverJwksUrl(
     return cached.jwksUrl;
   }
   const url = metadataUrl(issuer);
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
   if (!response.ok) {
     throw new Error(
       `The authorization server's metadata could not be read: ${url} answered ${response.status}.`,
@@ -332,7 +338,7 @@ export async function fetchJwks(
     return cached.jwks;
   }
 
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
   if (!response.ok) {
     throw new Error(
       `The authorization server's keys could not be read: ${url} answered ${response.status}.`,
