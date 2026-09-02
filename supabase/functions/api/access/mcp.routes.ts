@@ -17,9 +17,9 @@ import {
 } from "./mcp.ts";
 
 // The connector's endpoint. Mounted ahead of the bearer-token middleware,
-// because what it carries is not the coach token but the token Supabase Auth
-// issued when Marco signed in — checked here, on every call, against the keys
-// the sign-in server publishes. A plain Hono router rather than OpenAPIHono:
+// because what it carries is not the coach token but the access token the
+// authorization server issued when Marco signed in — checked here, on every
+// call, against the keys that server publishes. A plain Hono router rather than OpenAPIHono:
 // the document at /openapi.json is the surface behind the coach token, and
 // the test that holds that line probes every path in it for a 401. This is
 // another protocol under another credential, and its one credential-free
@@ -100,7 +100,7 @@ mcp.post("/", async (c) => {
     return c.json(
       {
         error:
-          `Sign in first. This endpoint takes the token Supabase Auth issues after a sign-in; where to sign in is described at ${metadataUrl}.`,
+          `Sign in first. This endpoint takes the token the authorization server issues after a sign-in; where to sign in is described at ${metadataUrl}.`,
       },
       401,
       { "WWW-Authenticate": challengeHeader(metadataUrl, false) },

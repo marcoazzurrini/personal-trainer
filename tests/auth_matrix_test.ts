@@ -155,8 +155,9 @@ Deno.test("no plain router serves traffic unseen", async () => {
     ],
     [
       `${API_DIR}/access/mcp.routes.ts`,
-      "the plugin's connector, guarded by a Supabase sign-in token checked " +
-      "on every call rather than by the coach token. A tokenless call is " +
+      "the plugin's connector, guarded by a sign-in token from the hosted " +
+      "authorization server checked on every call rather than by the coach " +
+      "token. A tokenless call is " +
       "answered 401 with where to sign in; its one credential-free route is " +
       "the discovery document, which says that and nothing else.",
     ],

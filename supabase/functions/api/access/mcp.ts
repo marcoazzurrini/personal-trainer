@@ -181,7 +181,9 @@ export function publicOrigin(seen: {
 // The specification has clients look for it at a well-known path on the
 // host's root, which on supabase.co is not ours to serve; so the 401 below
 // says exactly where it is instead, which the specification also provides
-// for and which Supabase's own edge-function helper relies on.
+// for. Three fields and no scopes: the authorization server hosts its own
+// consent screen and the token carries no email, so there is nothing to ask
+// the person for beyond the sign-in itself.
 export function protectedResourceMetadata(
   resource: string,
   issuer: string,
@@ -189,16 +191,22 @@ export function protectedResourceMetadata(
   resource: string;
   authorization_servers: string[];
   bearer_methods_supported: string[];
-  scopes_supported: string[];
 } {
   return {
     resource,
     authorization_servers: [issuer],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["email"],
   };
 }
 
+// The challenge on a 401. Bare when no credential came at all — RFC 6750
+// says to send no error code in that case — and error="invalid_token" when
+// one came and was refused, which is what tells a client to refresh its
+// token rather than start the sign-in over. Some authorization servers'
+// examples add error="unauthorized" with a description; that is not a
+// registered code, and the one parameter a client acts on is
+// resource_metadata. If a client ever fails to start the sign-in from this
+// header, adding those two parameters is a change to this line alone.
 export function challengeHeader(
   metadataUrl: string,
   invalidToken: boolean,

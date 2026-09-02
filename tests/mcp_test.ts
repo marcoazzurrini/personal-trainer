@@ -172,7 +172,6 @@ Deno.test("what a client is told before it signs in", async (t) => {
         resource: "https://x.example/functions/v1/api/mcp",
         authorization_servers: ["https://x.example/auth/v1"],
         bearer_methods_supported: ["header"],
-        scopes_supported: ["email"],
       },
     );
   });
@@ -311,11 +310,15 @@ Deno.test("the connector before a sign-in", async (t) => {
       String(doc.resource).endsWith("/functions/v1/api/mcp"),
       doc.resource,
     );
+    assertEquals(Object.keys(doc).sort(), [
+      "authorization_servers",
+      "bearer_methods_supported",
+      "resource",
+    ]);
     assertEquals(doc.authorization_servers.length, 1);
-    assert(
-      String(doc.authorization_servers[0]).endsWith("/auth/v1"),
-      doc.authorization_servers[0],
-    );
+    // Whatever the issuer is configured as, it must be an address a client
+    // can go and read metadata from.
+    new URL(doc.authorization_servers[0]);
     assertEquals(doc.bearer_methods_supported, ["header"]);
   });
 });
