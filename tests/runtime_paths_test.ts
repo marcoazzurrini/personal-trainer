@@ -105,18 +105,25 @@ function followablePaths(message: string): string[] {
 Deno.test("paths quoted in prompts actually route", async (t) => {
   await t.step("the cold-start note's instruction works", async () => {
     // The exact second call of a first conversation: training-state names the
-    // onboarding document, and the named path must answer. This is the test
-    // that fails if a prompt ever grows a prefix — or names a doc that moved.
+    // onboarding document, and the named document must exist. The note names
+    // it as a document — `tasks/onboarding` — not as a route, because the
+    // documents are the skill's to read; here, while the route still serves,
+    // that is where the name is checked.
     await resetTraining();
     const { body } = await api.get("/training-state");
     assert(body.note, "an empty record must route to onboarding");
-    const paths = followablePaths(body.note);
-    assert(paths.length > 0, `no followable path in: ${body.note}`);
-    for (const path of paths) {
+    const names = [
+      ...String(body.note).matchAll(
+        /`((?:tasks|reference|method)\/[a-z0-9-]+)`/g,
+      ),
+    ]
+      .map((m) => m[1]);
+    assert(names.length > 0, `no document named in: ${body.note}`);
+    for (const name of names) {
       assertEquals(
-        await follow(path),
+        await follow(`/api/docs/${name}`),
         200,
-        `the cold-start note says "GET ${path}" but it does not answer`,
+        `the cold-start note names "${name}" but it does not answer`,
       );
     }
   });

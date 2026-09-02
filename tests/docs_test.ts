@@ -1,5 +1,9 @@
 import { assert, assertEquals } from "@std/assert";
 import { isDocName } from "../supabase/functions/api/surfaces/docs.ts";
+import {
+  DOCUMENTED_TRACKS,
+  TRACKS,
+} from "../supabase/functions/api/training/rules.ts";
 import { api, BASE } from "./helpers.ts";
 
 Deno.test("skill documents", async (t) => {
@@ -138,6 +142,25 @@ Deno.test("skill documents", async (t) => {
     const { status } = await api.get("/docs/method/../../index.ts");
     assertEquals(status, 404);
   });
+});
+
+// DOCUMENTED_TRACKS says which tracks have a method document, so that
+// /training-state can say so without a folder to look in. It is a claim
+// about files, and this holds it to them: every track is either in the list
+// with its document on disk, or out of it with none.
+Deno.test("the documented tracks are the ones with a document", async () => {
+  for (const track of TRACKS) {
+    const exists = await Deno.stat(
+      `supabase/functions/api/docs/method/${track}.md`,
+    ).then(() => true, () => false);
+    assertEquals(
+      DOCUMENTED_TRACKS.includes(track),
+      exists,
+      `${track}: DOCUMENTED_TRACKS says ${
+        DOCUMENTED_TRACKS.includes(track)
+      }, the disk says ${exists}`,
+    );
+  }
 });
 
 // The rule that lets the docs route serve any merged file without an

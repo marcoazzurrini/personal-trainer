@@ -22,6 +22,13 @@ export const ROLES = ["main", "accessory", "rehab"] as const;
 export type Role = typeof ROLES[number];
 export type Track = typeof TRACKS[number];
 
+// The tracks with a method document. Stated here rather than discovered by
+// reading the filesystem, because the documents are leaving the function
+// for the plugin and the API will have no folder to look in; docs_test holds
+// this list against the files on disk, so a document added or removed
+// without touching it fails the suite.
+export const DOCUMENTED_TRACKS: readonly Track[] = ["hypertrophy"];
+
 export const MEASURES = [
   "load_reps",
   "reps",

@@ -88,7 +88,7 @@ function parseDocs(raw: string[] | null | undefined): string[] {
     if (!isDocName(name)) {
       throw new ApiError(
         422,
-        `"docs[${i}]" must be a document name as GET /docs/index writes them: lowercase words, hyphens, slashes for nesting, no extension — like "tasks/programming" (max ${MAX_DOC_NAME} chars).`,
+        `"docs[${i}]" must be a document name as the index document writes them: lowercase words, hyphens, slashes for nesting, no extension — like "tasks/programming" (max ${MAX_DOC_NAME} chars).`,
       );
     }
     return name;

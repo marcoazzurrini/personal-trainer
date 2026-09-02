@@ -8,9 +8,8 @@
 // list of recent sessions, one person.
 
 import { sql } from "../db.ts";
-import { docExists } from "../surfaces/docs.ts";
 import { romeClock, romeDate, romeWeekStart } from "../shared/calendar.ts";
-import { deliveredInDoseUnit } from "./rules.ts";
+import { deliveredInDoseUnit, DOCUMENTED_TRACKS } from "./rules.ts";
 import { planWeekOrNull, planWeekSince } from "./mesocycles.ts";
 import { type ContextEntry, currentContext } from "./user_context.ts";
 
@@ -117,8 +116,8 @@ export async function trainingState(): Promise<TrainingState> {
   if (active.length === 0) {
     // The cold start routes to onboarding; a known person routes to planning.
     const note = userContext.length === 0
-      ? "No active mesocycle and no user context: this is a first conversation. Start with GET /docs/tasks/onboarding — do not program anything yet."
-      : "No active mesocycle. Fetch GET /docs/tasks/programming, then create one with POST /mesocycles (blocks via POST /blocks).";
+      ? "No active mesocycle and no user context: this is a first conversation. Start with the onboarding document, `tasks/onboarding` — do not program anything yet."
+      : "No active mesocycle. Read the `tasks/programming` document, then create one with POST /mesocycles (blocks via POST /blocks).";
     return {
       now,
       mesocycles: [],
@@ -204,9 +203,9 @@ export async function trainingState(): Promise<TrainingState> {
 
     // Stated by the API rather than left for the coach to discover: a plan on
     // a track with no method document is coached from general knowledge, and
-    // saying so is the difference between honest and authoritative.
-    const methodDoc = `method/${meso.track}`;
-    const hasMethodDoc = await docExists(methodDoc);
+    // saying so is the difference between honest and authoritative. Named as
+    // a document, not a route: the documents are the skill's to read.
+    const hasMethodDoc = DOCUMENTED_TRACKS.includes(meso.track);
 
     mesocycles.push({
       id: meso.id,
@@ -216,7 +215,7 @@ export async function trainingState(): Promise<TrainingState> {
       week,
       planned_weeks: meso.planned_weeks,
       started_on: meso.started_on,
-      method_doc: hasMethodDoc ? `GET /docs/${methodDoc}` : null,
+      method_doc: hasMethodDoc ? `method/${meso.track}` : null,
       method_note: hasMethodDoc
         ? null
         : `There is no method document for the ${meso.track} track yet, so this plan is coached from general knowledge. Say so plainly rather than implying an authority the documents do not give you.`,

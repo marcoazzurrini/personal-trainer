@@ -44,7 +44,7 @@ export const constraintMessages: Record<string, string> = {
   mesocycle_decisions_request_id_key:
     "That request_id was already spent on a different plan's decision. A retry replays the call it was issued for; a new call needs a fresh uuid.",
   mesocycles_track_check:
-    'track must be one of: hypertrophy, strength, speed, endurance. It also names the method document the coach reads (GET /docs/method/<track>). Rehab is not a track — it is a role an exercise plays inside a plan, so send "role": "rehab" on the exercise instead.',
+    'track must be one of: hypertrophy, strength, speed, endurance. It also names the method document the coach reads (`method/<track>`). Rehab is not a track — it is a role an exercise plays inside a plan, so send "role": "rehab" on the exercise instead.',
   mesocycles_starts_on_monday:
     '"started_on" must be a Monday: mesocycles run whole weeks, Monday to Sunday.',
   mesocycle_exercises_mesocycle_exercise_key:

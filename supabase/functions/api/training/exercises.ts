@@ -99,7 +99,7 @@ function parseMuscleList(
     if (m.counts !== undefined) {
       throw new ApiError(
         422,
-        '"counts" was replaced by "volume_factor": 1.0 (direct — primary force generator), 0.5 (indirect — meaningfully trained, not primary), 0 (considered and deliberately excluded). See GET /docs/reference/exercises.',
+        '"counts" was replaced by "volume_factor": 1.0 (direct — primary force generator), 0.5 (indirect — meaningfully trained, not primary), 0 (considered and deliberately excluded). See the `reference/exercises` document.',
       );
     }
     if (m.fatigue !== undefined) {
