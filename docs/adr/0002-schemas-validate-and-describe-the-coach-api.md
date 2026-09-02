@@ -70,7 +70,9 @@ validator stops type-checking (honojs/hono#4775). Scalar is loaded from a CDN
 script instead of its Hono middleware, whose npm peer chain fails to resolve on
 this runtime (rhinobase/hono-openapi#188); the middleware only ever emitted that
 page. Both were verified booting on the real edge runtime before any of this was
-written.
+written, and both still hold now that the runtime is our own container
+(ADR-0008): the page is finally served as HTML, because nothing in front of
+the API rewrites it any more.
 
 `z.config` is process-global. One app, one configuration — but it is global, and
 a second consumer of Zod in this function would inherit the error map.

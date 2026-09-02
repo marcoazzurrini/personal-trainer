@@ -1,5 +1,8 @@
 # The agent runs outside Supabase, and the coach API is its only data path
 
+> The Supabase half is superseded by ADR-0008: the API now runs on a server
+> we operate. The data-path half stands.
+
 The coach has always been an LLM client driving the API from outside — first
 Claude Desktop, now a web app whose agent loop we host ourselves. That loop
 cannot live in the Supabase edge function: the agent framework we want targets
