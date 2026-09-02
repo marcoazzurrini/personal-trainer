@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { BASE, TOKEN } from "./helpers.ts";
 
 // Auth as a property of the whole surface, not of the routes someone
 // remembered to test.
@@ -25,9 +26,6 @@ import { assert, assertEquals } from "@std/assert";
 // auth_test.ts checks the token itself (rotation, malformed JSON); this is the
 // matrix that catches a new route landing on the wrong side of the line.
 
-const BASE = Deno.env.get("API_URL") ??
-  "http://127.0.0.1:54321/functions/v1/api";
-const TOKEN = Deno.env.get("API_TOKEN") ?? "local-dev-token";
 const API_DIR = "api";
 
 // deno-lint-ignore no-explicit-any

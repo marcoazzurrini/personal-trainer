@@ -6,11 +6,10 @@ export type Tx = TransactionSql<{ bigint: number; date: string }>;
 
 // DATABASE_URL is set per environment: the root .env locally, a secret on
 // the host. The connection goes straight to Postgres, so prepared statements
-// (the driver's default) are fine.
-const dbUrl = Deno.env.get("DATABASE_URL");
-if (!dbUrl) throw new Error("DATABASE_URL is not set");
-
-export const sql = postgres(dbUrl, {
+// (the driver's default) are fine. Nothing connects until the first query,
+// so a module that imports this one can be imported without a database,
+// which is what the pure tests do.
+export const sql = postgres(Deno.env.get("DATABASE_URL") ?? "", {
   // bigint (our ids) arrives as text by default to protect precision past
   // 2^53. These ids never get near that; numbers make a cleaner API.
   types: {

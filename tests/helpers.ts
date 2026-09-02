@@ -1,11 +1,12 @@
 import postgres from "postgres";
 import { loadCatalogue } from "../scripts/load_catalogue.ts";
 
-export const BASE = Deno.env.get("API_URL") ??
-  "http://127.0.0.1:54321/functions/v1/api";
+// The API under test is one already running: deno task dev in another
+// terminal, or the CI job's own background server. Tests do not start it.
+export const BASE = Deno.env.get("API_URL") ?? "http://127.0.0.1:8000/api";
 export const TOKEN = Deno.env.get("API_TOKEN") ?? "local-dev-token";
-const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+export const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
+  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
 
 export interface ApiResponse {
   status: number;
@@ -116,7 +117,14 @@ interface DeclaredRoute {
 // per call would let two copies disagree about what was promised. No token —
 // /openapi.json is public, and what it publishes is the shape, not the data.
 const DECLARED_ROUTES: DeclaredRoute[] = await (async () => {
-  const response = await fetch(`${BASE}/openapi.json`);
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/openapi.json`);
+  } catch {
+    throw new Error(
+      `nothing answers at ${BASE}: start the API with deno task dev`,
+    );
+  }
   const document = record(await response.json());
   if (document === null || record(document.paths) === null) {
     throw new Error("/openapi.json did not answer with a document");

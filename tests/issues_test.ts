@@ -326,7 +326,7 @@ Deno.test("github client", async (t) => {
 Deno.test("one request_id can only file one issue", async () => {
   const db = postgres(
     Deno.env.get("TEST_DATABASE_URL") ??
-      "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
   );
   const requestId = uuid();
   try {

@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { BASE, TOKEN } from "./helpers.ts";
 
 // The document is generated, which makes it trustworthy only as far as the
 // generator sees. Two ways it can lie, and one test for each.
@@ -8,9 +9,6 @@ import { assert, assertEquals } from "@std/assert";
 // a handler registered with .get() instead of .openapi() serves traffic and
 // appears nowhere, which is the worse failure, because nothing looks wrong.
 
-const BASE = Deno.env.get("API_URL") ??
-  "http://127.0.0.1:54321/functions/v1/api";
-const TOKEN = Deno.env.get("API_TOKEN") ?? "local-dev-token";
 const API_DIR = "api";
 
 // deno-lint-ignore no-explicit-any

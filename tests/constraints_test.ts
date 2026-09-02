@@ -13,7 +13,7 @@ import { api, uuid } from "./helpers.ts";
 // a failure names the orphaned entry.
 
 const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
 
 Deno.test("every named constraint exists in the database", async () => {
   const db = postgres(DB_URL);

@@ -9,7 +9,7 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 // pointed at a stub.
 
 const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
 
 Deno.test(
   "the issues routes translate GitHub's answers",

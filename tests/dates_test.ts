@@ -69,7 +69,7 @@ Deno.test("the JS week and the SQL week are the same week", async () => {
 
   const db = postgres(
     Deno.env.get("TEST_DATABASE_URL") ??
-      "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
   );
   try {
     const rows = await db`

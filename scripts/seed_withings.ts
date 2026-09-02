@@ -14,7 +14,7 @@
 //
 // To seed the local stack instead, name it explicitly:
 //
-//   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+//   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres \
 //     deno run --allow-net --allow-read --allow-env --allow-sys \
 //     scripts/seed_withings.ts
 

@@ -43,7 +43,7 @@ export async function loadCatalogue(base: string, token: string) {
 
 if (import.meta.main) {
   await loadCatalogue(
-    Deno.env.get("API_URL") ?? "http://127.0.0.1:54321/functions/v1/api",
+    Deno.env.get("API_URL") ?? "http://127.0.0.1:8000/api",
     Deno.env.get("API_TOKEN") ?? "local-dev-token",
   );
 }
