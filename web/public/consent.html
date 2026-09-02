@@ -6,7 +6,7 @@
   shows who is asking, and on Approve hands the browser back to the client
   with the answer. Supabase requires the page to exist and to be ours.
 
-  A static file, hosted apart from the API: Supabase edge functions rewrite
+  A static file on a Cloudflare Worker (web/wrangler.jsonc), apart from the API: Supabase edge functions rewrite
   every text/html answer to text/plain on the default domain, so the
   function cannot serve a page. Nothing here is secret — the project URL and
   the anon key ship in every browser client of a Supabase project and

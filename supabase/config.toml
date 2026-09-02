@@ -378,7 +378,7 @@ enabled = false
 # OAuth server configuration
 # The sign-in the plugin's connector uses. Mirrors the hosted project, which
 # is configured in the dashboard: the consent page is the static file in
-# web/consent/, served from the Site URL's host (edge functions cannot serve
+# web/public/, served from the Site URL's host (edge functions cannot serve
 # HTML), and Claude registers itself as a client rather than being
 # registered by hand.
 [auth.oauth_server]

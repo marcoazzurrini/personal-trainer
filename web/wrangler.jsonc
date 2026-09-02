@@ -1,0 +1,20 @@
+// The consent page's host: a Cloudflare Worker that serves the files in
+// public/ and runs no code. The API is not here — it stays where the
+// database is. This exists only because Supabase's edge functions rewrite
+// every HTML answer to plain text, and the sign-in flow needs one page a
+// browser can render.
+//
+// consent.html is served at /consent (Workers' default html_handling drops
+// the extension and redirects nothing), which is the authorization path the
+// Supabase project names. Deploy: `npx wrangler deploy` from this folder, or
+// Workers Builds on push with this folder as the root directory.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "personal-trainer-consent",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  }
+}

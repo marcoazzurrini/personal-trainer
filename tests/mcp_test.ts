@@ -323,10 +323,10 @@ Deno.test("the connector before a sign-in", async (t) => {
     "the consent page is a static file that talks to this project",
     async () => {
       // Not a route: the function cannot serve HTML on the default domain,
-      // so the page lives in web/ and is hosted apart. What is checked is
+      // so the page lives in web/ and is hosted apart, on a Worker. What is checked is
       // that it talks to this project and does the two things the flow
       // needs.
-      const page = await Deno.readTextFile("web/consent/index.html");
+      const page = await Deno.readTextFile("web/public/consent.html");
       assertStringIncludes(
         page,
         'var SUPABASE_URL = "https://cawwcmsmqhrqiyjlrhba.supabase.co"',
