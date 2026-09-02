@@ -1,6 +1,7 @@
 import { type Context, Hono } from "@hono/hono";
 import { ApiError } from "../shared/errors.ts";
 import {
+  discoverJwksUrl,
   fetchJwks,
   type Identity,
   JwtError,
@@ -28,15 +29,16 @@ export const mcp = new Hono();
 
 interface Config {
   issuer: string;
-  jwksUrl: string;
+  jwksUrl: string | null;
   allowedSubject: string;
   publicOrigin: string | null;
 }
 
 // Read per request, like the GitHub client's: the rest of the API works
 // without a sign-in configured, and the error should say what is missing.
-// AUTH_JWKS_URL exists for the local stack, where the browser reaches the
-// sign-in server at one address and this container at another.
+// The key set's address is normally learned from the issuer's own metadata;
+// AUTH_JWKS_URL overrides that, for an issuer whose metadata omits it or
+// whose keys this container reaches at another address.
 function config(): Config {
   const issuer = Deno.env.get("AUTH_ISSUER");
   const allowedSubject = Deno.env.get("ALLOWED_SUBJECT");
@@ -49,8 +51,7 @@ function config(): Config {
   const trimmed = issuer.replace(/\/$/, "");
   return {
     issuer: trimmed,
-    jwksUrl: Deno.env.get("AUTH_JWKS_URL") ||
-      `${trimmed}/.well-known/jwks.json`,
+    jwksUrl: Deno.env.get("AUTH_JWKS_URL") || null,
     allowedSubject,
     publicOrigin: Deno.env.get("PUBLIC_ORIGIN") || null,
   };
@@ -108,7 +109,7 @@ mcp.post("/", async (c) => {
 
   let identity: Identity;
   try {
-    identity = await verify(bearer, cfg);
+    identity = await verify(bearer, cfg, resource);
   } catch (err) {
     if (err instanceof JwtError) {
       return c.json({ error: err.message }, 401, {
@@ -121,7 +122,7 @@ mcp.post("/", async (c) => {
     return c.json(
       {
         error:
-          "The sign-in server could not be reached to check the token. Try again in a moment.",
+          "The authorization server could not be reached to check the token. Try again in a moment.",
       },
       503,
     );
@@ -163,15 +164,22 @@ mcp.post("/", async (c) => {
   return c.json(outcome.body, outcome.status);
 });
 
-// The header is read before any key is fetched, so a token that is not even
-// the right shape is refused without a round trip. A key this function has
-// not seen — what a rotation looks like from here — is fetched for once,
-// and then the token is judged.
-async function verify(token: string, cfg: Config): Promise<Identity> {
+// The header is read before anything is fetched, so a token that is not even
+// the right shape is refused without a round trip. Then the issuer's
+// metadata says where the keys are, the keys are read, a key this function
+// has not seen — what a rotation looks like from here — is fetched for once,
+// and the token is judged: signature, issuer, expiry, and that it was minted
+// for this endpoint and no other.
+async function verify(
+  token: string,
+  cfg: Config,
+  audience: string,
+): Promise<Identity> {
   const { kid } = readHeader(token);
-  let jwks = await fetchJwks(cfg.jwksUrl);
+  const jwksUrl = cfg.jwksUrl ?? await discoverJwksUrl(cfg.issuer);
+  let jwks = await fetchJwks(jwksUrl);
   if (kid !== null && !jwks.keys.some((key) => key.kid === kid)) {
-    jwks = await fetchJwks(cfg.jwksUrl, { unknownKid: kid });
+    jwks = await fetchJwks(jwksUrl, { unknownKid: kid });
   }
-  return await verifyJwt(token, { issuer: cfg.issuer, jwks });
+  return await verifyJwt(token, { issuer: cfg.issuer, audience, jwks });
 }

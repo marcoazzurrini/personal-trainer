@@ -272,14 +272,14 @@ Deno.test("the connector before a sign-in", async (t) => {
   await t.step(
     "a well-formed token meets the sign-in server, or its absence",
     async () => {
-      // A real-looking ES256 token, signed by nobody. In CI and on the usual
+      // A real-looking RS256 token, signed by nobody. In CI and on the usual
       // local stack the auth service is not running, so the keys cannot be
       // read and the answer is 503 without a challenge; with the service up
       // the same token is a plain 401. Either is the right answer to what was
       // sent, and the test says which it saw.
       const segment = (value: unknown) =>
         btoa(JSON.stringify(value)).replace(/=+$/, "");
-      const token = `${segment({ alg: "ES256", kid: "k" })}.${
+      const token = `${segment({ alg: "RS256", kid: "k" })}.${
         segment({ iss: "x" })
       }.AAAA`;
       const res = await fetch(`${BASE}/mcp`, {
