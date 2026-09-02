@@ -2,7 +2,7 @@
 // checked on every call, and how long it lives.
 //
 // A token is 32 random bytes, and only its SHA-256 is stored. A read of the
-// table yields nothing a caller could present, which is what lets the email
+// table yields nothing a caller could present, which is what lets the subject — the sign-in server's user id —
 // sit beside the hash in plain text. The plaintext exists in exactly two
 // places: the connector's answer, and the conversation that received it.
 //
@@ -43,7 +43,7 @@ function randomToken(): string {
 }
 
 export async function issueToken(
-  email: string,
+  subject: string,
 ): Promise<{ token: string; expires_at: string }> {
   const token = randomToken();
   const tokenHash = await hashToken(token);
@@ -54,8 +54,8 @@ export async function issueToken(
     // time a token is minted.
     await tx`delete from api_tokens where expires_at < now()`;
     await tx`
-      insert into api_tokens (token_hash, user_email, expires_at)
-      values (${tokenHash}, ${email}, ${expiresAt})
+      insert into api_tokens (token_hash, subject, expires_at)
+      values (${tokenHash}, ${subject}, ${expiresAt})
     `;
   });
   return { token, expires_at: expiresAt.toISOString() };
@@ -63,10 +63,10 @@ export async function issueToken(
 
 export async function verifyToken(
   token: string,
-): Promise<{ email: string } | null> {
-  const rows = await sql<{ user_email: string }[]>`
-    select user_email from api_tokens
+): Promise<{ subject: string } | null> {
+  const rows = await sql<{ subject: string }[]>`
+    select subject from api_tokens
     where token_hash = ${await hashToken(token)} and expires_at > now()
   `;
-  return rows.length === 0 ? null : { email: rows[0].user_email };
+  return rows.length === 0 ? null : { subject: rows[0].subject };
 }

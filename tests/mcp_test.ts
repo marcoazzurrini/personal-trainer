@@ -16,11 +16,11 @@ import {
 // service, so no test can present a sign-in token. The first real sign-in
 // through the plugin is the end-to-end proof.
 
-const CALLER = { email: "marco@example.com" };
+const CALLER = { subject: "user_01TEST" };
 const deps = {
-  issue: (email: string) =>
+  issue: (subject: string) =>
     Promise.resolve({
-      token: `minted-for-${email}`,
+      token: `minted-for-${subject}`,
       expires_at: "2026-09-04T12:00:00.000Z",
     }),
   baseUrl: "https://example.test/functions/v1/api",
@@ -120,7 +120,7 @@ Deno.test("the protocol, one message at a time", async (t) => {
       assertEquals(content.length, 1);
       assertEquals(content[0].type, "text");
       assertEquals(JSON.parse(content[0].text), {
-        token: "minted-for-marco@example.com",
+        token: "minted-for-user_01TEST",
         base_url: "https://example.test/functions/v1/api",
         expires_at: "2026-09-04T12:00:00.000Z",
       });

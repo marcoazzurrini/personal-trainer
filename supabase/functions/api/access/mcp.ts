@@ -34,7 +34,7 @@ const INSTRUCTIONS =
   "This connector only signs the coach in. Everything else — reading the coaching documents, logging, planning — goes through the coach API with curl, using the token get_api_token returns.";
 
 export interface McpDeps {
-  issue(email: string): Promise<{ token: string; expires_at: string }>;
+  issue(subject: string): Promise<{ token: string; expires_at: string }>;
   baseUrl: string;
   version: string;
 }
@@ -67,7 +67,7 @@ function failure(
 
 export async function handleMcp(
   message: unknown,
-  caller: { email: string },
+  caller: { subject: string },
   deps: McpDeps,
 ): Promise<McpOutcome> {
   const m = record(message);
@@ -123,7 +123,7 @@ export async function handleMcp(
           }". The only tool is ${TOOL_NAME}.`,
         );
       }
-      const minted = await deps.issue(caller.email);
+      const minted = await deps.issue(caller.subject);
       return result(id, {
         content: [{
           type: "text",

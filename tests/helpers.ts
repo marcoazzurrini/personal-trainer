@@ -322,7 +322,7 @@ export const api = {
 // the format, so a change to one side is caught by the other.
 export async function mintToken(opts: {
   token?: string;
-  email?: string;
+  subject?: string;
   expiresInMs?: number;
 } = {}): Promise<string> {
   const token = opts.token ?? crypto.randomUUID();
@@ -332,15 +332,15 @@ export async function mintToken(opts: {
   const db = postgres(DB_URL);
   try {
     await db`
-      insert into api_tokens (token_hash, user_email, issued_at, expires_at)
+      insert into api_tokens (token_hash, subject, issued_at, expires_at)
       values (
         ${await sha256Hex(token)},
-        ${opts.email ?? "test@example.com"},
+        ${opts.subject ?? "user_test"},
         ${new Date(expiresAt.getTime() - 60 * 60 * 1000)},
         ${expiresAt}
       )
       on conflict (token_hash) do update
-        set user_email = excluded.user_email,
+        set subject = excluded.subject,
             issued_at = excluded.issued_at,
             expires_at = excluded.expires_at`;
   } finally {

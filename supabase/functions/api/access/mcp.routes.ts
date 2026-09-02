@@ -29,7 +29,7 @@ export const mcp = new Hono();
 interface Config {
   issuer: string;
   jwksUrl: string;
-  allowedEmail: string;
+  allowedSubject: string;
   publicOrigin: string | null;
 }
 
@@ -39,11 +39,11 @@ interface Config {
 // sign-in server at one address and this container at another.
 function config(): Config {
   const issuer = Deno.env.get("AUTH_ISSUER");
-  const allowedEmail = Deno.env.get("ALLOWED_EMAIL");
-  if (!issuer || !allowedEmail) {
+  const allowedSubject = Deno.env.get("ALLOWED_SUBJECT");
+  if (!issuer || !allowedSubject) {
     throw new ApiError(
       500,
-      "Signing in needs AUTH_ISSUER and ALLOWED_EMAIL configured on the server.",
+      "Signing in needs AUTH_ISSUER and ALLOWED_SUBJECT configured on the server.",
     );
   }
   const trimmed = issuer.replace(/\/$/, "");
@@ -51,7 +51,7 @@ function config(): Config {
     issuer: trimmed,
     jwksUrl: Deno.env.get("AUTH_JWKS_URL") ||
       `${trimmed}/.well-known/jwks.json`,
-    allowedEmail,
+    allowedSubject,
     publicOrigin: Deno.env.get("PUBLIC_ORIGIN") || null,
   };
 }
@@ -130,11 +130,11 @@ mcp.post("/", async (c) => {
   // One person. A valid sign-in by anyone else is refused without a
   // challenge, so the client does not loop back into a sign-in that will
   // only end here again.
-  if (identity.email.toLowerCase() !== cfg.allowedEmail.toLowerCase()) {
+  if (identity.sub !== cfg.allowedSubject) {
     return c.json(
       {
         error:
-          `This coach belongs to one person, and ${identity.email} is not them.`,
+          `This coach belongs to one person, and ${identity.sub} is not them.`,
       },
       403,
     );
@@ -154,7 +154,7 @@ mcp.post("/", async (c) => {
     );
   }
 
-  const outcome = await handleMcp(message, { email: identity.email }, {
+  const outcome = await handleMcp(message, { subject: identity.sub }, {
     issue: issueToken,
     baseUrl: publicUrl(c, cfg, c.req.path.replace(/\/mcp$/, "")),
     version: "1",
