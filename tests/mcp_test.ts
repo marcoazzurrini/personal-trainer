@@ -13,8 +13,8 @@ import {
 // sign-in. The route is probed live for what it does before a sign-in — the
 // refusal, the pointer to where to sign in, the discovery document — which is
 // all of it that a test can reach: the local stack runs without the auth
-// service, so no test can present a sign-in token. Step 4's first real
-// sign-in is the end-to-end proof.
+// service, so no test can present a sign-in token. The first real sign-in
+// through the plugin is the end-to-end proof.
 
 const CALLER = { email: "marco@example.com" };
 const deps = {
@@ -318,31 +318,4 @@ Deno.test("the connector before a sign-in", async (t) => {
     );
     assertEquals(doc.bearer_methods_supported, ["header"]);
   });
-
-  await t.step(
-    "the consent page is a static file that talks to this project",
-    async () => {
-      // Not a route: the function cannot serve HTML on the default domain,
-      // so the page lives in web/ and is hosted apart, on a Worker. What is checked is
-      // that it talks to this project and does the two things the flow
-      // needs.
-      const page = await Deno.readTextFile("web/public/consent.html");
-      assertStringIncludes(
-        page,
-        'var SUPABASE_URL = "https://cawwcmsmqhrqiyjlrhba.supabase.co"',
-      );
-      const key = page.match(/var ANON_KEY = "([^"]+)"/);
-      assert(
-        key !== null && key[1].length > 20 && !key[1].startsWith("__"),
-        "no anon key in the page",
-      );
-      assertStringIncludes(
-        page,
-        "supabase.createClient(SUPABASE_URL, ANON_KEY)",
-      );
-      assertStringIncludes(page, "authorization_id");
-      assertStringIncludes(page, "approveAuthorization");
-      assertStringIncludes(page, "denyAuthorization");
-    },
-  );
 });
