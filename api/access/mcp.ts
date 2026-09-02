@@ -183,11 +183,12 @@ export function publicOrigin(seen: {
 // The protected resource metadata (RFC 9728): the one document a client reads
 // before it knows anything, naming the authorization server to sign in with.
 // The specification has clients look for it at a well-known path on the
-// host's root, which on supabase.co is not ours to serve; so the 401 below
-// says exactly where it is instead, which the specification also provides
-// for. Three fields and no scopes: the authorization server hosts its own
-// consent screen and the token carries no email, so there is nothing to ask
-// the person for beyond the sign-in itself.
+// host's root, which under the gateway this API first lived behind was not
+// ours to serve; so the 401 below says exactly where it is instead, which
+// the specification also provides for, and every client already follows.
+// Three fields and no scopes: the authorization server hosts its own consent
+// screen and the token carries no email, so there is nothing to ask the
+// person for beyond the sign-in itself.
 export function protectedResourceMetadata(
   resource: string,
   issuer: string,

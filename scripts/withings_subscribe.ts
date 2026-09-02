@@ -5,7 +5,8 @@
 // harmless; Withings replaces an existing subscription for the same callback.
 //
 // Usage:
-//   DATABASE_URL=<the pooler URL> CALLBACK_URL=https://<project>.supabase.co/functions/v1/api/withings/notify \
+//   DATABASE_URL=<the database, through an SSH tunnel> \
+//   CALLBACK_URL=https://trainer.marcoazzurrini.com/api/withings/notify \
 //     deno run --allow-net --allow-read --allow-env scripts/withings_subscribe.ts
 //
 // Credentials come from the database rather than .env: after seeding, that row
@@ -42,7 +43,7 @@ const cfg = {
   clientSecret: env.WITHINGS_CLIENT_SECRET,
 };
 
-const db = postgres(databaseUrl, { prepare: false });
+const db = postgres(databaseUrl);
 let accessToken: string;
 try {
   const [row] = await db`

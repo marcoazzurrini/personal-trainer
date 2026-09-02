@@ -1,28 +1,24 @@
 // Seeds the single withings_auth row from a refresh token obtained by hand.
 //
 // Run once per environment. Nothing secret is passed on the command line; it all
-// comes from .env at the repo root, which git already ignores.
-//
-// To seed the linked project, put its database password in that file as
-// DB_PASSWORD and run:
+// comes from .env at the repo root, which git already ignores: the Withings
+// client, the refresh token, and DATABASE_URL naming the database to seed.
 //
 //   deno run --allow-net --allow-read --allow-env --allow-sys \
 //     scripts/seed_withings.ts
 //
-// Then delete the line. The password is needed for this one write and never
-// again — from here the server keeps its own tokens up to date.
+// To reach the hosted database, put its URL in .env as DATABASE_URL for the
+// run (through an SSH tunnel, since it is not on the internet) and put the
+// local one back after. The refresh token is needed for this one write and
+// never again — from here the server keeps its own tokens up to date.
 //
-// To seed the local stack instead, name it explicitly:
-//
-//   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres \
-//     deno run --allow-net --allow-read --allow-env --allow-sys \
-//     scripts/seed_withings.ts
+// DATABASE_URL in the environment wins over the file, for a throwaway target
+// that is not worth editing the file for.
 
 import postgres from "postgres";
 import { refreshTokens } from "../api/body/withings_client.ts";
 
 const ENV_PATH = ".env";
-const POOLER_PATH = "supabase/.temp/pooler-url";
 const API_BASE = "https://wbsapi.withings.net";
 
 function parseEnv(text: string): Record<string, string> {
@@ -47,43 +43,19 @@ function required(env: Record<string, string>, key: string): string {
 
 const env = parseEnv(await Deno.readTextFile(ENV_PATH));
 
-// Where the database password comes from, and why not from the command line.
-//
-// The obvious way to run this is DATABASE_URL=postgresql://...:<password>@...
-// in front of the command, and it is wrong for one boring reason: the shell
-// records what was typed. A password pasted into a terminal outlives the task by
-// years, sitting in ~/.zsh_history, readable by anything that can read the home
-// directory. Taking it from the gitignored env file instead means it exists in
-// one place the repository already knows to keep out of git, and can be deleted
-// the moment this has run.
-//
-// DATABASE_URL still wins when it is set, because the local stack is seeded with
-// a throwaway URL that is not worth putting in a file.
+// Why the database URL is not typed on the command line: the shell records
+// what was typed, and a password pasted into a terminal outlives the task by
+// years in ~/.zsh_history. The env file is one place the repository already
+// keeps out of git.
 function databaseUrl(): string {
-  const explicit = Deno.env.get("DATABASE_URL");
-  if (explicit) return explicit;
-
-  const password = env.DB_PASSWORD ?? env.SUPABASE_DB_PASSWORD;
-  if (!password) {
+  const url = Deno.env.get("DATABASE_URL") ?? env.DATABASE_URL;
+  if (!url) {
     console.error(
-      `Set DB_PASSWORD in ${ENV_PATH} (the project's database password), or set DATABASE_URL to name a database explicitly.`,
+      `Set DATABASE_URL in ${ENV_PATH} to name the database to seed.`,
     );
     Deno.exit(1);
   }
-  // Written by `supabase link`, and carries the user and host of the linked
-  // project without its password — which is exactly the missing half.
-  let pooler: string;
-  try {
-    pooler = Deno.readTextFileSync(POOLER_PATH).trim();
-  } catch {
-    console.error(
-      `${POOLER_PATH} is missing. Run \`supabase link --project-ref <ref>\` first, or set DATABASE_URL.`,
-    );
-    Deno.exit(1);
-  }
-  const url = new URL(pooler);
-  url.password = password;
-  return url.toString();
+  return url;
 }
 
 const target = databaseUrl();
@@ -97,7 +69,7 @@ const refreshToken = required(env, "WITHINGS_REFRESH_TOKEN");
 
 console.log(`Seeding ${new URL(target).host} for user ${withingsUserId}.`);
 
-const db = postgres(target, { prepare: false });
+const db = postgres(target);
 try {
   // Reach the database before spending the refresh token. The other order works
   // and reads worse on failure: a wrong password would burn a Withings call and
