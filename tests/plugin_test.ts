@@ -31,6 +31,10 @@ Deno.test("the plugin's files are what Cowork expects", async (t) => {
       servers["personal-trainer"].url.endsWith("/api/mcp"),
       servers["personal-trainer"].url,
     );
+    assert(
+      !servers["personal-trainer"].url.includes("supabase"),
+      "the connector still points at the old host",
+    );
   });
 
   await t.step("the marketplace at the root points at it", async () => {

@@ -2,7 +2,7 @@
   "mcpServers": {
     "personal-trainer": {
       "type": "http",
-      "url": "https://cawwcmsmqhrqiyjlrhba.supabase.co/functions/v1/api/mcp"
+      "url": "https://trainer.marcoazzurrini.com/api/mcp"
     }
   }
 }

@@ -43,7 +43,7 @@ Two reflexes replace memory:
 
 ## API call pattern
 
-Base URL: `https://cawwcmsmqhrqiyjlrhba.supabase.co/functions/v1/api`
+Base URL: `https://trainer.marcoazzurrini.com/api`
 
 All requests use curl with the auth header. The token comes from the
 personal-trainer connector: once per conversation, call its `get_api_token`
@@ -51,7 +51,7 @@ tool, which answers with `token`, `base_url` and `expires_at`. Never ask Marco
 for a token, and never reuse one from an earlier conversation.
 
 ```bash
-BASE="https://cawwcmsmqhrqiyjlrhba.supabase.co/functions/v1/api"
+BASE="https://trainer.marcoazzurrini.com/api"
 AUTH="Authorization: Bearer <the token get_api_token returned>"
 
 # GET
