@@ -57,6 +57,11 @@ live with for the minute both run.
   service, then posts to Coolify's deploy webhook. Coolify's own
   deploy-on-push is off, so a red main never ships. The webhook URL and
   token are the GitHub secrets `COOLIFY_WEBHOOK` and `COOLIFY_TOKEN`.
+- **Sign-in**: AuthKit only issues tokens for resource addresses it knows.
+  WorkOS dashboard > Connect > Configuration > MCP resource indicators must
+  list `https://trainer.marcoazzurrini.com/api/mcp`, or every connector
+  sign-in fails with `invalid_target`. Add the new address there before
+  the origin ever changes again.
 - **Secrets**: the application's environment variables in Coolify, marked
   as secrets: `API_TOKEN`, `API_TOKEN_PREVIOUS`, `DATABASE_URL`,
   `AUTH_ISSUER`, `ALLOWED_SUBJECT`, `WITHINGS_CLIENT_ID`,
