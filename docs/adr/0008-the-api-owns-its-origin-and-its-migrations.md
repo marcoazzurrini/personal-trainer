@@ -53,7 +53,7 @@ auto-update off, Postgres backed up nightly to local disk and to a Cloudflare
 R2 bucket, the Hetzner firewall as the perimeter because Docker walks past
 ufw. CI runs the suite against a Postgres service and, on a green main, asks
 Coolify to deploy through a webhook; Coolify's own deploy-on-push stays off so
-a red main never ships. `docs/agents/hosting.md` is the working description.
+a red main never ships. `docs/hosting.md` is the working description.
 
 ## Consequences
 
