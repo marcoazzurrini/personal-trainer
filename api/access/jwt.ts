@@ -263,8 +263,45 @@ const REFETCH_INTERVAL_MS = 60 * 1000;
 // the request open for as long as the runtime allows, and the caller would
 // wait with it instead of being told to try again.
 const FETCH_MS = 5_000;
-const jwksCache = new Map<string, { jwks: Jwks; fetchedAt: number }>();
-const metadataCache = new Map<string, { jwksUrl: string; fetchedAt: number }>();
+interface Published<T> {
+  value?: T;
+  fetchedAt: number;
+  pending?: Promise<T>;
+  failedAt?: number;
+  failure?: unknown;
+}
+const jwksCache = new Map<string, Published<Jwks>>();
+const metadataCache = new Map<string, Published<string>>();
+
+// Both published documents share one in-flight read and failure cooldown.
+// Entries belong to these caches only; clearing them detaches pending reads
+// so a late completion cannot repopulate a reset cache.
+async function refreshPublished<T>(
+  entry: Published<T>,
+  now: number,
+  read: () => Promise<T>,
+): Promise<T> {
+  if (entry.pending) return await entry.pending;
+  if (
+    entry.failedAt !== undefined && now - entry.failedAt < REFETCH_INTERVAL_MS
+  ) {
+    throw entry.failure;
+  }
+  entry.pending = read().then((value) => {
+    entry.value = value;
+    entry.fetchedAt = now;
+    entry.failedAt = undefined;
+    entry.failure = undefined;
+    return value;
+  }).catch((err) => {
+    entry.failedAt = now;
+    entry.failure = err;
+    throw err;
+  }).finally(() => {
+    entry.pending = undefined;
+  });
+  return await entry.pending;
+}
 
 // Where an issuer publishes its metadata (RFC 8414 §3.1): the well-known
 // segment goes between the host and the issuer's path, so an issuer with a
@@ -292,34 +329,38 @@ export async function discoverJwksUrl(
   opts: { now?: number } = {},
 ): Promise<string> {
   const now = opts.now ?? Date.now();
-  const cached = metadataCache.get(issuer);
-  if (cached !== undefined && now - cached.fetchedAt < CACHE_TTL_MS) {
-    return cached.jwksUrl;
+  const cached = metadataCache.get(issuer) ?? { fetchedAt: 0 };
+  metadataCache.set(issuer, cached);
+  if (cached.value !== undefined && now - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.value;
   }
-  const url = metadataUrl(issuer);
-  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
-  if (!response.ok) {
-    throw new Error(
-      `The authorization server's metadata could not be read: ${url} answered ${response.status}.`,
-    );
-  }
-  const body = (await response.json()) as {
-    issuer?: unknown;
-    jwks_uri?: unknown;
-  } | null;
-  const declared = typeof body?.issuer === "string" ? body.issuer : "";
-  if (declared.replace(/\/+$/, "") !== issuer.replace(/\/+$/, "")) {
-    throw new Error(
-      `The authorization server's metadata could not be read: ${url} names issuer "${declared}", not ${issuer}.`,
-    );
-  }
-  if (typeof body?.jwks_uri !== "string" || body.jwks_uri === "") {
-    throw new Error(
-      `The authorization server's metadata could not be read: ${url} did not name a jwks_uri.`,
-    );
-  }
-  metadataCache.set(issuer, { jwksUrl: body.jwks_uri, fetchedAt: now });
-  return body.jwks_uri;
+  return await refreshPublished(cached, now, async () => {
+    const url = metadataUrl(issuer);
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(FETCH_MS),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `The authorization server's metadata could not be read: ${url} answered ${response.status}.`,
+      );
+    }
+    const body = (await response.json()) as {
+      issuer?: unknown;
+      jwks_uri?: unknown;
+    } | null;
+    const declared = typeof body?.issuer === "string" ? body.issuer : "";
+    if (declared.replace(/\/+$/, "") !== issuer.replace(/\/+$/, "")) {
+      throw new Error(
+        `The authorization server's metadata could not be read: ${url} names issuer "${declared}", not ${issuer}.`,
+      );
+    }
+    if (typeof body?.jwks_uri !== "string" || body.jwks_uri === "") {
+      throw new Error(
+        `The authorization server's metadata could not be read: ${url} did not name a jwks_uri.`,
+      );
+    }
+    return body.jwks_uri;
+  });
 }
 
 export async function fetchJwks(
@@ -327,33 +368,35 @@ export async function fetchJwks(
   opts: { unknownKid?: string; now?: number } = {},
 ): Promise<Jwks> {
   const now = opts.now ?? Date.now();
-  const cached = jwksCache.get(url);
-  const fresh = cached !== undefined && now - cached.fetchedAt < CACHE_TTL_MS;
-  const holdsKid = cached !== undefined &&
-    (opts.unknownKid === undefined ||
-      cached.jwks.keys.some((key) => key.kid === opts.unknownKid));
-  const recentlyFetched = cached !== undefined &&
-    now - cached.fetchedAt < REFETCH_INTERVAL_MS;
-  if (cached !== undefined && fresh && (holdsKid || recentlyFetched)) {
-    return cached.jwks;
+  const cached = jwksCache.get(url) ?? { fetchedAt: 0 };
+  jwksCache.set(url, cached);
+  const fresh = now - cached.fetchedAt < CACHE_TTL_MS;
+  const holdsKid = opts.unknownKid === undefined ||
+    cached.value?.keys.some((key) => key.kid === opts.unknownKid);
+  const recentlyFetched = now - cached.fetchedAt < REFETCH_INTERVAL_MS;
+  if (cached.value !== undefined && fresh && (holdsKid || recentlyFetched)) {
+    return cached.value;
   }
 
-  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
-  if (!response.ok) {
-    throw new Error(
-      `The authorization server's keys could not be read: ${url} answered ${response.status}.`,
-    );
-  }
-  const body: unknown = await response.json();
-  const keys = (body as { keys?: unknown } | null)?.keys;
-  if (!Array.isArray(keys)) {
-    throw new Error(
-      `The authorization server's keys could not be read: ${url} did not answer with a key set.`,
-    );
-  }
-  const jwks: Jwks = { keys: keys as Jwks["keys"] }; // checked: an array; each key is checked at import
-  jwksCache.set(url, { jwks, fetchedAt: now });
-  return jwks;
+  return await refreshPublished(cached, now, async () => {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(FETCH_MS),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `The authorization server's keys could not be read: ${url} answered ${response.status}.`,
+      );
+    }
+    const body: unknown = await response.json();
+    const keys = (body as { keys?: unknown } | null)?.keys;
+    if (!Array.isArray(keys)) {
+      throw new Error(
+        `The authorization server's keys could not be read: ${url} did not answer with a key set.`,
+      );
+    }
+    const jwks: Jwks = { keys: keys as Jwks["keys"] }; // checked: an array; each key is checked at import
+    return jwks;
+  });
 }
 
 // For the tests, which need cold caches between cases.
