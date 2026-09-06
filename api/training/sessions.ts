@@ -309,7 +309,12 @@ export async function appendSet(
           "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured.",
         );
       }
-      const [row] = await sql<AppendedSetRow[]>`
+      return await sql.begin(async (tx) => {
+        requireRow(
+          await tx`select id from sessions where id = ${sessionId} for update`,
+          `No session with id ${sessionId}.`,
+        );
+        const [row] = await tx<AppendedSetRow[]>`
     insert into sets
       (session_id, exercise_id, mesocycle_id, position, kind, weight_kg, reps,
        distance_m, duration_s, effort, performed_at, notes, request_id)
@@ -320,7 +325,8 @@ export async function appendSet(
        ${s.effort}, ${s.performedAt ?? new Date().toISOString()}, ${s.notes},
        ${b.request_id})
     returning ${appendedSetColumns()}`;
-      return row;
+        return row;
+      });
     },
   });
   return { set, created: status === 201 };
@@ -360,7 +366,12 @@ export async function correctSession(sessionId: number, b: {
       'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at".',
     );
   }
-  await sql`update sessions set ${sql(fields)} where id = ${sessionId}`;
+  requireRow(
+    await sql`update sessions set ${
+      sql(fields)
+    } where id = ${sessionId} returning id`,
+    `No session with id ${sessionId}.`,
+  );
   return await sessionDetail(sessionId);
 }
 
@@ -377,14 +388,17 @@ export async function correctSession(sessionId: number, b: {
 export async function discardSession(
   sessionId: number,
 ): Promise<{ id: number; date: string; sets: number }> {
-  const session = requireRow(
-    await sql`
+  return await sql.begin(async (tx) => {
+    // Every actual writer locks the session first. Eligibility is read only
+    // after acquiring that same lock; a transaction alone cannot prevent a race.
+    const session = requireRow(
+      await tx`
     select id, date, started_at, completed_at
-    from sessions where id = ${sessionId}`,
-    `No session with id ${sessionId}.`,
-  );
+    from sessions where id = ${sessionId} for update`,
+      `No session with id ${sessionId}.`,
+    );
 
-  const [{ total, performed }] = await sql`
+    const [{ total, performed }] = await tx`
     select count(*)::int as total,
       count(*) filter (where
         weight_kg is not null or reps is not null or distance_m is not null
@@ -392,26 +406,25 @@ export async function discardSession(
         or performed_at is not null)::int as performed
     from sets where session_id = ${sessionId}`;
 
-  if (
-    performed > 0 || session.started_at !== null ||
-    session.completed_at !== null
-  ) {
-    const why = performed > 0
-      ? `${performed} of its ${total} sets carry actuals`
-      : "it was started or finished";
-    throw new ApiError(
-      409,
-      `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
-    );
-  }
+    if (
+      performed > 0 || session.started_at !== null ||
+      session.completed_at !== null
+    ) {
+      const why = performed > 0
+        ? `${performed} of its ${total} sets carry actuals`
+        : "it was started or finished";
+      throw new ApiError(
+        409,
+        `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
+      );
+    }
 
-  await sql.begin(async (tx) => {
     await tx`delete from sets where session_id = ${sessionId}`;
     await tx`delete from sessions where id = ${sessionId}`;
+    return {
+      id: session.id as number,
+      date: session.date as string,
+      sets: total as number,
+    };
   });
-  return {
-    id: session.id as number,
-    date: session.date as string,
-    sets: total as number,
-  };
 }
