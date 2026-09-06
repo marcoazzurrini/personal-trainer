@@ -6,7 +6,6 @@ import {
   selectWeights,
   WithingsError,
 } from "../api/body/withings_client.ts";
-import { api, BASE, resetWithings } from "./helpers.ts";
 
 // --- The Withings client, against a stub server ---------------------------
 //
@@ -265,6 +264,7 @@ Deno.test("withings scaling and filtering", async (t) => {
 // --- The routes, through the running function -----------------------------
 
 Deno.test("withings routes", async (t) => {
+  const { api, BASE, resetWithings } = await import("./helpers.ts");
   // Nothing seeded: these steps describe what an unconfigured install does, and
   // an install with credentials would make them call Withings for real.
   await resetWithings();
@@ -357,6 +357,7 @@ Deno.test("withings routes", async (t) => {
 // --- The write path -------------------------------------------------------
 
 Deno.test("a withings weigh-in is written once, however often it arrives", async (t) => {
+  const { api } = await import("./helpers.ts");
   const measuredAt = "2025-03-04T06:12:00.000Z";
   let id: number;
 

@@ -11,8 +11,11 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 // import below. That is also why this file cannot use static imports for the
 // code under test.
 
-const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
+import {
+  assertIdentity,
+  databaseIdentity,
+  verifiedDatabase,
+} from "./disposable.ts";
 
 interface Call {
   path: string;
@@ -39,7 +42,8 @@ Deno.test(
   // report that open connection as a leak.
   { sanitizeResources: false, sanitizeOps: false },
   async (t) => {
-    Deno.env.set("DATABASE_URL", DB_URL);
+    const disposable = await verifiedDatabase();
+    Deno.env.set("DATABASE_URL", disposable.databaseUrl);
     Deno.env.set("WITHINGS_CLIENT_ID", "test-client");
     Deno.env.set("WITHINGS_CLIENT_SECRET", "test-secret");
 
@@ -66,6 +70,7 @@ Deno.test(
       "../api/body/withings.ts"
     );
     const { sql } = await import("../api/db.ts");
+    assertIdentity(disposable, await databaseIdentity(sql));
 
     async function seedAuth(opts: { expiresInMs?: number } = {}) {
       await sql`delete from withings_auth`;

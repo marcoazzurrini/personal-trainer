@@ -5,22 +5,25 @@ import { assert, assertEquals } from "@std/assert";
 import postgres from "postgres";
 import { listMigrations, migrate, pending } from "../db/migrate.ts";
 
-const ADMIN_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
-const SCRATCH = "pt_migrate_test";
+import { verifiedDatabase, verifyDatabase } from "./disposable.ts";
 
-// A database of its own, dropped and recreated, so the runner is exercised
-// from nothing without touching the one the other tests share.
+// A fresh random database in the owned disposable cluster. No pre-existing
+// database is dropped; removing the container cleans up these scratch databases.
 async function freshDatabase(): Promise<string> {
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
+  const disposable = await verifiedDatabase();
+  const scratch = `pt_migrate_${crypto.randomUUID().replaceAll("-", "")}`;
+  const admin = postgres(disposable.databaseUrl, {
+    max: 1,
+    onnotice: () => {},
+  });
   try {
-    await admin.unsafe(`drop database if exists ${SCRATCH} with (force)`);
-    await admin.unsafe(`create database ${SCRATCH}`);
+    await admin.unsafe(`create database ${scratch}`);
   } finally {
     await admin.end();
   }
-  const url = new URL(ADMIN_URL);
-  url.pathname = `/${SCRATCH}`;
+  const url = new URL(disposable.databaseUrl);
+  url.pathname = `/${scratch}`;
+  await verifyDatabase({ ...disposable, database: scratch }, url.toString());
   return url.toString();
 }
 

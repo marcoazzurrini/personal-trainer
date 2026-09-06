@@ -8,7 +8,7 @@ import {
   listCoachIssues,
   openIssue,
 } from "../api/surfaces/github.ts";
-import { api, uuid } from "./helpers.ts";
+import { verifiedDatabase } from "./disposable.ts";
 
 // --- The route's validation, through the running function ---------------
 // A valid report is never sent here: the local stack has no GITHUB_TOKEN,
@@ -17,6 +17,7 @@ import { api, uuid } from "./helpers.ts";
 // is covered against the stub below.
 
 Deno.test("issues endpoint", async (t) => {
+  const { api } = await import("./helpers.ts");
   await t.step("is behind the token", async () => {
     const { status } = await api.postRaw("/issues", {}, null);
     assertEquals(status, 401);
@@ -324,11 +325,9 @@ Deno.test("github client", async (t) => {
 // retries each record an issue.
 
 Deno.test("one request_id can only file one issue", async () => {
-  const db = postgres(
-    Deno.env.get("TEST_DATABASE_URL") ??
-      "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
-  );
-  const requestId = uuid();
+  const disposable = await verifiedDatabase();
+  const db = postgres(disposable.databaseUrl);
+  const requestId = crypto.randomUUID();
   try {
     const insert = (url: string) =>
       db`insert into coach_issues (request_id, issue_number, url, kind, title)

@@ -1,12 +1,15 @@
 import postgres from "postgres";
 import { loadCatalogue } from "../scripts/load_catalogue.ts";
 
-// The API under test is one already running: deno task dev in another
-// terminal, or the CI job's own background server. Tests do not start it.
-export const BASE = Deno.env.get("API_URL") ?? "http://127.0.0.1:8000/api";
+import { verifiedDatabase, verifyApi } from "./disposable.ts";
+
+// Fail before even the import-time token mint. The test-only API proves its
+// actual operations use the same database, not merely the same configured URL.
+const disposable = await verifiedDatabase();
+await verifyApi(disposable);
+export const BASE = disposable.apiUrl;
 export const TOKEN = Deno.env.get("API_TOKEN") ?? "local-dev-token";
-export const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
+export const DB_URL = disposable.databaseUrl;
 
 export interface ApiResponse {
   status: number;
@@ -122,7 +125,7 @@ const DECLARED_ROUTES: DeclaredRoute[] = await (async () => {
     response = await fetch(`${BASE}/openapi.json`);
   } catch {
     throw new Error(
-      `nothing answers at ${BASE}: start the API with deno task dev`,
+      `nothing answers at ${BASE}: run deno task test`,
     );
   }
   const document = record(await response.json());

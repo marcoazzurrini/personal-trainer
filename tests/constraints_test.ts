@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import postgres from "postgres";
 import { constraintMessages } from "../api/shared/errors.ts";
-import { api, uuid } from "./helpers.ts";
+import { api, DB_URL, uuid } from "./helpers.ts";
 
 // The error map, held against the database it describes.
 //
@@ -11,9 +11,6 @@ import { api, uuid } from "./helpers.ts";
 // fallback, which is exactly the kind of quiet regression a suite exists to
 // catch. So every named constraint is checked against the live catalog, and
 // a failure names the orphaned entry.
-
-const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
 
 Deno.test("every named constraint exists in the database", async () => {
   const db = postgres(DB_URL);

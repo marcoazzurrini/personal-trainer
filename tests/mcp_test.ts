@@ -1,5 +1,4 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { BASE } from "./helpers.ts";
 import {
   challengeHeader,
   handleMcp,
@@ -314,6 +313,7 @@ async function envelope(res: Response): Promise<string> {
 }
 
 Deno.test("the connector before a sign-in", async (t) => {
+  const { BASE } = await import("./helpers.ts");
   await t.step(
     "GET discovery and POST calls give the same sign-in directions",
     async () => {

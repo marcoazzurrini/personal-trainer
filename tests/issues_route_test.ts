@@ -8,15 +8,19 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 // here, on the same error handler production wires, with GITHUB_API_BASE
 // pointed at a stub.
 
-const DB_URL = Deno.env.get("TEST_DATABASE_URL") ??
-  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
+import {
+  assertIdentity,
+  databaseIdentity,
+  verifiedDatabase,
+} from "./disposable.ts";
 
 Deno.test(
   "the issues routes translate GitHub's answers",
   // Shares db.ts's singleton connection; see withings_sync_test.ts.
   { sanitizeResources: false, sanitizeOps: false },
   async (t) => {
-    Deno.env.set("DATABASE_URL", DB_URL);
+    const disposable = await verifiedDatabase();
+    Deno.env.set("DATABASE_URL", disposable.databaseUrl);
     Deno.env.set("GITHUB_TOKEN", "test-token");
     Deno.env.set("GITHUB_REPO", "marco/test-repo");
 
@@ -44,6 +48,7 @@ Deno.test(
     );
     const { Hono } = await import("@hono/hono");
     const { sql } = await import("../api/db.ts");
+    assertIdentity(disposable, await databaseIdentity(sql));
 
     const app = new Hono();
     app.onError(errorResponse);

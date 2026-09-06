@@ -286,15 +286,19 @@ async function normalized(req: Request): Promise<Request> {
   return new Request(req.url, { method: req.method, headers, body: raw });
 }
 
-// The port is the container's business, not the app's: PORT is what the
-// Dockerfile and the dev task set, and 8000 is what both default to.
-Deno.serve({
-  port: Number(Deno.env.get("PORT") ?? 8000),
-  hostname: "0.0.0.0",
-}, async (req) => {
+// The test server uses this same handler, with a verified disposable database.
+export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const collapsed = url.pathname.replace(/^(\/api)+(?=\/|$)/, "/api");
   if (collapsed === url.pathname) return app.fetch(await normalized(req));
   url.pathname = collapsed;
   return app.fetch(await normalized(new Request(url, req)));
-});
+}
+
+// The port is the container's business, not the app's.
+if (import.meta.main) {
+  Deno.serve({
+    port: Number(Deno.env.get("PORT") ?? 8000),
+    hostname: "0.0.0.0",
+  }, handleRequest);
+}

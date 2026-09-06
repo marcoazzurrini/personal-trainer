@@ -7,8 +7,35 @@ ADR-0008. What the repository already states is left out: the commands are in
 
 ## Two things the config files do not say
 
-The tests truncate tables in the database `TEST_DATABASE_URL` names, so never
-point it at a real one.
+`deno task test` owns a fresh, labelled Postgres container with tmpfs storage,
+random database/password and loopback-only publication. Before migrations it
+reads the cluster system identifier through that container, then verifies the
+network connection against it and the database name. The test-only API checks
+its actual SQL singleton and exposes a read-only identity probe; helpers verify
+both identities before their import-time token mint or any API write. Direct
+DB suites verify the same receipt before setup. Missing receipts and conflicting
+URL overrides fail closed; localhost alone is not proof (see the tunnel below).
+The harness does not read `.env` or forward provider credentials, and restricts
+child network access to loopback. It removes only its own container/state in a
+`finally` block. A killed harness may require `docker rm -fv <printed-container-id>`;
+never remove a development container to repair a test run.
+
+Use `deno task test tests/nutrition_test.ts` (substitute an existing test file) for
+a focused disposable run. Do not run destructive suites against `deno task dev`.
+The generated receipt is temporary, not a supported manually configured test
+environment. Production migrations still use the operator-facing migration task;
+that task is not test setup.
+
+DB-free checks need no Docker or receipt, for example:
+
+```sh
+deno test --allow-read --allow-env tests/rules_purity_test.ts tests/training_props_test.ts
+deno test --allow-net=127.0.0.1,0.0.0.0 --allow-env --allow-read --filter '/withings tokens|withings reads|withings measurement|withings scaling/' tests/withings_test.ts
+deno test --allow-net=127.0.0.1,0.0.0.0 --allow-env --allow-read --filter '/issue body|github client/' tests/issues_test.ts
+```
+
+Mixed suites import the destructive helper only inside their live tests, so a
+name filter on these stub checks no longer mints a token during module loading.
 
 The container runs `deno task migrate` before it serves, so a migration that
 fails is a deploy that never becomes healthy and the old container keeps
