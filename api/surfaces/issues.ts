@@ -7,7 +7,6 @@
 
 import { sql } from "../db.ts";
 import { ApiError } from "../shared/errors.ts";
-import { writeOnce } from "../shared/idempotency.ts";
 import {
   commentOnIssue,
   type GithubConfig,
@@ -153,78 +152,79 @@ export async function fileIssue(b: {
   ) {
     if (value != null) requireSanitizedReport(value);
   }
-  // The retry answer arrives before anything reaches GitHub: the row is
-  // written after the issue exists, so finding one means the issue was
-  // already opened and a second call must not open another.
-  const { body: issue, status } = await writeOnce<
-    { issue_number: number; url: string; kind: IssueKind; title: string },
-    OpenedIssue,
-    OpenedIssue
-  >({
-    table: "coach_issues",
-    requestId: b.request_id,
-    select: sql`issue_number, url, kind, title`,
-    replay: (existing) => ({
-      number: existing.issue_number,
-      url: existing.url,
-      kind: existing.kind,
-      title: existing.title,
-    }),
-    write: async () => {
-      const kind = b.kind;
-      const title = capped(b.title, MAX_TITLE, "title");
-      const problem = capped(b.problem, MAX_PROBLEM, "problem");
-      // Required for a bug and optional for an improvement. A bug without the
-      // call that produced it cannot be reproduced from the repository, which is
-      // the only place it can be fixed — the report would arrive as a rumour. An
-      // improvement is allowed to start as an idea.
-      const rawEvidence = b.evidence ?? null;
-      if (kind === "bug" && rawEvidence === null) {
-        throw new ApiError(
-          422,
-          '"evidence" is required for a bug: the sanitized call, sanitized response, and when. Remove credentials and cookies; substitute synthetic personal details. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.',
-        );
-      }
-      const evidence = rawEvidence === null
-        ? null
-        : capped(rawEvidence, MAX_EVIDENCE, "evidence");
-      const rawSuggestion = b.suggestion ?? null;
-      const suggestion = rawSuggestion === null
-        ? null
-        : capped(rawSuggestion, MAX_SUGGESTION, "suggestion");
-      const docs = parseDocs(b.docs);
+  return await sql.begin(async (tx) => {
+    // Cross-process, per-operation serialization. GitHub's five-second deadline
+    // bounds the external call while this transaction owns the lock. A hash
+    // collision only serializes unrelated IDs; it cannot replay another ID.
+    await tx`set local lock_timeout = '6s'`;
+    await tx`select pg_advisory_xact_lock(57001, hashtext(${b.request_id}))`;
+    const [existing] = await tx<{
+      issue_number: number;
+      url: string;
+      kind: IssueKind;
+      title: string;
+    }[]>`select issue_number, url, kind, title from coach_issues where request_id = ${b.request_id}`;
+    if (existing) {
+      return {
+        issue: {
+          number: existing.issue_number,
+          url: existing.url,
+          kind: existing.kind,
+          title: existing.title,
+        },
+        created: false,
+      };
+    }
+    const kind = b.kind;
+    const title = capped(b.title, MAX_TITLE, "title");
+    const problem = capped(b.problem, MAX_PROBLEM, "problem");
+    // Required for a bug and optional for an improvement. A bug without the
+    // call that produced it cannot be reproduced from the repository, which is
+    // the only place it can be fixed — the report would arrive as a rumour. An
+    // improvement is allowed to start as an idea.
+    const rawEvidence = b.evidence ?? null;
+    if (kind === "bug" && rawEvidence === null) {
+      throw new ApiError(
+        422,
+        '"evidence" is required for a bug: the sanitized call, sanitized response, and when. Remove credentials and cookies; substitute synthetic personal details. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.',
+      );
+    }
+    const evidence = rawEvidence === null
+      ? null
+      : capped(rawEvidence, MAX_EVIDENCE, "evidence");
+    const rawSuggestion = b.suggestion ?? null;
+    const suggestion = rawSuggestion === null
+      ? null
+      : capped(rawSuggestion, MAX_SUGGESTION, "suggestion");
+    const docs = parseDocs(b.docs);
 
-      let opened: { number: number; url: string };
-      try {
-        opened = await openIssue(config(), {
-          title,
-          kind,
-          body: issueBody({
-            problem,
-            evidence,
-            suggestion,
-            docs,
-            requestId: b.request_id,
-          }),
-        });
-      } catch (err) {
-        if (err instanceof GithubError) throw new ApiError(502, err.message);
-        throw err;
-      }
+    let opened: { number: number; url: string };
+    try {
+      opened = await openIssue(config(), {
+        title,
+        kind,
+        body: issueBody({
+          problem,
+          evidence,
+          suggestion,
+          docs,
+          requestId: b.request_id,
+        }),
+      });
+    } catch (err) {
+      if (err instanceof GithubError) throw new ApiError(502, err.message);
+      throw err;
+    }
 
-      // After GitHub, so the row means the issue exists. on conflict do nothing
-      // settles the local row, not the external side effect: concurrent calls
-      // may already have opened separate GitHub issues. Do not promise exactly-once
-      // delivery or recommend blind retries after an ambiguous upstream result.
-      await sql`
+    // A crash after GitHub succeeds but before commit is still ambiguous.
+    // Serialization prevents overlapping creates, not exactly-once delivery.
+    // Check GitHub before retrying an uncertain write; comments have no ledger.
+    await tx`
     insert into coach_issues (request_id, issue_number, url, kind, title)
-    values (${b.request_id}, ${opened.number}, ${opened.url}, ${kind}, ${title})
-    on conflict (request_id) do nothing`;
+    values (${b.request_id}, ${opened.number}, ${opened.url}, ${kind}, ${title})`;
 
-      return { ...opened, kind, title };
-    },
+    return { issue: { ...opened, kind, title }, created: true };
   });
-  return { issue, created: status === 201 };
 }
 
 /**

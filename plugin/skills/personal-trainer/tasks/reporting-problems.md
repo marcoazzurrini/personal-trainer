@@ -142,9 +142,10 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 - **`docs`** names the documents involved, as `SKILL.md` lists them.
   Leave it out when none are.
 - **`request_id`** is a fresh UUID per issue operation, kept stable if that same
-  operation is later retried after reconciliation. A recorded ledger result replays,
-  but GitHub can create the issue before the local ledger is written. This is not
-  exactly-once delivery. Comments have no request-ID deduplication at all.
+  operation is later retried after reconciliation. Overlapping calls with the same
+  ID serialize across API instances and a recorded ledger result replays. A crash
+  can still happen after GitHub creates the issue but before the local ledger commits.
+  This is not exactly-once delivery. Comments have no request-ID deduplication at all.
 
 A successful response carries the issue URL and number. **Then tell Marco you filed it
 and give him the URL** — a report he never hears about is the same as no report.
