@@ -3,6 +3,7 @@
 import { migrate } from "../db/migrate.ts";
 import {
   type Disposable,
+  readyApiUrl,
   verifyApi,
   verifyDatabase,
 } from "../tests/disposable.ts";
@@ -74,13 +75,14 @@ try {
   }
   let ready = false;
   for (let i = 0; i < 60; i++) {
+    // TCP excludes the image's temporary socket-only initialization server.
     // A not-yet-ready database is expected; Docker/runtime failures are not.
     const status = await docker(
       "exec",
       containerId,
       "sh",
       "-c",
-      "pg_isready -U postgres >/dev/null; echo $?",
+      "pg_isready -h 127.0.0.1 -U postgres >/dev/null; echo $?",
     );
     if (status === "0") {
       ready = true;
@@ -148,9 +150,12 @@ try {
   ready = false;
   for (let i = 0; i < 60; i++) {
     try {
-      d.apiUrl = await Deno.readTextFile(`${receipt}.ready`);
-      ready = true;
-      break;
+      const url = readyApiUrl(await Deno.readTextFile(`${receipt}.ready`));
+      if (url !== undefined) {
+        d.apiUrl = url;
+        ready = true;
+        break;
+      }
     } catch (err) {
       if (!(err instanceof Deno.errors.NotFound)) throw err;
     }

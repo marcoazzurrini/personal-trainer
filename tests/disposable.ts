@@ -35,6 +35,12 @@ export function parseDisposable(value: unknown): Disposable {
   return d;
 }
 
+// The readiness file can be observed after creation but before writing finishes.
+export function readyApiUrl(value: string): string | undefined {
+  const match = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/api$/.exec(value);
+  return match?.[0] === value && Number(match[1]) <= 65535 ? value : undefined;
+}
+
 export async function disposable(): Promise<Disposable> {
   const file = Deno.env.get("TEST_DISPOSABLE_FILE");
   if (!file) throw new Error(REFUSAL);

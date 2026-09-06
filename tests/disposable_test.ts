@@ -1,8 +1,14 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import {
+  assertEquals,
+  assertMatch,
+  assertRejects,
+  assertThrows,
+} from "@std/assert";
 import {
   assertIdentity,
   disposable,
   parseDisposable,
+  readyApiUrl,
   verifyApi,
 } from "./disposable.ts";
 
@@ -16,6 +22,35 @@ const receipt = {
   }`,
   apiUrl: "http://127.0.0.1:8000/api",
 };
+
+Deno.test("disposable Postgres readiness cannot use the initialization socket", async () => {
+  const source = await Deno.readTextFile("scripts/test.ts");
+  const command = source.match(/"(pg_isready [^"]+)"/)?.[1] ?? "";
+  const assertTcp = (value: string) =>
+    assertMatch(value, /\bpg_isready -h 127\.0\.0\.1 -U postgres\b/);
+  assertTcp(command);
+  assertThrows(() => assertTcp(command.replace("-h 127.0.0.1 ", "")));
+});
+
+Deno.test("API readiness waits through empty and incomplete addresses", () => {
+  const url = "http://127.0.0.1:54321/api";
+  // Every possible partial write must keep polling; only the full value is ready.
+  for (let length = 0; length < url.length; length++) {
+    assertEquals(readyApiUrl(url.slice(0, length)), undefined);
+  }
+  assertEquals(readyApiUrl(url), url);
+  for (
+    const invalid of [
+      "http://127.0.0.1:0/api",
+      "http://127.0.0.1:65536/api",
+      "http://localhost:8000/api",
+      "https://127.0.0.1:8000/api",
+      "http://192.0.2.1:8000/api",
+      `${url}/extra`,
+      `${url}\n`,
+    ]
+  ) assertEquals(readyApiUrl(invalid), undefined);
+});
 
 Deno.test("disposable receipt refuses a URL or opt-in flag, even on loopback", () => {
   for (
