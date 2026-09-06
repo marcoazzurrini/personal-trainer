@@ -1,5 +1,32 @@
 # Checks
 
+## Dependency review (#68)
+
+Reviewed on 6 September 2026, against base `424ae3a`, on Deno 2.9.6:
+
+- Hono 4.13.0 → [4.13.7](https://github.com/honojs/hono/releases/tag/v4.13.7).
+  Includes routing/request fixes and the 4.13.5
+  [query-fragment fix](https://github.com/honojs/hono/security/advisories/GHSA-crvj-82cr-hjcx).
+  That advisory requires literal fragments to reach the app; hosted exposure
+  was not tested. JSX/SSG/cache/dot-form features named by other advisories are
+  not used here; no claim of a demonstrated production exploit.
+- zod-openapi 1.6.1 → [1.6.3](https://github.com/honojs/middleware/releases/tag/%40hono%2Fzod-openapi%401.6.3).
+  Includes type-checking improvements and a new Content-Type gate returning 415.
+  The API's existing normalization/object checks preserve its supported JSON
+  forgiveness and actionable 422s without a production-code change.
+- Required transitive zod-validator 0.9.0 →
+  [0.9.1](https://github.com/honojs/middleware/releases/tag/%40hono%2Fzod-validator%400.9.1)
+  caches case-insensitive header schema metadata. JSR imports, one Hono/Zod
+  identity, and all unrelated locked versions remain unchanged.
+
+Generated OpenAPI compared equal before/after. `tests/auth_test.ts` adds a
+media-type matrix covering successful writes/replays, missing/wrong headers,
+strict field/object refusals, doubled prefixes and body-less sync routing.
+Local validation: **162 tests / 518 steps**, production image build and
+**4 shutdown scenarios**, format, lint, type checks and frozen dependency
+installation passed. Test databases were identity-verified and disposable.
+These are local results, not GitHub CI, deployment or installed-plugin proof.
+
 ## Test groups and coverage
 
 - `deno task test:pure`: selected arithmetic, property and document checks; no

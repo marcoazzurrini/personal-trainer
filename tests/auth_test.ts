@@ -1,5 +1,73 @@
 import { assert, assertEquals } from "@std/assert";
-import { api, mintToken, revokeToken } from "./helpers.ts";
+import { api, BASE, mintToken, revokeToken, TOKEN } from "./helpers.ts";
+
+// zod-openapi's media-type gate must not bypass our JSON forgiveness or turn
+// actionable object/schema refusals into an upstream 415 or internal error.
+Deno.test("JSON body contracts survive dependency updates", async (t) => {
+  for (
+    const contentType of [
+      undefined,
+      "application/json",
+      "application/json; charset=utf-8",
+      "Application/JSON",
+      "application/vnd.api+json",
+      "text/plain",
+      "application/x-www-form-urlencoded",
+    ]
+  ) {
+    await t.step(contentType ?? "missing Content-Type", async () => {
+      const payload = {
+        topic: `media-type-${crypto.randomUUID()}`,
+        content: "Synthetic contract check",
+        request_id: crypto.randomUUID(),
+      };
+      const headers = new Headers({ Authorization: `Bearer ${TOKEN}` });
+      if (contentType) headers.set("Content-Type", contentType);
+      // Bytes avoid fetch silently adding text/plain when testing no header.
+      async function send(raw: string) {
+        const response = await fetch(`${BASE}/api/user-context`, {
+          method: "POST",
+          headers,
+          body: new TextEncoder().encode(raw),
+        });
+        return { status: response.status, body: await response.json() };
+      }
+      const created = await send(JSON.stringify(payload));
+      assertEquals(created.status, 201);
+      assertEquals(created.body.entry.topic, payload.topic);
+      assertEquals(created.body.entry.content, payload.content);
+      // The standard helper also validates the replay against generated OpenAPI.
+      const replay = await api.post("/user-context", payload);
+      assertEquals(replay.status, 200);
+      assertEquals(replay.body, created.body);
+
+      for (const raw of ["null", "[]", '"text"', "not JSON"]) {
+        const refused = await send(raw);
+        assertEquals(refused.status, 422);
+        assertEquals(Object.keys(refused.body), ["error"]);
+        assert(refused.body.error.includes("JSON object"));
+      }
+      const unknown = await send(JSON.stringify({
+        ...payload,
+        request_id: crypto.randomUUID(),
+        unexpected: true,
+      }));
+      assertEquals(unknown.status, 422);
+      assertEquals(Object.keys(unknown.body), ["error"]);
+      assert(unknown.body.error.includes("unexpected"));
+    });
+  }
+  await t.step("body-less sync still reaches query validation", async () => {
+    const response = await fetch(`${BASE}/withings/sync?since=invalid`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    assertEquals(response.status, 422);
+    const body = await response.json();
+    assertEquals(Object.keys(body), ["error"]);
+    assert(body.error.includes('"since"'));
+  });
+});
 
 Deno.test("auth and error envelope", async (t) => {
   await t.step("/health is public", async () => {

@@ -1,10 +1,10 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@hono/hono@4": "4.13.0",
-    "jsr:@hono/hono@^4.8.3": "4.13.0",
-    "jsr:@hono/zod-openapi@1": "1.6.1",
-    "jsr:@hono/zod-validator@0.9": "0.9.0",
+    "jsr:@hono/hono@4": "4.13.7",
+    "jsr:@hono/hono@^4.8.3": "4.13.7",
+    "jsr:@hono/zod-openapi@1": "1.6.3",
+    "jsr:@hono/zod-validator@~0.9.1": "0.9.1",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@asteasolutions/zod-to-openapi@^9.1.0": "9.1.0_zod@4.4.3",
@@ -16,11 +16,11 @@
     "npm:zod@^4.2.1": "4.4.3"
   },
   "jsr": {
-    "@hono/hono@4.13.0": {
-      "integrity": "01944c68d43ec22e31b236923335ff8415bae8f32f76290d3a8387b9640c96af"
+    "@hono/hono@4.13.7": {
+      "integrity": "90f83307462b2dd47c9a8028cf5e4827abedc74a53fd291a49130f1579fdcd79"
     },
-    "@hono/zod-openapi@1.6.1": {
-      "integrity": "5aa89462543880a564fcc1d156f63e72013f055a3a6d516619bacd9a0bad47bb",
+    "@hono/zod-openapi@1.6.3": {
+      "integrity": "0e5f870147dd140dac5b6d8d3552cdc438817d65262004e78e495ccaca997d49",
       "dependencies": [
         "jsr:@hono/hono@^4.8.3",
         "jsr:@hono/zod-validator",
@@ -29,8 +29,8 @@
         "npm:zod"
       ]
     },
-    "@hono/zod-validator@0.9.0": {
-      "integrity": "32b1f3b4bea3d6e5c3aa427eea711fae470c767fe9b511a10ae8edd0f703bab9",
+    "@hono/zod-validator@0.9.1": {
+      "integrity": "d395d5437509890184c593ce117e48cbe887e1f556b15d4cc27c39367599c69f",
       "dependencies": [
         "jsr:@hono/hono@^4.8.3",
         "npm:zod"
