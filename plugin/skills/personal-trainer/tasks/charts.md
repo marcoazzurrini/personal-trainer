@@ -79,7 +79,11 @@ comparison is muddy — say so rather than drawing a clean bar against the later
 
 Protein deserves its own panel rather than a second series on the calorie axis. It is
 the one macro with a hard target, and it is the number that decides whether a deficit
-costs muscle.
+costs muscle. Show `protein_coverage` beside it: `days_in_mean` is the actual mean's
+denominator; `entries` and `unknown_entries` cover unflagged days only. Where
+`unknown_entries > 0`, label the bar **partial: known-protein floor**, not a measured
+shortfall. Wholly unknown days do not enter the mean; null stays blank, never zero.
+Zero unknown entries still says nothing about missing or flagged days.
 
 **8. Expenditure over time** — `GET /nutrition/weekly` `implied_tdee_kcal` per week, with
 the current estimate's band from `GET /nutrition-state` drawn **as a band, not a line**.

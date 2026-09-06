@@ -37,6 +37,11 @@ export interface Week {
   weigh_ins: number;
   mean_kcal: number | null;
   mean_protein_g: number | null;
+  protein_coverage: {
+    days_in_mean: number;
+    entries: number;
+    unknown_entries: number;
+  };
   trend_start_kg: number | null;
   trend_end_kg: number | null;
   trend_delta_kg: number | null;
@@ -47,7 +52,7 @@ export interface Week {
 }
 
 const NOTE =
-  "Finished weeks only. Each week carries what was eaten and the target in force at its end, so intake, protein and rate of change can each be read against what was actually asked for. A single week's implied_tdee_kcal is noisy — read the run, not the point, and never react to one week's movement inside the estimate's band. Where days_logged is low, mean_kcal is an average over few days and not a description of the week.";
+  "Finished weeks only. Each week carries what was eaten and the target in force at its end, so intake, protein and rate of change can each be read against what was actually asked for. A single week's implied_tdee_kcal is noisy — read the run, not the point, and never react to one week's movement inside the estimate's band. Where days_logged is low, mean_kcal is an average over few days and not a description of the week. Protein coverage excludes flagged days: days_in_mean is the mean's denominator (days with any known protein), entries counts all eligible entries, and unknown_entries counts those without protein. Partial protein is a known-protein floor over those days, not evidence of a target shortfall; wholly unknown days are not zeros.";
 
 export async function finishedWeeks(
   weeks: number,
@@ -66,6 +71,7 @@ export async function finishedWeeks(
         as days_logged,
       intake.mean_kcal,
       intake.mean_protein_g,
+      intake.protein_days, intake.protein_entries, intake.unknown_protein_entries,
       (select count(*)::int from daily_bodyweight b
        where b.day >= w.week_start and b.day <= w.week_start + 6)
         as weigh_ins,
@@ -105,7 +111,10 @@ export async function finishedWeeks(
     -- reason daily_intake does not coalesce its sums.
     left join lateral (
       select avg(d.kcal)::float8 as mean_kcal,
-        avg(d.protein_g)::float8 as mean_protein_g
+        avg(d.protein_g)::float8 as mean_protein_g,
+        count(d.protein_g)::int as protein_days,
+        coalesce(sum(d.entries), 0)::int as protein_entries,
+        coalesce(sum(d.entries - d.protein_entries), 0)::int as unknown_protein_entries
       from daily_intake d
       where d.day >= w.week_start and d.day <= w.week_start + 6
         and not d.incomplete
@@ -145,6 +154,11 @@ export async function finishedWeeks(
       mean_protein_g: row.mean_protein_g === null
         ? null
         : Math.round(row.mean_protein_g),
+      protein_coverage: {
+        days_in_mean: row.protein_days,
+        entries: row.protein_entries,
+        unknown_entries: row.unknown_protein_entries,
+      },
       trend_start_kg: trendStart,
       trend_end_kg: trendEnd,
       ...weeklyTrendChange(start, finish, row.mean_kcal, density),

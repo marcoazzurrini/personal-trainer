@@ -32,7 +32,20 @@ const Week = z.object({
   days_flagged: z.int(),
   weigh_ins: z.int(),
   mean_kcal: z.int().nullable(),
-  mean_protein_g: z.int().nullable(),
+  mean_protein_g: z.int().nullable().describe(
+    "Mean known-protein floor over unflagged days with any known protein, not a total when coverage is partial. Wholly unknown days are excluded, never zero-filled.",
+  ),
+  protein_coverage: z.object({
+    days_in_mean: z.int().describe(
+      "Denominator of mean_protein_g: unflagged days with at least one known protein entry, including explicit zero.",
+    ),
+    entries: z.int().describe(
+      "All intake entries on unflagged days, including days with wholly unknown protein.",
+    ),
+    unknown_entries: z.int().describe(
+      "Of those entries, how many have null protein. Zero does not establish coverage of missing or flagged days.",
+    ),
+  }),
   trend_start_kg: z.number().nullable(),
   trend_end_kg: z.number().nullable(),
   trend_delta_kg: z.number().nullable().describe(

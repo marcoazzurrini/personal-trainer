@@ -52,6 +52,13 @@ target and rate ranges there are binding.
 
 ## Adherence review (part of every check-in)
 
+- Read `protein_coverage` before comparing `mean_protein_g` with the target.
+  `days_in_mean` is its denominator, not necessarily seven. `entries` and
+  `unknown_entries` cover unflagged days only. If any protein is unknown,
+  call the mean a **partial known-protein floor**, not evidence of a target
+  shortfall. Null is unknown, never zero; wholly unknown days are excluded
+  from the mean. Even zero unknown entries cannot describe missing or flagged
+  days. Clarify missing information before diagnosing protein adherence.
 - Read logging frequency over the last 2–3 weeks. A visible decline —
   especially by week 2–3 of a new phase — gets addressed now, lightly:
   reduce friction (more saved meals, coarser logging) before asking for more
