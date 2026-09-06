@@ -85,10 +85,11 @@ mcp.get("/oauth-protected-resource", (c) => {
   return c.json(protectedResourceMetadata(resource, cfg.issuer));
 });
 
-mcp.get("/", (c) => c.json({ error: NO_STREAM }, 405));
 mcp.delete("/", (c) => c.json({ error: NO_STREAM }, 405));
 
-mcp.post("/", async (c) => {
+// Codex discovers OAuth with GET; Claude encounters it on POST. Both must
+// receive the same challenge before GET is refused for having no stream.
+mcp.on(["GET", "POST"], "/", async (c) => {
   const cfg = config();
   const resource = publicUrl(c, cfg, c.req.path);
   const metadataUrl = `${resource}/oauth-protected-resource`;
@@ -139,6 +140,8 @@ mcp.post("/", async (c) => {
       403,
     );
   }
+
+  if (c.req.method === "GET") return c.json({ error: NO_STREAM }, 405);
 
   let message: unknown;
   try {

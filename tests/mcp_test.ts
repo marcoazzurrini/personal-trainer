@@ -11,10 +11,10 @@ import {
 // The connector, in two halves. The dispatch is import-free and runs here
 // with a stub minter, so every branch of the protocol is exercised without a
 // sign-in. The route is probed live for what it does before a sign-in — the
-// refusal, the pointer to where to sign in, the discovery document — which is
-// all of it that a test can reach: the local stack runs without the auth
-// service, so no test can present a sign-in token. The first real sign-in
-// through the plugin is the end-to-end proof.
+// refusal, the pointer to where to sign in, the discovery document — because
+// the local stack runs without the auth service. An in-process route check
+// below uses a test signing key for authenticated GET. The first real sign-in
+// through each plugin client is the end-to-end proof.
 
 const CALLER = { subject: "user_01TEST" };
 const deps = {
@@ -224,6 +224,86 @@ Deno.test("what a client is told before it signs in", async (t) => {
   });
 });
 
+Deno.test("authenticated GET checks identity but never opens a stream", async () => {
+  const { mcp } = await import("../api/access/mcp.routes.ts");
+  const { forgetJwks } = await import("../api/access/jwt.ts");
+  const issuer = "https://auth.example.test";
+  const resource = "https://example.test/";
+  const config = {
+    AUTH_ISSUER: issuer,
+    AUTH_JWKS_URL: `${issuer}/jwks`,
+    ALLOWED_SUBJECT: CALLER.subject,
+    PUBLIC_ORIGIN: "",
+  };
+  const previous = Object.keys(config).map((key) =>
+    [key, Deno.env.get(key)] as const
+  );
+  const fetch = globalThis.fetch;
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const key = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const encode = (bytes: Uint8Array) =>
+    btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  const json = (value: unknown) =>
+    encode(new TextEncoder().encode(JSON.stringify(value)));
+  try {
+    for (const [name, value] of Object.entries(config)) {
+      Deno.env.set(name, value);
+    }
+    forgetJwks();
+    globalThis.fetch = (input) => {
+      assertEquals(input, config.AUTH_JWKS_URL);
+      return Promise.resolve(
+        Response.json({ keys: [{ ...key, kid: "test" }] }),
+      );
+    };
+    for (
+      const [subject, status] of [[CALLER.subject, 405], [
+        "someone-else",
+        403,
+      ]] as const
+    ) {
+      const payload = `${json({ alg: "ES256", kid: "test" })}.${
+        json({
+          iss: issuer,
+          aud: resource,
+          sub: subject,
+          exp: Math.floor(Date.now() / 1000) + 60,
+        })
+      }`;
+      const signature = await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        pair.privateKey,
+        new TextEncoder().encode(payload),
+      );
+      const res = await mcp.request(resource, {
+        headers: {
+          authorization: `Bearer ${payload}.${
+            encode(new Uint8Array(signature))
+          }`,
+        },
+      });
+      assertEquals(res.status, status);
+      assertEquals(res.headers.get("www-authenticate"), null);
+      assertStringIncludes(
+        await envelope(res),
+        status === 405 ? "no event stream" : "not them",
+      );
+    }
+  } finally {
+    globalThis.fetch = fetch;
+    forgetJwks();
+    for (const [name, value] of previous) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+});
+
 // --- Live: the route, up to the point a sign-in would be needed --------------
 
 async function envelope(res: Response): Promise<string> {
@@ -235,22 +315,34 @@ async function envelope(res: Response): Promise<string> {
 
 Deno.test("the connector before a sign-in", async (t) => {
   await t.step(
-    "a tokenless call is refused and told where to sign in",
+    "GET discovery and POST calls give the same sign-in directions",
     async () => {
-      const res = await fetch(`${BASE}/mcp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
-      });
-      assertEquals(res.status, 401);
-      const challenge = res.headers.get("www-authenticate") ?? "";
-      const match = challenge.match(/^Bearer resource_metadata="([^"]+)"$/);
-      assert(match !== null, `unexpected challenge: ${challenge}`);
-      assert(
-        match[1].endsWith("/api/mcp/oauth-protected-resource"),
-        match[1],
-      );
-      assertStringIncludes(await envelope(res), "Sign in first");
+      const replies = [];
+      for (const method of ["POST", "GET"]) {
+        const res = await fetch(`${BASE}/mcp`, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: method === "POST"
+            ? JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })
+            : undefined,
+        });
+        assertEquals(res.status, 401, method);
+        const challenge = res.headers.get("www-authenticate") ?? "";
+        const match = challenge.match(/^Bearer resource_metadata="([^"]+)"$/);
+        assert(match !== null, `unexpected challenge: ${challenge}`);
+        assertEquals(match[1], `${BASE}/mcp/oauth-protected-resource`);
+        const error = await envelope(res);
+        assertStringIncludes(error, "Sign in first");
+        replies.push({ challenge, error });
+
+        // Follow the address the client actually receives, not a guessed route.
+        const metadata = await fetch(match[1]);
+        assertEquals(metadata.status, 200);
+        const doc = await metadata.json();
+        assertEquals(doc.resource, `${BASE}/mcp`);
+        assertEquals(doc.authorization_servers.length, 1);
+      }
+      assertEquals(replies[0], replies[1]);
     },
   );
 
@@ -259,17 +351,19 @@ Deno.test("the connector before a sign-in", async (t) => {
     async () => {
       // Nothing here could have been checked against the sign-in server, which
       // is not running locally: the refusal comes from the shape alone.
-      const res = await fetch(`${BASE}/mcp`, {
-        method: "POST",
-        headers: { authorization: "Bearer garbage" },
-        body: "{}",
-      });
-      assertEquals(res.status, 401);
-      assertStringIncludes(
-        res.headers.get("www-authenticate") ?? "",
-        'error="invalid_token"',
-      );
-      await envelope(res);
+      for (const method of ["POST", "GET"]) {
+        const res = await fetch(`${BASE}/mcp`, {
+          method,
+          headers: { authorization: "Bearer garbage" },
+          body: method === "POST" ? "{}" : undefined,
+        });
+        assertEquals(res.status, 401, method);
+        assertStringIncludes(
+          res.headers.get("www-authenticate") ?? "",
+          'error="invalid_token"',
+        );
+        await envelope(res);
+      }
     },
   );
 
@@ -299,12 +393,10 @@ Deno.test("the connector before a sign-in", async (t) => {
     },
   );
 
-  await t.step("there is no stream and no session", async () => {
-    for (const method of ["GET", "DELETE"]) {
-      const res = await fetch(`${BASE}/mcp`, { method });
-      assertEquals(res.status, 405, method);
-      await envelope(res);
-    }
+  await t.step("there is no session to end", async () => {
+    const res = await fetch(`${BASE}/mcp`, { method: "DELETE" });
+    assertEquals(res.status, 405);
+    await envelope(res);
   });
 
   await t.step("the discovery document opens without credentials", async () => {

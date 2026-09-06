@@ -8,9 +8,9 @@
 //
 // Streamable HTTP, in the smallest form the specification allows: every
 // message is its own POST, every request is answered with one JSON object,
-// there is no session and no event stream. A client that opens a GET is told
-// so with a 405, which the specification names as the answer of a server
-// that offers no stream.
+// there is no session and no event stream. GET shares POST's sign-in
+// challenge so clients can discover OAuth before connecting. After sign-in,
+// GET answers 405: this server offers no stream.
 //
 // Import-free, so the dispatch is tested in-process with a stub minter.
 
