@@ -162,14 +162,63 @@ export async function getWeights(
     meastype: MEASTYPE_WEIGHT,
     category: CATEGORY_REAL,
     ...window,
-  }, accessToken) as { updatetime?: number; measuregrps?: MeasureGroup[] };
+  }, accessToken);
 
+  // Validate the whole batch before selection or any record writes. A missing
+  // array is not an empty history, and our clock cannot vouch for unseen data.
+  if (!isObject(body) || !isEpoch(body.updatetime)) {
+    throw malformedMeasurements("body.updatetime (upstream epoch seconds)");
+  }
+  if (!Array.isArray(body.measuregrps)) {
+    throw malformedMeasurements("body.measuregrps (an array, even when empty)");
+  }
+  for (const [i, group] of body.measuregrps.entries()) {
+    const path = `body.measuregrps[${i}]`;
+    if (
+      !isObject(group) || !Number.isSafeInteger(group.grpid) ||
+      !Number.isSafeInteger(group.category) || !isEpoch(group.date) ||
+      !Array.isArray(group.measures)
+    ) {
+      throw malformedMeasurements(
+        `${path} (grpid, category, date and measures)`,
+      );
+    }
+    for (const [j, measure] of group.measures.entries()) {
+      if (
+        !isObject(measure) || !Number.isSafeInteger(measure.type) ||
+        typeof measure.value !== "number" || !Number.isFinite(measure.value) ||
+        typeof measure.unit !== "number" ||
+        !Number.isSafeInteger(measure.unit) ||
+        !Number.isFinite(
+          scaleToKg({ value: measure.value, unit: measure.unit }),
+        )
+      ) {
+        throw malformedMeasurements(
+          `${path}.measures[${j}] (type, value and unit)`,
+        );
+      }
+    }
+  }
   return {
-    updatetime: typeof body.updatetime === "number"
-      ? body.updatetime
-      : Math.floor(Date.now() / 1000),
-    groups: body.measuregrps ?? [],
+    updatetime: body.updatetime,
+    groups: body.measuregrps as MeasureGroup[],
   };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isEpoch(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) &&
+    value >= 0 &&
+    Number.isFinite(new Date(value * 1000).getTime());
+}
+
+function malformedMeasurements(field: string): WithingsError {
+  return new WithingsError(
+    `Withings accepted /measure but returned malformed ${field}. Refusing the measurement batch; no readings or sync checkpoint may be advanced from this response.`,
+  );
 }
 
 // --- What counts as a weigh-in ---------------------------------------------
@@ -253,7 +302,7 @@ export function selectWeights(groups: readonly MeasureGroup[]): Selection {
  * stored makes the second delivery a no-op, which is the entire reason two
  * delivery paths are safe.
  */
-function scaleToKg(measure: Measure): number {
+function scaleToKg(measure: Pick<Measure, "value" | "unit">): number {
   const kg = measure.value * Math.pow(10, measure.unit);
   return Math.round(kg * 100) / 100;
 }

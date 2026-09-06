@@ -1,4 +1,9 @@
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "@std/assert";
 
 // The sync wiring: what happens to a reading between arriving and becoming a
 // row, and — above all — what moves the watermark. withings_test.ts covers
@@ -146,6 +151,42 @@ Deno.test(
         assertEquals(summary.duplicate, 1);
         assertEquals(calls.at(-1)!.params.lastupdate, String(base + 100));
         assertEquals(await watermarkEpoch(), base + 200);
+      },
+    );
+
+    await t.step(
+      "malformed success cannot import even its valid prefix or advance the checkpoint",
+      async () => {
+        const before = await sql`select * from bodyweight order by id`;
+        const valid = weighGroup(99, t3 + 60, 81.5);
+        for (
+          const body of [
+            {},
+            { updatetime: "invalid", measuregrps: [valid] },
+            { updatetime: base + 999, measuregrps: null },
+            {
+              updatetime: base + 999,
+              measuregrps: [valid, {
+                ...valid,
+                measures: [{ type: 1, value: "81500", unit: -3 }],
+              }],
+            },
+            {
+              updatetime: base + 999,
+              measuregrps: [valid, { ...valid, date: 1e20 }],
+            },
+          ]
+        ) {
+          measureReply = { status: 0, body };
+          await assertRejects(() => catchUp(), Error, "malformed");
+          await assertRejects(
+            () => syncNotifiedWindow(t3, t3 + 60),
+            Error,
+            "malformed",
+          );
+          assertEquals(await watermarkEpoch(), base + 200);
+          assertEquals(await sql`select * from bodyweight order by id`, before);
+        }
       },
     );
 

@@ -211,6 +211,76 @@ Deno.test("withings measurement fetch", async (t) => {
   });
 });
 
+Deno.test("withings rejects malformed successful measurement batches", async () => {
+  const valid = { updatetime: 1786287339, measuregrps: [group()] };
+  const malformed: unknown[] = [
+    {},
+    null,
+    [],
+    "success",
+    ...[undefined, null, "1786287339", -1, 1.5, 1e20].map((updatetime) => ({
+      ...valid,
+      updatetime,
+    })),
+    ...[undefined, null, {}, "empty"].map((measuregrps) => ({
+      ...valid,
+      measuregrps,
+    })),
+    ...[
+      null,
+      [],
+      {},
+      { ...group(), date: "1786296000" },
+      { ...group(), date: -1 },
+      { ...group(), date: 1e20 },
+      { ...group(), grpid: "1" },
+      { ...group(), category: "1" },
+      { ...group(), measures: null },
+      { ...group(), measures: {} },
+      ...[
+        null,
+        {},
+        { type: "1", value: 72700, unit: -3 },
+        { type: 1, value: "72700", unit: -3 },
+        { type: 1, value: null, unit: -3 },
+        { type: 1, value: 72700, unit: "-3" },
+        { type: 1, value: 72700, unit: 0.5 },
+        { type: 1, value: 72700, unit: 309 },
+      ].map((measure) => ({ ...group(), measures: [measure] })),
+    ].map((bad) => ({ ...valid, measuregrps: [group(), bad] })),
+  ];
+  let body: unknown;
+  const { cfg, close } = stubWithings(() => ({ status: 0, body }));
+  try {
+    for (body of malformed) {
+      await assertRejects(
+        () => getWeights(cfg, "local-token", { lastupdate: 0 }),
+        WithingsError,
+        "malformed",
+      );
+    }
+    body = { ...valid, measuregrps: [] };
+    assertEquals(await getWeights(cfg, "local-token", { lastupdate: 0 }), {
+      updatetime: valid.updatetime,
+      groups: [],
+    });
+    body = {
+      ...valid,
+      measuregrps: [
+        group(),
+        group({ grpid: 2, category: 2 }),
+        group({ grpid: 3, measures: [] }),
+      ],
+    };
+    const result = await getWeights(cfg, "local-token", { lastupdate: 0 });
+    const selected = selectWeights(result.groups);
+    assertEquals(selected.accepted.length, 1);
+    assertEquals(selected.skipped.map((s) => s.grpid), [2, 3]);
+  } finally {
+    await close();
+  }
+});
+
 Deno.test("withings scaling and filtering", async (t) => {
   await t.step("the exponent is read, not assumed", () => {
     const { accepted } = selectWeights([
