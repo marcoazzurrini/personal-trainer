@@ -10,6 +10,10 @@ import {
 
 const run = crypto.randomUUID().replaceAll("-", "");
 const database = `pt_test_${run}`;
+const coverage = Deno.args[0] === "--coverage";
+const testArgs = coverage ? Deno.args.slice(1) : Deno.args;
+const coverageRoot = `${Deno.cwd()}/coverage/${run}`;
+let testsStarted = false;
 const directory = await Deno.makeTempDir({ prefix: "pt-test-" });
 const receipt = `${directory}/disposable.json`;
 let containerId: string | undefined;
@@ -136,6 +140,7 @@ try {
   api = new Deno.Command(Deno.execPath(), {
     args: [
       "run",
+      ...(coverage ? [`--coverage=${coverageRoot}/api`] : []),
       "--allow-net=127.0.0.1",
       "--allow-env",
       "--allow-read",
@@ -167,13 +172,17 @@ try {
   console.log(
     `API ${d.apiUrl} verified against the same cluster and database.`,
   );
+  testsStarted = true;
   const result = await new Deno.Command(Deno.execPath(), {
     args: [
       "test",
+      ...(coverage
+        ? [`--coverage=${coverageRoot}/tests`, "--coverage-raw-data-only"]
+        : []),
       "--allow-net=127.0.0.1,0.0.0.0",
       "--allow-env",
       "--allow-read",
-      ...(Deno.args.length ? Deno.args : ["tests/"]),
+      ...(testArgs.length ? testArgs : ["tests/"]),
     ],
     env: { ...childEnv, API_URL: d.apiUrl },
     clearEnv: true,
@@ -184,6 +193,7 @@ try {
 } finally {
   try {
     await stopApi();
+    if (coverage && testsStarted) await reportCoverage();
   } finally {
     if (containerId) {
       await docker("rm", "--force", "--volumes", containerId);
@@ -191,6 +201,62 @@ try {
     }
     await Deno.remove(directory, { recursive: true });
   }
+}
+
+async function reportCoverage(): Promise<void> {
+  // This directory belongs only to the HTTP server, never the test process.
+  // Import coverage alone is insufficient: the handler must actually execute.
+  let handledHttp = false;
+  const loadedApi = new Set<string>();
+  for (const scope of ["api", "tests"]) {
+    for await (const entry of Deno.readDir(`${coverageRoot}/${scope}`)) {
+      if (!entry.name.endsWith(".json")) continue;
+      const profile = JSON.parse(
+        await Deno.readTextFile(`${coverageRoot}/${scope}/${entry.name}`),
+      );
+      if (profile.url.startsWith(new URL("../api/", import.meta.url).href)) {
+        loadedApi.add(scope);
+      }
+      if (scope !== "api" || !profile.url.endsWith("/api/index.ts")) continue;
+      handledHttp ||= profile.functions.some((
+        fn: { functionName: string; ranges: { count: number }[] },
+      ) =>
+        fn.functionName === "handleRequest" &&
+        fn.ranges.some((range) => range.count > 0)
+      );
+    }
+  }
+  if (!handledHttp) {
+    throw new Error(
+      "API coverage did not record an HTTP handler call; client coverage is not API coverage.",
+    );
+  }
+  for (const scope of ["api", "tests", "combined"]) {
+    if (scope !== "combined" && !loadedApi.has(scope)) {
+      const report =
+        `Coverage scope: ${scope}: no API source loaded by this process.\n`;
+      await Deno.writeTextFile(`${coverageRoot}/${scope}.txt`, report);
+      console.log(report);
+      continue;
+    }
+    const paths = scope === "combined"
+      ? [`${coverageRoot}/api`, `${coverageRoot}/tests`]
+      : [`${coverageRoot}/${scope}`];
+    const result = await new Deno.Command(Deno.execPath(), {
+      args: ["coverage", "--include=.*/api/.*", ...paths],
+      env,
+      clearEnv: true,
+      stdout: "piped",
+      stderr: "piped",
+    }).output();
+    if (!result.success) {
+      throw new Error(`Coverage report failed for ${scope}.`);
+    }
+    const report = new TextDecoder().decode(result.stdout);
+    await Deno.writeTextFile(`${coverageRoot}/${scope}.txt`, report);
+    console.log(`Coverage scope: ${scope} (API source only)\n${report}`);
+  }
+  console.log(`Coverage profiles and labeled reports: ${coverageRoot}`);
 }
 
 async function stopApi(): Promise<void> {

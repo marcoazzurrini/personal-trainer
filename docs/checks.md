@@ -1,5 +1,54 @@
 # Checks
 
+## Test groups and coverage
+
+- `deno task test:pure`: selected arithmetic, property and document checks; no
+  network permission, no Docker, no destructive setup.
+- `deno task test:stubs`: loopback-only protocol/request checks. Mixed Withings
+  and GitHub files use explicit test-name filters; their destructive helpers
+  are imported only inside database tests. No disposable receipt is needed.
+- `deno task test [files...]`: the full suite (including database and mixed
+  modules), or named files, through the disposable identity gate. Other mixed
+  files such as dates, migrations and MCP belong here unless their imports and
+  selected cases have been checked explicitly. Never use a name filter as a
+  substitute for the database gate.
+- `deno task test:shutdown` and `deno task test:secrets`: separate Docker/tool
+  checks described below and in `hosting.md`.
+
+`deno task coverage [files...]` uses the same disposable harness and collects
+raw profiles from both the HTTP API and the test process. The API must exit
+cleanly before reporting; a profile must show its HTTP handler actually ran.
+Each invocation gets its own ignored `coverage/<run>/` directory, with separate
+`api/` and `tests/` profiles and labeled `api.txt`, `tests.txt`, `combined.txt`
+reports filtered to API source (not dependencies, test helpers or generated
+artifacts). CI retains that directory as an artifact. Empty test-process API
+coverage is reported honestly, not treated as missing server coverage.
+
+For a small proof, run `deno task coverage tests/coverage_http_test.ts`: it
+imports no handler and exercises the doubled-prefix branch over HTTP. For
+uncovered source lines use `deno coverage --detailed --include='.*/api/.*'
+coverage/<run>/api coverage/<run>/tests`. Profile offsets belong to that source
+revision; rerun after source edits rather than merging unrelated runs.
+
+Initial #69 local full run: **161 tests / 510 steps passed**. API-source line
+coverage was **88.3% in the HTTP process**, **68.8% in the test process**, and
+**96.8% combined** (combined branch coverage 93.8%). These are measured scopes,
+not a target percentage or proof of behavior. Standalone container lifecycle
+and scanner tests are separate; their process coverage is not included.
+A controlled failing test also preserved its failure, flushed both profiles,
+stopped the API and removed the owned database.
+
+Meaningful gaps inspected in those profiles:
+
+- Database readiness timeout/cancellation and interrupted inbound body reads
+  still need dedicated fault-injection cases.
+- Withings catch-up suppression while pending/stopping and missing-provider
+  configuration deserve direct assertions.
+- The forced shutdown branch is tested by the container suite but absent from
+  these native-process profiles; do not mistake that scope gap for no test.
+- Smaller refusal gaps include excessive report document names and empty
+  actual-set patches. Add cases for their contracts, not to chase a percentage.
+
 ## Secrets
 
 `deno task secrets` scans the complete Git index, both in the commit hook and

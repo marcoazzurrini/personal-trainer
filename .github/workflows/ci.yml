@@ -28,7 +28,13 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: 2.9.6
-      - run: deno task test
+      - run: deno task coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
       # Builds and exercises the production image/entrypoint on disposable state.
       - run: deno task test:shutdown
 
