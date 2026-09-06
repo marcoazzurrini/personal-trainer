@@ -1,10 +1,17 @@
 // Loads scripts/catalogue.json into an API instance. Idempotent: rows that
 // already exist (409) are skipped, so re-running is safe.
 //
-// Usage:
+// Use base_url and token returned by the connector's get_api_token tool.
+// API_TOKEN is client input here, not server configuration; never save it in
+// the server's .env. It expires, so obtain a fresh one when needed.
 //   API_URL=... API_TOKEN=... deno run --allow-net --allow-read --allow-env scripts/load_catalogue.ts
 
 export async function loadCatalogue(base: string, token: string) {
+  if (!token.trim()) {
+    throw new Error(
+      "API_TOKEN is required for catalogue loading. Use the token returned by the connector's get_api_token tool; set API_URL to its base_url.",
+    );
+  }
   const catalogue = JSON.parse(
     await Deno.readTextFile(new URL("./catalogue.json", import.meta.url)),
   );
@@ -44,6 +51,6 @@ export async function loadCatalogue(base: string, token: string) {
 if (import.meta.main) {
   await loadCatalogue(
     Deno.env.get("API_URL") ?? "http://127.0.0.1:8000/api",
-    Deno.env.get("API_TOKEN") ?? "local-dev-token",
+    Deno.env.get("API_TOKEN") ?? "",
   );
 }

@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import postgres from "postgres";
 import { verifiedDatabase } from "../tests/disposable.ts";
+import { mintToken } from "../tests/helpers.ts";
 
 Deno.test("the production container/task entrypoint drains and bounds SIGTERM", async (t) => {
   const d = await verifiedDatabase();
@@ -11,7 +12,7 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
   const network = `pt-shutdown-${run}`;
   const containers: string[] = [];
   const requests: Promise<Response | null>[] = [];
-  const token = "shutdown-test-token";
+  const token = await mintToken();
   let connected = false, built = false, networkCreated = false;
   async function docker(...args: string[]) {
     const result = await new Deno.Command("docker", {
@@ -55,8 +56,6 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
       "127.0.0.1::8000",
       "--env",
       `DATABASE_URL=${databaseUrl ?? url.href}`,
-      "--env",
-      `API_TOKEN=${token}`,
       image,
     );
     containers.push(id);

@@ -8,7 +8,7 @@ import { verifiedDatabase, verifyApi } from "./disposable.ts";
 const disposable = await verifiedDatabase();
 await verifyApi(disposable);
 export const BASE = disposable.apiUrl;
-export const TOKEN = Deno.env.get("API_TOKEN") ?? "local-dev-token";
+export const TOKEN = crypto.randomUUID();
 export const DB_URL = disposable.databaseUrl;
 
 export interface ApiResponse {

@@ -23,7 +23,7 @@ import { BASE, TOKEN } from "./helpers.ts";
 // a public one would hide. So the two ways out of the document are scanned for
 // and held against named lists at the bottom of this file.
 //
-// auth_test.ts checks the token itself (rotation, malformed JSON); this is the
+// auth_test.ts checks expiry, revocation and malformed JSON; this is the
 // matrix that catches a new route landing on the wrong side of the line.
 
 const API_DIR = "api";

@@ -1,5 +1,25 @@
 # Checks
 
+## Static-token retirement (#61)
+
+Marco confirmed on 6 September 2026 that no clients/scripts use old static auth
+and authorized removal. Before removing the API branch, the full suite passed
+without either static server variable: **162 tests / 517 steps**. Shared test
+credentials, issue workers and production-container checks now use minted rows.
+
+After removal: **164 tests / 517 steps** passed; final focused auth/MCP rerun
+passed **8 tests / 33 steps**, alongside format, lint, type checks, production
+image build and **4 shutdown scenarios**. A synthetic configured-but-expired
+bearer returned 200 with the old branch (regression failed as intended); the
+new check enforces 401 for expired/revoked tokens even when old env vars remain.
+A locally signed connector request mints a token usable against the disposable
+HTTP API; a different subject is refused. Missing catalogue credentials fail
+before file/network work. No database migration or historical ADR edit needed.
+
+These are local, disposable-state results. Hosted/local private-env cleanup,
+publication and an installed-connector sign-in/read remain release work; see
+`hosting.md`. No live credential value was read or changed for this slice.
+
 ## Dependency review (#68)
 
 Reviewed on 6 September 2026, against base `424ae3a`, on Deno 2.9.6:

@@ -132,8 +132,6 @@ try {
     TEST_DISPOSABLE_FILE: receipt,
     DATABASE_URL: d.databaseUrl,
     TEST_DATABASE_URL: d.databaseUrl,
-    API_TOKEN: "local-dev-token",
-    API_TOKEN_PREVIOUS: "local-dev-token-previous",
     AUTH_ISSUER: "http://127.0.0.1:1",
     ALLOWED_SUBJECT: "user_test",
   };

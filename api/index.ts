@@ -178,28 +178,17 @@ app.get("/reference", (c) =>
 // where to sign in. The auth matrix names it beside the Withings webhook.
 app.route("/mcp", mcp);
 
-// Two ways in, for as long as the move from one to the other runs. The static
-// bearer is the path being retired: one secret pasted into a generated skill
-// file, two during a rotation (API_TOKEN and API_TOKEN_PREVIOUS), because
-// conversations hold it for as long as they live. The minted token is the path replacing it:
-// issued by the plugin's connector after a sign-in and checked against its
-// hash in api_tokens (access/tokens.ts). Until the static branch goes, the
-// coach keeps working on the old token while the new one is proven. A server
-// with no API_TOKEN configured is no longer a misconfiguration, only a server
-// that accepts minted tokens alone.
+// The connector mints the bearer after sign-in. Only its stored hash and
+// unexpired lifetime authorize a call; deleting the row revokes it.
 app.use(async (c, next) => {
   const refusal = {
     error:
-      "Missing or wrong bearer token. Send an Authorization: Bearer <token> header.",
+      "Missing, invalid or expired bearer token. Call the connector's get_api_token tool and send its token as Authorization: Bearer <token>.",
   };
   const sent = c.req.header("authorization") ?? "";
   const bearer = sent.startsWith("Bearer ") ? sent.slice("Bearer ".length) : "";
   if (bearer === "") return c.json(refusal, 401);
-  const isStatic = [
-    Deno.env.get("API_TOKEN"),
-    Deno.env.get("API_TOKEN_PREVIOUS"),
-  ].some((known) => known !== undefined && known !== "" && bearer === known);
-  if (!isStatic && (await verifyToken(bearer)) === null) {
+  if ((await verifyToken(bearer)) === null) {
     return c.json(refusal, 401);
   }
   await next();

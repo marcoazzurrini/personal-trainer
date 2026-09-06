@@ -12,8 +12,8 @@ import {
 // sign-in. The route is probed live for what it does before a sign-in — the
 // refusal, the pointer to where to sign in, the discovery document — because
 // the local stack runs without the auth service. An in-process route check
-// below uses a test signing key for authenticated GET. The first real sign-in
-// through each plugin client is the end-to-end proof.
+// below uses a test signing key for GET and POST, then a real minted token
+// against the disposable API. Hosted sign-in still needs a client smoke check.
 
 const CALLER = { subject: "user_01TEST" };
 const deps = {
@@ -223,7 +223,9 @@ Deno.test("what a client is told before it signs in", async (t) => {
   });
 });
 
-Deno.test("authenticated GET checks identity but never opens a stream", async () => {
+Deno.test("signed connector calls enforce identity and mint usable API tokens", async () => {
+  const { BASE } = await import("./helpers.ts");
+  const { sql } = await import("../api/db.ts");
   const { mcp } = await import("../api/access/mcp.routes.ts");
   const { forgetJwks } = await import("../api/access/jwt.ts");
   const issuer = "https://auth.example.test";
@@ -279,21 +281,44 @@ Deno.test("authenticated GET checks identity but never opens a stream", async ()
         pair.privateKey,
         new TextEncoder().encode(payload),
       );
-      const res = await mcp.request(resource, {
-        headers: {
-          authorization: `Bearer ${payload}.${
-            encode(new Uint8Array(signature))
-          }`,
-        },
-      });
+      const headers = {
+        authorization: `Bearer ${payload}.${encode(new Uint8Array(signature))}`,
+        "content-type": "application/json",
+      };
+      const res = await mcp.request(resource, { headers });
       assertEquals(res.status, status);
       assertEquals(res.headers.get("www-authenticate"), null);
       assertStringIncludes(
         await envelope(res),
         status === 405 ? "no event stream" : "not them",
       );
+      const called = await mcp.request(resource, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: TOOL_NAME },
+        }),
+      });
+      assertEquals(called.status, subject === CALLER.subject ? 200 : 403);
+      if (subject !== CALLER.subject) {
+        assertStringIncludes(await envelope(called), "not them");
+        continue;
+      }
+      const reply = await called.json();
+      const minted = JSON.parse(reply.result.content[0].text);
+      assert(Date.parse(minted.expires_at) > Date.now());
+      // Saved fetch bypasses only the JWKS stub, not the running API's auth.
+      const read = await fetch(`${BASE}/exercises`, {
+        headers: { authorization: `Bearer ${minted.token}` },
+      });
+      assertEquals(read.status, 200);
+      assert(Array.isArray((await read.json()).exercises));
     }
   } finally {
+    await sql.end();
     globalThis.fetch = fetch;
     forgetJwks();
     for (const [name, value] of previous) {

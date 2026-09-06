@@ -99,7 +99,7 @@ a successful image build alone is no longer the container check.
   sign-in fails with `invalid_target`. Add the new address there before the
   origin ever changes again.
 - **Secrets**: the application's environment variables in Coolify, marked as
-  secrets: `API_TOKEN`, `API_TOKEN_PREVIOUS`, `DATABASE_URL`, `AUTH_ISSUER`,
+  secrets: `DATABASE_URL`, `AUTH_ISSUER`,
   `ALLOWED_SUBJECT`, `WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`,
   `GITHUB_TOKEN`, `GITHUB_REPO`. `PORT` is 8000. `PUBLIC_ORIGIN` stays unset
   unless the proxy's headers ever stop being enough.
@@ -108,6 +108,23 @@ a successful image build alone is no longer the container check.
   `personal-trainer-backups`. Coolify's own database goes to the same bucket.
   Off the server, in the password manager: the Coolify `APP_KEY` from
   `/data/coolify/source/.env` and the keys under `/data/coolify/ssh/keys`.
+
+## Static-token retirement (#61)
+
+Marco confirmed no remaining consumers of static authentication. The API now
+accepts only minted, unexpired tokens; old server environment values grant no
+access. Tests and container checks use disposable token rows, never a configured
+bearer shortcut.
+
+At release, remove `API_TOKEN` and `API_TOKEN_PREVIOUS` from Coolify's application
+environment (including preview entries if present) and local server `.env` files.
+Then obtain a fresh token through the installed connector and confirm an
+authenticated read works. Repository edits do not remove hosted secrets or prove
+that live sign-in check; record those separately when performed.
+
+`scripts/load_catalogue.ts` still takes `API_TOKEN` as **client input**, together
+with `API_URL`: use the connector's returned `token` and `base_url` for that
+invocation, not a permanent credential in server configuration.
 
 ## Restore drill
 
