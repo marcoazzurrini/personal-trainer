@@ -42,6 +42,24 @@ fails is a deploy that never becomes healthy and the old container keeps
 answering. For the minute both run, write migrations the old container can
 live with.
 
+## Stopping and deployment overlap
+
+SIGTERM reaches the API through the image's real `deno task start` entrypoint.
+The API stops accepting requests and scheduling catch-up, drains both, then
+closes Postgres. An unfinished drain exits nonzero at the bound in
+`api/index.ts`; an interrupted operation may already have durable side effects.
+Keep the host/container stop grace at Docker's default or longer, never below
+that application deadline. Verify any Coolify stop-timeout override before
+release; the local container test does not establish the deployed setting.
+
+`deno task test:shutdown` builds the production image and exercises it against
+the same identity-verified disposable cluster, using a private test network
+and synthetic credentials only. Controlled SQL locks prove completed work
+survives termination, new HTTP work stops, stuck work cannot wait forever,
+termination during migration never starts HTTP, and startup errors omit
+credentials. It removes only its own containers, network and image. CI runs it;
+a successful image build alone is no longer the container check.
+
 ## Hosted
 
 - **Server**: one Hetzner CX23 in Germany, Ubuntu 24.04, Coolify installed

@@ -200,5 +200,19 @@ async function stopApi(): Promise<void> {
   } catch (err) {
     if (!(err instanceof Deno.errors.NotFound)) throw err;
   }
-  await api.status;
+  const timer = setTimeout(() => {
+    try {
+      api?.kill("SIGKILL");
+    } catch { /* already exited */ }
+  }, 10_000);
+  try {
+    const status = await api.status;
+    if (!status.success) {
+      throw new Error(
+        `Disposable API did not drain cleanly (exit ${status.code}).`,
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }

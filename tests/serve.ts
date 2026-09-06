@@ -10,8 +10,8 @@ Deno.env.set("DATABASE_URL", d.databaseUrl);
 const { sql } = await import("../api/db.ts");
 // Verify the actual operations' singleton before importing/serving the API.
 assertIdentity(d, await databaseIdentity(sql));
-const { handleRequest } = await import("../api/index.ts");
-const server = Deno.serve({ hostname: "127.0.0.1", port: 0 }, async (req) => {
+const { handleRequest, startServer } = await import("../api/index.ts");
+const server = startServer({ hostname: "127.0.0.1", port: 0 }, async (req) => {
   if (new URL(req.url).pathname === "/api/__test_identity") {
     const identity = await databaseIdentity(sql);
     assertIdentity(d, identity);

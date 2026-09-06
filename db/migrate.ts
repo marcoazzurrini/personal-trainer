@@ -138,8 +138,10 @@ if (import.meta.main) {
       for (const v of report.ran) console.log(`${verb}  ${v}`);
       if (report.ran.length === 0) console.log("nothing to do");
     }
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
+  } catch {
+    console.error(
+      "Migration failed. Check database connectivity and unapplied migration files; error details withheld to protect credentials.",
+    );
     Deno.exit(1);
   }
 }

@@ -20,4 +20,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD deno eval "const r = await fetch('http://127.0.0.1:8000/api/health'); Deno.exit(r.ok ? 0 : 1)"
 
+STOPSIGNAL SIGTERM
 CMD ["deno", "task", "start"]

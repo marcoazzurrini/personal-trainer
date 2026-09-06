@@ -20,8 +20,6 @@ jobs:
       - run: deno lint
       - run: deno task check
       - run: deno test --allow-read tests/deno_version_test.ts
-      # A Dockerfile that no longer builds must fail here, before a deploy.
-      - run: docker build -t personal-trainer:ci .
 
   test:
     runs-on: ubuntu-latest
@@ -31,6 +29,8 @@ jobs:
         with:
           deno-version: 2.9.6
       - run: deno task test
+      # Builds and exercises the production image/entrypoint on disposable state.
+      - run: deno task test:shutdown
 
   # Only a green main reaches the host: Coolify's own deploy-on-push stays
   # off, and this webhook is the one way a deploy starts. Until the secrets

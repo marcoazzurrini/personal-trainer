@@ -14,7 +14,7 @@ import {
   withingsAdmin,
   withingsWebhook,
 } from "./body/index.ts";
-import { startCatchUp } from "./body/withings.ts";
+import { startCatchUp, stopCatchUp } from "./body/withings.ts";
 import { issues } from "./surfaces/index.ts";
 import { verifyToken } from "./access/tokens.ts";
 import { mcp } from "./access/index.ts";
@@ -373,10 +373,56 @@ export async function handleRequest(req: Request): Promise<Response> {
   return response;
 }
 
+// Shorter than Docker's default ten-second stop grace. A forced exit does not
+// establish rollback; completed database statements and external writes persist.
+export const SHUTDOWN_MS = 8_000;
+
+export function startServer(
+  options: Deno.ServeTcpOptions,
+  handler: Deno.ServeHandler = handleRequest,
+): Deno.HttpServer<Deno.NetAddr> {
+  const server = Deno.serve(options, handler);
+  let stopping = false;
+  function shutdown() {
+    if (stopping) return;
+    stopping = true;
+    console.log("shutdown: draining HTTP and tracked catch-up");
+    const timer = setTimeout(() => {
+      console.error(
+        "shutdown: drain deadline exceeded; unfinished writes may have committed",
+      );
+      Deno.exit(1);
+    }, SHUTDOWN_MS);
+    void Promise.all([server.shutdown(), stopCatchUp()])
+      .then(() => sql.end({ timeout: 1 }))
+      .then(() => {
+        clearTimeout(timer);
+        Deno.removeSignalListener("SIGTERM", shutdown);
+        Deno.removeSignalListener("SIGINT", shutdown);
+        console.log("shutdown: drained; database pool closed");
+      }).catch(() => {
+        console.error(
+          "shutdown: failed; error details withheld, write outcomes uncertain",
+        );
+        Deno.exit(1);
+      });
+  }
+  Deno.addSignalListener("SIGTERM", shutdown);
+  Deno.addSignalListener("SIGINT", shutdown);
+  return server;
+}
+
 // The port is the container's business, not the app's.
 if (import.meta.main) {
-  Deno.serve({
-    port: Number(Deno.env.get("PORT") ?? 8000),
-    hostname: "0.0.0.0",
-  }, handleRequest);
+  try {
+    startServer({
+      port: Number(Deno.env.get("PORT") ?? 8000),
+      hostname: "0.0.0.0",
+    });
+  } catch {
+    console.error(
+      "startup: HTTP server failed; configuration details withheld",
+    );
+    Deno.exit(1);
+  }
 }
