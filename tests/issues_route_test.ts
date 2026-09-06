@@ -89,6 +89,9 @@ Deno.test(
               `{"Cookie":"session=${secret}"}`,
               `curl --cookie 'session=${secret}'`,
               `curl -b 'session=${secret}'`,
+              `Bearer [REDACTED]${secret}`,
+              `Cookie: [REDACTED]; session=${secret}`,
+              `curl --cookie '[REDACTED]; session=${secret}'`,
             ]
           ) {
             for (

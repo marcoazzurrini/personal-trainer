@@ -87,14 +87,11 @@ function capped(value: string, max: number, field: string): string {
 // Defense in depth for public reports, not a general secret classifier.
 // Only the explicit [REDACTED] marker is safe in a credential position.
 function requireSanitizedReport(value: string): void {
-  const withoutMarkers = value.replaceAll("[REDACTED]", '""');
-  if (
-    /\bbearer\s+[a-z0-9._~+/-]+=*/i.test(withoutMarkers) ||
-    /\b(?:set-cookie|cookie)["']?\s*[:=]\s*["']?[^\s"'`,}]/i.test(
-      withoutMarkers,
-    ) ||
-    /(?:--cookie(?:-jar)?|(?:^|\s)-b)\s+["']?[^\s"'`]/i.test(withoutMarkers)
-  ) {
+  const credentials = value.matchAll(
+    /(?:\bbearer\s+|\b(?:set-cookie|cookie)["']?\s*[:=]\s*["']?|(?:--cookie(?:-jar)?|(?:^|\s)-b)\s+["']?)([^\r\n"'`]+)/gi,
+  );
+  for (const [, credential] of credentials) {
+    if (credential.trim() === "[REDACTED]") continue;
     throw new ApiError(
       422,
       "Public reports must be sanitized. Remove authorization credentials and cookies from every field, or replace their entire value with [REDACTED]. Use synthetic personal details; ask consent before publishing sensitive details that cannot be removed. No report was sent.",
