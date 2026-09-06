@@ -116,7 +116,8 @@ app.doc("/openapi.json", {
 
 // Scalar from a CDN script rather than its Hono middleware, which is npm-only
 // and pulls a dependency chain this runtime resolves badly. The middleware
-// only ever emitted this page anyway.
+// only ever emitted this page anyway. Pin and SHA-384 cover the exact standalone
+// bytes from the npm tarball, compared with jsDelivr; update both after review.
 app.get("/reference", (c) =>
   c.html(`<!doctype html>
 <html>
@@ -127,7 +128,9 @@ app.get("/reference", (c) =>
   </head>
   <body>
     <div id="app"></div>
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.67.0/dist/browser/standalone.js"
+      integrity="sha384-6c7Vmx+i0yi8gBbltn0x1cavD+zsMGw2xmXXVyacPJLIGBxwaVimW5TW0WiW17Ir"
+      crossorigin="anonymous"></script>
     <script>
       Scalar.createApiReference('#app', { url: 'openapi.json' })
     </script>
