@@ -142,22 +142,19 @@ export interface LogInput {
 export async function logIntake(
   b: LogInput,
 ): Promise<{ view: DayView; created: boolean }> {
-  const today = await romeToday();
-  const day = requireNotFuture(b.day ?? today, today, "day");
-  const note = b.note ?? null;
-
   const { body: view, status } = await writeOnce<
-    { logged: number },
+    { day: string },
     DayView,
     DayView
   >({
     table: "intake_entries",
     requestId: b.request_id,
-    // The entry's own columns are never needed: a logged day is answered
-    // with the whole day, which gets read again either way.
-    select: sql`1 as logged`,
-    replay: () => dayView(day),
+    select: sql`day`,
+    replay: (seen) => dayView(seen.day),
     write: async () => {
+      const today = await romeToday();
+      const day = requireNotFuture(b.day ?? today, today, "day");
+      const note = b.note ?? null;
       const wants = (["meal", "food", "adhoc_kcal"] as const).filter((k) =>
         b[k] !== undefined && b[k] !== null
       );

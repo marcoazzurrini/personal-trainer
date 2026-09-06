@@ -290,6 +290,7 @@ export async function appendSet(
     table: "sets",
     requestId: b.request_id,
     select: appendedSetColumns(),
+    scope: sql`and session_id = ${sessionId}`,
     replay: (duplicate) => duplicate,
     write: async () => {
       const s = await parseNewSet(b);

@@ -555,3 +555,75 @@ Deno.test("resending a request_id replays the original result", async (t) => {
     );
   });
 });
+
+Deno.test("appendSet replays only for its session, including concurrent retries", async () => {
+  await resetTraining();
+  await ensureCatalogue();
+  const sessions: number[] = [];
+  for (let i = 0; i < 2; i++) {
+    const created = await api.post("/sessions", {
+      date: today(),
+      rationale: "owner-scoped retry",
+      sets: [{ exercise: "squat", target_weight_kg: 100, target_reps: 5 }],
+    });
+    assertEquals(created.status, 201);
+    sessions.push(created.body.session.id);
+  }
+  const body = {
+    exercise: "squat",
+    weight_kg: 100,
+    reps: 5,
+    effort: "hard",
+    request_id: uuid(),
+  };
+  const path = `/sessions/${sessions[0]}/sets`;
+  const raced = await Promise.all([api.post(path, body), api.post(path, body)]);
+  assertEquals(raced.filter((r) => r.status === 201).length, 1);
+  assert(raced.every((r) => [200, 201, 409].includes(r.status)));
+  const first = raced.find((r) => r.status === 201)!;
+  const replay = await api.post(path, body);
+  assertEquals(replay.status, 200);
+  assertEquals(replay.body, first.body);
+  const crossed = await api.post(`/sessions/${sessions[1]}/sets`, body);
+  assertEquals(crossed.status, 409);
+  assertEquals(
+    (await api.get(`/sessions/${sessions[0]}`)).body.session.sets.length,
+    2,
+  );
+  assertEquals(
+    (await api.get(`/sessions/${sessions[1]}`)).body.session.sets.length,
+    1,
+  );
+});
+
+Deno.test("concurrent meal retries leave one complete meal", async () => {
+  await resetNutrition();
+  for (const name of ["Raced A", "Raced B"]) {
+    assertEquals(
+      (await api.post("/foods", {
+        name,
+        kcal_100g: 100,
+        protein_100g: 25,
+        carbs_100g: 0,
+        fat_100g: 0,
+        source: "label",
+      })).status,
+      201,
+    );
+  }
+  await api.post("/meals", {
+    name: "Raced meal",
+    items: [{ food: "Raced A", grams: 100 }, { food: "Raced B", grams: 50 }],
+  });
+  const body = { meal: "Raced meal", request_id: uuid() };
+  const raced = await Promise.all([
+    api.post("/intake", body),
+    api.post("/intake", body),
+  ]);
+  assertEquals(raced.filter((r) => r.status === 201).length, 1);
+  assert(raced.every((r) => [200, 201, 409].includes(r.status)));
+  const replay = await api.post("/intake", body);
+  assertEquals(replay.status, 200);
+  assertEquals(replay.body.entries.length, 2);
+  assertEquals(replay.body.totals.kcal, 150);
+});
