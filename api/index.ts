@@ -266,7 +266,7 @@ app.notFound((c) => {
 app.onError((err, c) => errorResponse(err, c));
 
 // The docs write paths relative to BASE, which already ends in /api — the
-// function's own name. A caller that read an /api-prefixed path somewhere and
+// router's mount prefix. A caller that read an /api-prefixed path somewhere and
 // concatenated it onto BASE arrives at /api/api/…, which no route matches.
 // That mistake is one string-concatenation away for every client, so it is
 // forgiven here instead of 404ing: collapse any run of leading /api segments

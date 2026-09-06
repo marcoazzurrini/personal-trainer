@@ -1,6 +1,6 @@
 // A thin GitHub REST client for the issues the coach files. Plain fetch —
 // three small calls, not worth an SDK. Import-free on purpose: the unit
-// tests run this file outside the edge runtime, against a stub server.
+// tests run this file without a database, against a local stub server.
 //
 // The coach files issues; it does not open pull requests. It has the
 // conversations and none of the repository, so what it can produce well is

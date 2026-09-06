@@ -57,10 +57,9 @@ withingsWebhook.post("/notify", async (c) => {
     return c.json({ status: "ok" });
   }
 
-  // The work happens before the response. It is two HTTP calls and an insert,
-  // and there is no reliable way to finish work after responding on Deno
-  // Deploy — a promise left running when the response is sent may simply not
-  // be there when the isolate is torn down.
+  // Unlike the health-triggered catch-up, notification work stays inside its
+  // HTTP request. Provider calls have deadlines; shutdown can drain the request
+  // without a second background-work owner.
   try {
     const summary = Number.isFinite(startdate) && Number.isFinite(enddate)
       ? await syncNotifiedWindow(startdate, enddate)

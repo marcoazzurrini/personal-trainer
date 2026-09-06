@@ -225,17 +225,10 @@ export async function catchUp(override?: number): Promise<SyncSummary> {
 }
 
 /**
- * The catch-up as the /health ping sees it: throttled, and incapable of
- * failing loudly.
- *
- * /health exists so an uptime monitor can keep the free project from being
- * paused, and the monitor's ping is the only scheduled event this system has.
- * Riding the catch-up on it means no second scheduler to configure and forget.
- * Two rules make that safe. The claim below is a single conditional UPDATE, so
- * two pings arriving together cannot both take it. And every failure is
- * swallowed: Withings being down must never make the monitor believe the
- * project is down, which would turn an unavailable scale into a false alarm at
- * three in the morning.
+ * The health-triggered catch-up: a single conditional UPDATE claims each
+ * interval across processes. The topic tracks the background promise rather
+ * than holding the health response open. Failures are logged and returned to
+ * direct callers; a provider outage does not mark the API unhealthy.
  */
 export async function catchUpIfDue(): Promise<
   SyncSummary | { error: string } | null

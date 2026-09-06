@@ -13,7 +13,7 @@
 // expects to find in the token.
 //
 // Import-free on purpose, like surfaces/github.ts: the unit tests sign tokens
-// with keys they generate and run this file outside the edge runtime.
+// with keys they generate and run this file without a database or API server.
 
 export class JwtError extends Error {
   // Set when the token names a key the key set does not hold. The caller may

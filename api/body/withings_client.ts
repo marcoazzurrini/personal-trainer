@@ -1,8 +1,8 @@
 // The Withings half of the bodyweight sync: refreshing the token, asking for
 // measurements, and deciding which of them count as weigh-ins.
 //
-// Import-free on purpose, like outside/github.ts: no database, no clock beyond
-// Date.now(), no edge-runtime types. Everything here can be exercised against a
+// Import-free on purpose, like surfaces/github.ts: no database and no clock
+// beyond Date.now(). Everything here can be exercised against a
 // stub server in a plain `deno test`, which matters because the two ways this
 // integration fails are both invisible in production — a token that quietly
 // stops refreshing, and a filter that quietly lets the wrong numbers through.

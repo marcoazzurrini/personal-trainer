@@ -21,3 +21,17 @@ Never exempt all tests, disable default rules, or use inline bypass comments.
 protected filenames, redaction and narrowly scoped fixture allowances in a
 temporary repository. CI runs that check too; bypassing local hooks does not
 bypass the CI scan. Neither check uploads findings.
+
+## Hosting wording inventory (#67)
+
+Reviewed active `api/`, `plugin/`, `scripts/` and `docs/hosting.md` references to
+edge runtimes, isolates, Deno Deploy, free-project pausing and function logs.
+The obsolete health rationale in `api/index.ts` changed with #55. This sweep
+updates the Withings catch-up/notification explanations, import-free client/JWT
+comments, and the API mount-prefix explanation. `withings_client.ts` also no
+longer names the retired `outside/` directory.
+
+Historical ADRs and applied migrations retain their original context. Ordinary
+programming uses of “function” stay. The caller-facing “function logs” error is
+tracked separately in #59, not changed as a comment cleanup. No runtime behavior
+changes under #67; `tests/hosting_wording_test.ts` checks the active explanations.
