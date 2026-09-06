@@ -16,9 +16,9 @@ import {
 // The retry guarantee, checked as an inventory rather than one endpoint at a
 // time.
 //
-// docs/index promises the coach that "every creating POST takes a request_id,
-// so a retry is always safe". A promise like that is only worth what its least
-// covered endpoint is worth: the client is a model issuing curl over a mobile
+// SKILL.md requires stable operation IDs and endpoint-specific replay.
+// This inventory covers database writes, not exactly-once external delivery.
+// Coverage matters: the client is a model issuing curl over a mobile
 // connection, and the failure it prevents — a write that succeeds, a response
 // that is lost, a retry that lands as a second row — is undetectable
 // afterwards. A duplicated meal is indistinguishable from eating twice.
@@ -35,7 +35,7 @@ import {
 // Every call here uses postRaw: api.post injects a request_id when a test
 // hasn't supplied one, which is exactly what must not happen in this file.
 
-const RETRY_MESSAGE = "makes a retry safe";
+const RETRY_MESSAGE = "Recorded writes replay by this id";
 
 Deno.test("every creating POST that could duplicate requires a request_id", async (t) => {
   await resetTraining();

@@ -14,7 +14,7 @@ import {
 // message carries the whole distinction rather than listing two words,
 // because the choice is the one piece of triage the coach does for us.
 const kindError = () =>
-  '"kind" must be one of: bug, improvement. A bug is the system doing something wrong — a call that failed, a number that came back wrong, an error message that sent you the wrong way; it also requires "evidence". An improvement is anything that would work better, including a document that has proven incomplete or a capability the API is missing.';
+  '"kind" must be one of: bug, improvement. A bug is the system doing something wrong — an unexplained failure, a number that came back wrong, an error message that sent you the wrong way; it also requires "evidence". An improvement is anything that would work better, including a document that has proven incomplete or a capability the API is missing.';
 
 const docsError = () =>
   '"docs" must be an array of document names, like ["tasks/programming"]. Leave it out if no document is involved.';
@@ -65,7 +65,7 @@ issues.openapi(
     tags: ["Issues"],
     summary: "File a report",
     description:
-      "Files a public GitHub issue. Sanitize every text field: remove credentials and cookies, use synthetic personal details, and obtain consent for sensitive details that cannot be removed. `evidence` is required for a bug — the sanitized call, response, and when — because a bug that cannot be reproduced cannot be fixed. An improvement is allowed to start as an idea.",
+      "Files a public GitHub issue for unexplained failures, impossible results or failed correct recovery, not expected unknown references, expired authentication or actionable validation refusals. Delivery can be ambiguous if GitHub accepts before the local ledger is written; do not blindly retry a failed creation. Sanitize every text field: remove credentials and cookies, use synthetic personal details, and obtain consent for sensitive details that cannot be removed. `evidence` is required for a bug — the sanitized call, response, and when — because a bug that cannot be reproduced cannot be fixed. An improvement is allowed to start as an idea.",
     request: {
       query: query({}),
       body: {
@@ -127,7 +127,7 @@ issues.openapi(
     tags: ["Issues"],
     summary: "Add to a report already open",
     description:
-      "Comments are public: remove credentials and cookies, use synthetic personal details, and obtain consent for irreducible sensitive evidence. Hitting the same problem again belongs on the open issue: the value of a repeat is that it makes a pattern, and a pattern split across two issues reads as two anecdotes.",
+      "Comments have no request-ID deduplication; do not blindly retry a failed or ambiguous write. Comments are public: remove credentials and cookies, use synthetic personal details, and obtain consent for irreducible sensitive evidence. Hitting the same problem again belongs on the open issue: the value of a repeat is that it makes a pattern, and a pattern split across two issues reads as two anecdotes.",
     request: {
       query: query({}),
       params: z.object({ number: idParam("issue") }),

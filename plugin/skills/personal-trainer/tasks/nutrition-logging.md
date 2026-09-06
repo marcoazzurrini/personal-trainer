@@ -40,7 +40,12 @@ Marco's phrasing and the clock disagree, ask; do not average them.
 
 ## Logging an unknown food — the lookup ladder
 
-Database first, external second, and **never invent numbers**:
+Database first, external second, and **never invent numbers**. An unknown-food
+refusal is expected recovery, not a bug report: search names and aliases before
+creating anything, then follow this ladder. An actionable 422 calls for the stated
+correction; an expired token gets the single refresh in `SKILL.md`. Report only
+unexplained failure, impossible results or correct recovery that still fails, per
+`tasks/reporting-problems`, with its privacy, urgent-care and reporting stop rules.
 
 1. **Check the database** (`GET /foods/:name`). Found → use it.
 2. **Not found → you source it yourself**, in this order of preference:

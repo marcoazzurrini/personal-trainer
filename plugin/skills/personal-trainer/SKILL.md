@@ -79,34 +79,39 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   "$BASE/intake" -d '{"request_id":"...", ...}'
 ```
 
-Responses are JSON. A 401 later in the conversation means the token expired:
-call `get_api_token` again and retry the same call.
+Responses are JSON. A 401 can mean an expired token: outside urgent care, call
+`get_api_token` once again and retry the same operation with the same `request_id`.
+If it still refuses, stop the authentication loop and explain the failure.
 
 ## Conventions that apply to every call
 
-- Every creating POST **requires** a `request_id`: a fresh UUID per call. Resending the
-  same id returns the original result instead of writing a second row, so a retry is
-  always safe — that is the point, and it is why the field is not optional. Reuse an id
-  only to retry that same call. A write is exempt only where a unique natural key
+- Every creating POST **requires** a `request_id`: a fresh UUID per call. Keep the same id
+  for a retry of that same operation; a genuinely new operation gets a new id.
+  Recorded database writes replay according to the endpoint contract, sometimes
+  with current surrounding state rather than a frozen response. This is not a
+  blanket retry guarantee for external writes: ambiguous GitHub issue creation
+  and comments must not be blindly retried (`tasks/reporting-problems`). A write is exempt only where a unique natural key
   already makes a retry collide: exercise and muscle names are unique, a bodyweight
   measurement is keyed by `(measured_at, source)`, a day flag upserts. Food names are
   **case-insensitive and unique**; brands and reformulations need distinct names.
   `POST /foods` still requires a `request_id` to replay the same creation rather
-  than collide with that unique name. Commenting on an open
-  issue is exempt on different grounds: a duplicated comment is a paragraph repeated in
-  a thread, not a second thing to review.
-- **Errors are prompts.** A rejected call returns plain English stating what was
-  wrong and what a correct call looks like. Read it and fix the call instead of
-  retrying blindly.
-- **A failed or plainly wrong call gets filed, immediately.** If a call errors, or
-  returns something that cannot be true, read `tasks/reporting-problems` and file
-  it as a sanitized bug there and then — mid-task, without asking for safe public
-  evidence. Remove credentials and cookies from every field; use synthetic personal
-  details. Sensitive details that cannot be removed need explicit consent before
-  public export, per the reporting document. Say in one line that you
-  filed it, give Marco the URL, and carry on with what he was doing. You are the
-  only thing that saw it; unfiled, it is gone. Improvements are the opposite: they
-  wait until the task is done and Marco decides whether they are worth filing.
+  than collide with that unique name. Comments have no request-ID deduplication;
+  sending one again can duplicate it.
+- **Expected refusals recover, not report.** An unknown reference needs lookup,
+  alias resolution or genuine creation; a 401 needs the bounded refresh above;
+  an actionable 422 needs the stated correction, not blind retries. Read the
+  relevant reference document and follow the refusal. If correct recovery fails,
+  the result is impossible, or a failure is unexplained (for example a 500), read
+  `tasks/reporting-problems` and file a sanitized report immediately, outside the
+  urgent-care exception. Remove credentials and cookies from every field; use
+  synthetic personal details. Irreducible sensitive details need explicit consent
+  before public export. Safe reports need no permission; improvements wait for
+  the task to finish and Marco's agreement.
+- **Reporting has a stop rule.** If issue lookup, filing or commenting fails,
+  stop reporting for this incident: no recursive report about reporting, no blind
+  retry of an ambiguous external write. Tell Marco briefly what could not be
+  filed (or whose delivery is unknown), without claiming success. Continue the
+  original task only if safe and supported; urgent symptom guidance always wins.
 - **A field a call does not accept is refused, not ignored.** This covers the body
   and the query string alike. Invent a plausible parameter and the call fails naming
   it, and lists the fields or parameters that do exist — which is usually the one you

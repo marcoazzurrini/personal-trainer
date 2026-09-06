@@ -1,7 +1,7 @@
 # Reporting a problem
 
 Neither these documents nor the API are fixed. When something in the system is
-in the way — a call that failed, a number that came back wrong, an error message
+in the way — an unexplained failure, a number that came back wrong, an error message
 that sent you somewhere useless, a procedure that produces the same friction
 every time — file an issue. Marco reads it and the change is written from the
 repository, where the code and its tests can actually be seen.
@@ -24,7 +24,7 @@ help is needed. Continue administration only after urgent care is addressed.
 ## Public evidence boundary
 
 Reports and comments go to a **public repository**. Sanitize **every field**, including
- title, problem, evidence, suggestion and comment notes, before sending anything.
+title, problem, evidence, suggestion and comment notes, before sending anything.
 Remove authorization headers, tokens, cookies and other credentials; never publish
 credentials even with consent. Preserve method, path, relevant field names, status,
 and reproduction steps, but replace personal identifiers and health details with
@@ -40,13 +40,30 @@ ordinary sanitized reporting needs no blanket confirmation. If consent is absent
 withhold the sensitive portion and say what evidence is unavailable. The API's narrow
 bearer/cookie guard is defense in depth, not a guarantee that all secrets are detected.
 
+## Expected refusals are recovery, not bugs
+
+- **Unknown reference:** look up the existing food, meal or exercise, check aliases,
+  then create only something genuinely new. For an unknown food use
+  `tasks/nutrition-logging`; never invent macros or duplicate a synonym.
+- **Expired authentication (401):** outside urgent care, refresh with
+  `get_api_token` once and retry the same operation with the same `request_id`.
+  A second refusal stops the authentication loop; explain the unresolved failure.
+- **Actionable validation (422):** read the message and reference document, then
+  correct the fields or units for the same intended operation. Do not file the
+  correct refusal as a bug. If the recommended correction still fails despite
+  following the contract, that failed recovery is reportable.
+
+A status alone is not a diagnosis of a bug. An unexplained 500, an impossible
+successful result, or recovery instructions that do not work is reportable.
+An absent supported feature is an improvement, not proof of a broken call.
+
 ## A bug: file it immediately, then carry on
 
 The system did something wrong:
 
-- A call failed, or returned something that cannot be right.
+- A call failed without an explained recovery, or returned something impossible.
 - An error message told you to do something that did not work.
-- The API has no way to record something that actually happened.
+
 
 **Outside the urgent-care exception, file it the moment you see it, even in the middle of a task.** Do not wait for
 the conversation to end and do not ask first for a safe sanitized report. The public evidence boundary above always applies. Then say in one line that you filed
@@ -81,8 +98,9 @@ that went against the method.
 
 ## How to file
 
-First check whether it is already open — one call, and it costs a bug report
-almost nothing:
+Make at most one issue lookup and, if that succeeds, one filing or comment
+attempt for this incident. If any reporting call fails, follow the stop rule below.
+First check whether it is already open:
 
 ```bash
 curl -s -H "$AUTH" "$BASE/issues"
@@ -123,10 +141,29 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   cannot read; say what would help, not what to write.
 - **`docs`** names the documents involved, as `SKILL.md` lists them.
   Leave it out when none are.
-- **`request_id`** is a fresh UUID, as on every creating call. Resending it
-  returns the issue you already filed instead of filing a second.
+- **`request_id`** is a fresh UUID per issue operation, kept stable if that same
+  operation is later retried after reconciliation. A recorded ledger result replays,
+  but GitHub can create the issue before the local ledger is written. This is not
+  exactly-once delivery. Comments have no request-ID deduplication at all.
 
-The response carries the issue URL and number. **Always tell Marco you filed it
+A successful response carries the issue URL and number. **Then tell Marco you filed it
 and give him the URL** — a report he never hears about is the same as no report.
 For a bug, say it in the same breath as the workaround and move on; do not turn
 it into a discussion in the middle of his session.
+
+## Reporting failure: stop, do not report the reporter
+
+If lookup, filing or commenting fails (including 401 or 422), **stop reporting for
+this incident**. Do not open another issue about it, refresh/retry inside the
+reporting flow, or loop back to lookup. Tell Marco briefly which report could not
+be filed and why, with sanitized details. For a timeout, lost response or 5xx after
+an issue/comment write, say **delivery is unknown**, not that nothing was created.
+Do not blindly retry: GitHub may already have accepted it, even with the same issue
+UUID; comments can duplicate without any ledger. A later explicit reconciliation
+can inspect the destination and decide what is missing; an inconclusive list is
+not proof that an issue or comment was never created.
+
+Continue the original task only if it remains safe and the record supports it;
+otherwise explain what is blocked. Never claim an unsaved log was saved, and never
+let this stop rule delay urgent symptom guidance. Reporting is not a prerequisite
+for giving that guidance or helping safely without the broken operation.

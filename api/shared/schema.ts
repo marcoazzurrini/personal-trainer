@@ -186,12 +186,12 @@ function uuidString(error: (iss: Issue) => string) {
 }
 
 // Required on any creating POST that could otherwise write the same thing
-// twice: retry safety is only a guarantee if the id is not optional.
+// twice. The id identifies the operation; external delivery has its own limits.
 export function requestId() {
   return uuidString((iss) =>
     `${
       at(iss)
-    } is required: a fresh UUID generated for this call. It is what makes a retry safe — resending the same id returns the original result instead of writing a second row. Reuse an id only to retry the exact same call.`
+    } is required: a fresh UUID generated for this call. Recorded writes replay by this id according to the endpoint contract. External issue delivery can remain ambiguous; do not blindly retry GitHub creation or comments. Reuse an id only to retry the exact same call.`
   );
 }
 

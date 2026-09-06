@@ -216,9 +216,9 @@ export async function fileIssue(b: {
       }
 
       // After GitHub, so the row means the issue exists. on conflict do nothing
-      // covers two retries racing each other: the second finds the issue already
-      // recorded and its own insert is the one that loses, which is right —
-      // either row describes the same issue.
+      // settles the local row, not the external side effect: concurrent calls
+      // may already have opened separate GitHub issues. Do not promise exactly-once
+      // delivery or recommend blind retries after an ambiguous upstream result.
       await sql`
     insert into coach_issues (request_id, issue_number, url, kind, title)
     values (${b.request_id}, ${opened.number}, ${opened.url}, ${kind}, ${title})
