@@ -35,9 +35,15 @@ const Week = z.object({
   mean_protein_g: z.int().nullable(),
   trend_start_kg: z.number().nullable(),
   trend_end_kg: z.number().nullable(),
-  trend_delta_kg: z.number().nullable(),
-  rate_pct_bw_week: z.number().nullable(),
-  implied_tdee_kcal: z.int().nullable(),
+  trend_delta_kg: z.number().nullable().describe(
+    "Actual end minus start trend weight, not normalized to seven days; null if an endpoint is missing.",
+  ),
+  rate_pct_bw_week: z.number().nullable().describe(
+    "Endpoint slope normalized to seven days as a percentage of starting weight; null without endpoints, positive elapsed days or positive starting weight.",
+  ),
+  implied_tdee_kcal: z.int().nullable().describe(
+    "Mean intake minus the daily endpoint slope times energy density; null without endpoints, positive elapsed days, intake or body composition.",
+  ),
   target: WeekTarget.nullable(),
   events: z.array(WeekEvent),
 });

@@ -9,7 +9,7 @@
 // them can be reacted to.
 
 import { sql } from "../db.ts";
-import { energyDensity, fatMassKg } from "./expenditure.ts";
+import { energyDensity, fatMassKg, weeklyTrendChange } from "./expenditure.ts";
 import { lastFinishedDay } from "../shared/calendar.ts";
 import { loadTrend } from "../body/bodyweight.ts";
 import { latestBodyfat } from "../body/bodyfat.ts";
@@ -131,28 +131,9 @@ export async function finishedWeeks(
     const trendStart = start?.trend_kg ?? null;
     const trendEnd = finish?.trend_kg ?? null;
 
-    // Implied expenditure for the week on its own, when the week has both
-    // ends of a trend and a mean intake to work from. Null is the honest
-    // answer otherwise — a week missing its bookend weigh-ins cannot say
-    // anything about expenditure, and filling it in would manufacture a
-    // trend out of nothing.
-    let impliedTdee: number | null = null;
-    if (
-      trendStart !== null && trendEnd !== null && row.mean_kcal !== null &&
-      bodyfat !== null
-    ) {
-      const density = energyDensity(fatMassKg(trendEnd, bodyfat));
-      impliedTdee = Math.round(
-        row.mean_kcal - (trendEnd - trendStart) / 7 * density,
-      );
-    }
-
-    // The week's own rate of change, so "am I losing at the rate I chose" is
-    // one read rather than a subtraction the caller has to know to make.
-    const ratePctBwWeek = trendStart === null || trendEnd === null ||
-        trendStart === 0
+    const density = trendEnd === null || bodyfat === null
       ? null
-      : Math.round((trendEnd - trendStart) / trendStart * 10000) / 100;
+      : energyDensity(fatMassKg(trendEnd, bodyfat));
 
     return {
       week_start: row.week_start,
@@ -166,11 +147,7 @@ export async function finishedWeeks(
         : Math.round(row.mean_protein_g),
       trend_start_kg: trendStart,
       trend_end_kg: trendEnd,
-      trend_delta_kg: trendStart === null || trendEnd === null
-        ? null
-        : Math.round((trendEnd - trendStart) * 100) / 100,
-      rate_pct_bw_week: ratePctBwWeek,
-      implied_tdee_kcal: impliedTdee,
+      ...weeklyTrendChange(start, finish, row.mean_kcal, density),
       target: row.kcal_target === null ? null : {
         kcal: row.kcal_target,
         protein_g: row.protein_g_target,

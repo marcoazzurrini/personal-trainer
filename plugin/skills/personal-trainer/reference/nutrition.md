@@ -428,9 +428,15 @@ reconstruct which target applied to which week by date from an append-only histo
   rule that did not exist.
 - `target.changed_during_week` is true when one target superseded another mid-week. The
   comparison is muddy there; say so rather than drawing a clean bar against the later one.
-- `rate_pct_bw_week` on the row is what the week's trend actually did; `target.rate_pct_bw_week`
-  is what was asked for. Those two together are the answer to "is this working" — see
-  `tasks/charts` view 6.
+- `trend_delta_kg` is the actual end-minus-start change: Monday to Sunday spans six
+  elapsed days. `rate_pct_bw_week` normalizes that daily slope to seven days as a
+  percentage of starting weight; `target.rate_pct_bw_week` is what was asked for.
+  For example, 80 kg falling 0.1 kg/day has a −0.6 kg endpoint delta and a −0.875%
+  weekly rate before rounding. See `tasks/charts` view 6.
+- `implied_tdee_kcal` subtracts the daily endpoint slope times energy density from
+  mean intake. Missing endpoints or unusable elapsed days give no rate or implied
+  expenditure; a nonpositive starting weight gives no percentage. Missing intake
+  or body composition gives no implied expenditure. These are null, never zero.
 - `mean_kcal` and `mean_protein_g` average the week's logged days with the flagged ones
   left out — not seven days, and not `days_logged` either. A week averaging 2,100 kcal
   across three logged days is not a 2,100 kcal week, and reading it as one is the most

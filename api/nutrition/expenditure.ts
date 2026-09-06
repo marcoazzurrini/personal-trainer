@@ -62,6 +62,38 @@ function round(v: number, places: number): number {
   return Math.round(v * f) / f;
 }
 
+/** Endpoint delta stays unnormalized; rates use elapsed UTC calendar days. */
+export function weeklyTrendChange(
+  start: Pick<TrendPoint, "day" | "trend_kg"> | undefined,
+  finish: Pick<TrendPoint, "day" | "trend_kg"> | undefined,
+  meanKcal: number | null,
+  density: number | null,
+): {
+  trend_delta_kg: number | null;
+  rate_pct_bw_week: number | null;
+  implied_tdee_kcal: number | null;
+} {
+  const delta = start && finish && Number.isFinite(start.trend_kg) &&
+      Number.isFinite(finish.trend_kg)
+    ? finish.trend_kg - start.trend_kg
+    : null;
+  const elapsed = start && finish ? daysBetween(start.day, finish.day) : NaN;
+  const slope = delta !== null && Number.isFinite(elapsed) && elapsed > 0
+    ? delta / elapsed
+    : null;
+  return {
+    trend_delta_kg: delta === null ? null : round(delta, 2),
+    rate_pct_bw_week: slope === null || !start || start.trend_kg <= 0
+      ? null
+      : round(slope * 7 / start.trend_kg * 100, 2),
+    implied_tdee_kcal: slope === null || meanKcal === null ||
+        !Number.isFinite(meanKcal) || density === null ||
+        !Number.isFinite(density) || density <= 0
+      ? null
+      : Math.round(meanKcal - slope * density),
+  };
+}
+
 export type ExpenditureStatus =
   | "ok"
   | "damped"

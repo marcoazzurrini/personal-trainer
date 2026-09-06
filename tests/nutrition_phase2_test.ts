@@ -61,6 +61,16 @@ Deno.test("expenditure and targets", async (t) => {
       assertEquals(week.mean_kcal, 2200);
       assert(week.trend_delta_kg < 0);
       assert(week.implied_tdee_kcal > 2200);
+      // Independent oracle: Monday to Sunday is six elapsed days. Forbes
+      // uses the ending weight and the fixture's 14% body fat.
+      const fatMass = week.trend_end_kg * 0.14;
+      const density = (10.4 * 1020 + fatMass * 9440) / (10.4 + fatMass);
+      const daily = (week.trend_end_kg - week.trend_start_kg) / 6;
+      assertEquals(week.implied_tdee_kcal, Math.round(2200 - daily * density));
+      assertEquals(
+        week.rate_pct_bw_week,
+        Math.round(daily * 7 / week.trend_start_kg * 10000) / 100,
+      );
     }
     assert(body.note.includes("noisy"));
     // No target set yet at this point in the file.
