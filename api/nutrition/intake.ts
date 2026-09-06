@@ -172,6 +172,21 @@ export async function logIntake(
         );
       }
 
+      for (const field of ["grams", "units"] as const) {
+        if (b[field] != null && wants[0] !== "food") {
+          throw new ApiError(
+            422,
+            `"${field}" goes with "food". For a saved meal send "scale"; for an estimate send "adhoc_kcal" at the number you mean.`,
+          );
+        }
+      }
+      if (b.adhoc_protein_g != null && wants[0] !== "adhoc_kcal") {
+        throw new ApiError(
+          422,
+          '"adhoc_protein_g" goes with "adhoc_kcal". Food and meal protein is computed from the saved food and quantity; omit the ad-hoc protein field.',
+        );
+      }
+
       // A portion of a saved meal. Bounded on both sides: a scale of 0 logs
       // nothing while answering 201, and anything past 10x a routine portion is a
       // misplaced decimal rather than an appetite — the same reasoning that makes
