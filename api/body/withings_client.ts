@@ -34,18 +34,31 @@ async function callWithings(
   params: Record<string, string>,
   accessToken?: string,
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(`${cfg.apiBase}${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-    },
-    body: new URLSearchParams(params),
-  });
+  const signal = AbortSignal.timeout(5_000);
+  let res: Response;
+  let json: { status?: unknown; body?: unknown; error?: unknown } | null;
+  try {
+    res = await fetch(`${cfg.apiBase}${path}`, {
+      signal,
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: new URLSearchParams(params),
+    });
 
-  const json = await res.json().catch(() => null) as
-    | { status?: unknown; body?: unknown; error?: unknown }
-    | null;
+    json = await res.json().catch((err) => {
+      if (signal.aborted) throw err;
+      return null;
+    });
+  } catch {
+    throw new WithingsError(
+      `Withings ${
+        signal.aborted ? "timed out after 5 seconds" : "could not be reached"
+      }. Sync did not complete; the checkpoint is unchanged. A token refresh may already have occurred upstream; do not assume it rolled back. Check synchronization before retrying.`,
+    );
+  }
 
   if (json === null || typeof json.status !== "number") {
     throw new WithingsError(

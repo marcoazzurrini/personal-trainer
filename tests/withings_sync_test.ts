@@ -55,6 +55,8 @@ Deno.test(
     const calls: Call[] = [];
     let measureReply: unknown = { status: 0, body: {} };
     let oauthReply: unknown = { status: 0, body: {} };
+    let hold: Promise<void> | undefined;
+    let entered: (() => void) | undefined;
     const stub = Deno.serve({ port: 0, onListen() {} }, async (req) => {
       const url = new URL(req.url);
       calls.push({
@@ -62,6 +64,8 @@ Deno.test(
         params: Object.fromEntries(new URLSearchParams(await req.text())),
         auth: req.headers.get("authorization"),
       });
+      entered?.();
+      await hold;
       return Response.json(
         url.pathname === "/v2/oauth2" ? oauthReply : measureReply,
       );
@@ -295,6 +299,42 @@ Deno.test(
       assert(result !== null && "error" in result!);
       assertStringIncludes((result as { error: string }).error, "status 401");
     });
+
+    await t.step(
+      "health responds while a tracked provider pass hangs, and the pass still finishes",
+      async () => {
+        const { handleRequest } = await import("../api/index.ts");
+        const { stopCatchUp } = await import("../api/body/withings.ts");
+        await sql`update withings_auth set last_sync_attempt_at = now() - interval '7 hours'`;
+        measureReply = {
+          status: 0,
+          body: { updatetime: base + 500, measuregrps: [] },
+        };
+        const gate = Promise.withResolvers<void>();
+        const started = Promise.withResolvers<void>();
+        hold = gate.promise;
+        entered = started.resolve;
+        try {
+          const before = performance.now();
+          const response = await handleRequest(
+            new Request("http://localhost/api/health"),
+          );
+          assertEquals(response.status, 200);
+          assertEquals(await response.json(), { status: "ok" });
+          assert(performance.now() - before < 1000);
+          await started.promise;
+          assertEquals(await watermarkEpoch(), base + 400);
+          gate.resolve();
+          await stopCatchUp();
+          assertEquals(await watermarkEpoch(), base + 500);
+        } finally {
+          gate.resolve();
+          hold = undefined;
+          entered = undefined;
+          await stopCatchUp();
+        }
+      },
+    );
 
     await t.step("cleanup", async () => {
       await sql`delete from bodyweight where source = 'withings'`;

@@ -40,16 +40,36 @@ async function gh(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
-  const res = await fetch(`${cfg.apiBase}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${cfg.token}`,
-      accept: "application/vnd.github+json",
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({}));
+  const signal = AbortSignal.timeout(5_000);
+  let res: Response;
+  let json: unknown;
+  try {
+    res = await fetch(`${cfg.apiBase}${path}`, {
+      signal,
+      method,
+      headers: {
+        authorization: `Bearer ${cfg.token}`,
+        accept: "application/vnd.github+json",
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    json = await res.json().catch((err) => {
+      if (signal.aborted) throw err;
+      return {};
+    });
+  } catch {
+    throw new GithubError(
+      502,
+      `GitHub ${
+        signal.aborted ? "timed out after 5 seconds" : "could not be reached"
+      }. ${
+        method === "GET"
+          ? "Try the read again later."
+          : "The write may already exist at GitHub. Check existing issues or comments before retrying; do not blindly repeat the write."
+      }`,
+    );
+  }
   if (!res.ok) {
     const detail = (json as { message?: string }).message ?? "no detail";
     throw new GithubError(

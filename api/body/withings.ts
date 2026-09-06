@@ -258,6 +258,23 @@ export async function catchUpIfDue(): Promise<
   }
 }
 
+let pendingCatchUp: Promise<unknown> | undefined;
+let stopping = false;
+
+/** Health triggers a tracked pass, never waits for the provider. */
+export function startCatchUp(): void {
+  if (stopping || pendingCatchUp) return;
+  pendingCatchUp = catchUpIfDue().finally(() => {
+    pendingCatchUp = undefined;
+  });
+}
+
+/** Stop scheduling before shutdown; the server drains this alongside HTTP. */
+export async function stopCatchUp(): Promise<void> {
+  stopping = true;
+  await pendingCatchUp;
+}
+
 /** The user id the notification must claim, or null when unconfigured. */
 export async function configuredUserId(): Promise<string | null> {
   const auth = await readAuth();

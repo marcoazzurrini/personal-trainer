@@ -1,13 +1,14 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { sql } from "./db.ts";
-import { errorResponse, validationHook } from "./shared/errors.ts";
+import { ApiError, errorResponse, validationHook } from "./shared/errors.ts";
+import { boundedBody } from "./shared/body.ts";
 import {
   bodyfat,
   bodyweight,
   withingsAdmin,
   withingsWebhook,
 } from "./body/index.ts";
-import { catchUpIfDue } from "./body/withings.ts";
+import { startCatchUp } from "./body/withings.ts";
 import { issues } from "./surfaces/index.ts";
 import { verifyToken } from "./access/tokens.ts";
 import { mcp } from "./access/index.ts";
@@ -47,19 +48,31 @@ import {
 // from answering in a shape the others do not.
 const app = new OpenAPIHono({ defaultHook: validationHook }).basePath("/api");
 
-// Registered before the token middleware on purpose: /health is public so the
-// uptime monitor can ping it without credentials. The select is the point —
-// database activity is what keeps the free project from being paused.
-//
-// It carries the Withings catch-up as well, because this ping is the only
-// scheduled event in the system and a second scheduler would be one more thing
-// to configure outside the repository and forget. catchUpIfDue throttles itself
-// to one pass every few hours and cannot throw: an unreachable Withings must
-// never make the monitor believe the project is down.
+// Public readiness probe: check the database within one second, then trigger
+// (but never await) the topic-owned, throttled Withings catch-up.
 app.get("/health", async (c) => {
-  await sql`select 1`;
-  const withings = await catchUpIfDue();
-  return c.json({ status: "ok", ...(withings ? { withings } : {}) });
+  const query = sql`select 1`.execute();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      query,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          query.cancel();
+          reject(
+            new ApiError(
+              503,
+              "Database readiness check timed out. Try the health read again later.",
+            ),
+          );
+        }, 1000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  startCatchUp();
+  return c.json({ status: "ok" });
 });
 
 // Withings cannot send our bearer token, so its two routes are registered here,
@@ -188,11 +201,11 @@ app.use(async (c, next) => {
 app.use(async (c, next) => {
   const method = c.req.method;
   if (method === "POST" || method === "PATCH" || method === "PUT") {
-    const raw = await c.req.raw.clone().text();
+    const raw = await c.req.text();
     if (raw.trim() !== "") {
       let parsed: unknown;
       try {
-        parsed = JSON.parse(raw);
+        parsed = await c.req.json();
       } catch {
         parsed = undefined;
       }
@@ -291,6 +304,15 @@ async function normalized(req: Request): Promise<Request> {
 
 // The test server uses this same handler, with a verified disposable database.
 export async function handleRequest(req: Request): Promise<Response> {
+  try {
+    req = await boundedBody(req);
+  } catch (err) {
+    return Response.json({
+      error: err instanceof ApiError
+        ? err.message
+        : "Request body could not be read. Send a complete request body.",
+    }, { status: err instanceof ApiError ? err.status : 400 });
+  }
   const url = new URL(req.url);
   const collapsed = url.pathname.replace(/^(\/api)+(?=\/|$)/, "/api");
   if (collapsed === url.pathname) return app.fetch(await normalized(req));
