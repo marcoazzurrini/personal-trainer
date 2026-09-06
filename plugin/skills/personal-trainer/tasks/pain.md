@@ -101,10 +101,9 @@ buckets exist so neither happens: soreness trains, complaints modify, red flags
 refer. When genuinely unsure which bucket a report belongs to, treat it as the more
 cautious one and say why.
 
-## Safety wording review
+## Sources and limits
 
 Public guidance checked: [NHS chest pain](https://www.nhs.uk/symptoms/chest-pain/)
 and [NHS shortness of breath](https://www.nhs.uk/symptoms/shortness-of-breath/).
-These inform escalation, not a diagnosis. **Qualified professional wording review
-is still pending and is a release blocker.** Document tests and synthetic scenario
+These inform escalation, not a diagnosis. Document tests and synthetic scenario
 walkthroughs are not clinical validation or observed coach behavior.

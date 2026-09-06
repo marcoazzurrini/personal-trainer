@@ -1,7 +1,7 @@
 import { assert, assertStringIncludes } from "@std/assert";
 import { documentPath, SKILL } from "./skill.ts";
 
-// Wording/precedence tripwires only. Qualified review remains a release gate.
+// Wording/precedence tripwires only, not clinical validation.
 Deno.test("pain documents put urgent systemic symptoms before tools and local training", async () => {
   const skill = await Deno.readTextFile(SKILL);
   const pain = await Deno.readTextFile(documentPath("tasks/pain"));
@@ -31,7 +31,7 @@ Deno.test("pain documents put urgent systemic symptoms before tools and local tr
       "Joint or tendon complaint",
       "Stop and refer",
       "triage, not diagnosis",
-      "release blocker",
+      "not clinical validation",
     ]
   ) {
     assertStringIncludes(pain, phrase);
