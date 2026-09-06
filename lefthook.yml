@@ -3,6 +3,8 @@ rc: .lefthookrc
 pre-commit:
   parallel: true
   jobs:
+    - name: secrets
+      run: deno task secrets
     - name: format
       glob: "*.{ts,js,json,jsonc,md}"
       exclude:
