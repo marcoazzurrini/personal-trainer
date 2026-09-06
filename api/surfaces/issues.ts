@@ -84,6 +84,24 @@ function capped(value: string, max: number, field: string): string {
   return value;
 }
 
+// Defense in depth for public reports, not a general secret classifier.
+// Only the explicit [REDACTED] marker is safe in a credential position.
+function requireSanitizedReport(value: string): void {
+  const withoutMarkers = value.replaceAll("[REDACTED]", '""');
+  if (
+    /\bbearer\s+[a-z0-9._~+/-]+=*/i.test(withoutMarkers) ||
+    /\b(?:set-cookie|cookie)["']?\s*[:=]\s*["']?[^\s"'`,}]/i.test(
+      withoutMarkers,
+    ) ||
+    /(?:--cookie(?:-jar)?|(?:^|\s)-b)\s+["']?[^\s"'`]/i.test(withoutMarkers)
+  ) {
+    throw new ApiError(
+      422,
+      "Public reports must be sanitized. Remove authorization credentials and cookies from every field, or replace their entire value with [REDACTED]. Use synthetic personal details; ask consent before publishing sensitive details that cannot be removed. No report was sent.",
+    );
+  }
+}
+
 // Optional, and validated as document names rather than free text so a
 // report about a document names something that can actually be fetched.
 // The count and the name rules stay here: both messages number the offending
@@ -126,6 +144,18 @@ export async function fileIssue(b: {
   docs?: string[];
   request_id: string;
 }): Promise<{ issue: OpenedIssue; created: boolean }> {
+  for (
+    const value of [
+      b.title,
+      b.problem,
+      b.evidence,
+      b.suggestion,
+      ...(b.docs ?? []),
+      b.request_id,
+    ]
+  ) {
+    if (value != null) requireSanitizedReport(value);
+  }
   // The retry answer arrives before anything reaches GitHub: the row is
   // written after the issue exists, so finding one means the issue was
   // already opened and a second call must not open another.
@@ -155,7 +185,7 @@ export async function fileIssue(b: {
       if (kind === "bug" && rawEvidence === null) {
         throw new ApiError(
           422,
-          '"evidence" is required for a bug: the call you made, the response that came back, and when. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.',
+          '"evidence" is required for a bug: the sanitized call, sanitized response, and when. Remove credentials and cookies; substitute synthetic personal details. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.',
         );
       }
       const evidence = rawEvidence === null
@@ -216,6 +246,7 @@ export async function commentOnReport(
   issueNumber: number,
   rawNote: string,
 ): Promise<{ url: string }> {
+  requireSanitizedReport(rawNote);
   const note = capped(rawNote, MAX_COMMENT, "note");
   try {
     return await commentOnIssue(config(), issueNumber, note);

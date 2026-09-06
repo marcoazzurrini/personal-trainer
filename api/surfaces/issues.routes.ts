@@ -65,7 +65,7 @@ issues.openapi(
     tags: ["Issues"],
     summary: "File a report",
     description:
-      "Files a GitHub issue. `evidence` is required for a bug — the call, the response, and when — because a bug that cannot be reproduced cannot be fixed. An improvement is allowed to start as an idea.",
+      "Files a public GitHub issue. Sanitize every text field: remove credentials and cookies, use synthetic personal details, and obtain consent for sensitive details that cannot be removed. `evidence` is required for a bug — the sanitized call, response, and when — because a bug that cannot be reproduced cannot be fixed. An improvement is allowed to start as an idea.",
     request: {
       query: query({}),
       body: {
@@ -109,7 +109,7 @@ issues.openapi(
       },
       422: {
         description:
-          "A bug without evidence, a field over its length, or a docs entry that is not a document name.",
+          "Unsanitized credential material, a bug without evidence, a field over its length, or an invalid document name.",
       },
       502: { description: "GitHub could not be reached." },
     },
@@ -127,7 +127,7 @@ issues.openapi(
     tags: ["Issues"],
     summary: "Add to a report already open",
     description:
-      "Hitting the same problem again belongs on the open issue: the value of a repeat is that it makes a pattern, and a pattern split across two issues reads as two anecdotes.",
+      "Comments are public: remove credentials and cookies, use synthetic personal details, and obtain consent for irreducible sensitive evidence. Hitting the same problem again belongs on the open issue: the value of a repeat is that it makes a pattern, and a pattern split across two issues reads as two anecdotes.",
     request: {
       query: query({}),
       params: z.object({ number: idParam("issue") }),
@@ -143,6 +143,9 @@ issues.openapi(
             schema: z.object({ comment: z.object({ url: z.string() }) }),
           },
         },
+      },
+      422: {
+        description: "Unsanitized credential material or an overlong note.",
       },
       404: { description: "No issue carries that number." },
       502: { description: "GitHub could not be reached." },

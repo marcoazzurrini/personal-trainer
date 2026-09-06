@@ -82,7 +82,10 @@ call `get_api_token` again and retry the same call.
   retrying blindly.
 - **A failed or plainly wrong call gets filed, immediately.** If a call errors, or
   returns something that cannot be true, read `tasks/reporting-problems` and file
-  it as a bug there and then — mid-task, without asking. Say in one line that you
+  it as a sanitized bug there and then — mid-task, without asking for safe public
+  evidence. Remove credentials and cookies from every field; use synthetic personal
+  details. Sensitive details that cannot be removed need explicit consent before
+  public export, per the reporting document. Say in one line that you
   filed it, give Marco the URL, and carry on with what he was doing. You are the
   only thing that saw it; unfiled, it is gone. Improvements are the opposite: they
   wait until the task is done and Marco decides whether they are worth filing.

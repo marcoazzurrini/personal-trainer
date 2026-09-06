@@ -14,6 +14,25 @@ the thing only you can produce is evidence — what you called, what came back,
 how often, what it cost the session. The diagnosis and the fix belong where the
 code is visible.
 
+## Public evidence boundary
+
+Reports and comments go to a **public repository**. Sanitize **every field**, including
+ title, problem, evidence, suggestion and comment notes, before sending anything.
+Remove authorization headers, tokens, cookies and other credentials; never publish
+credentials even with consent. Preserve method, path, relevant field names, status,
+and reproduction steps, but replace personal identifiers and health details with
+synthetic values wherever possible. Mark substitutions as synthetic, not observations.
+Use `[REDACTED]` for an entire removed value, not a token with a few characters hidden.
+For example: `Authorization: Bearer [REDACTED]`, `Cookie: [REDACTED]`, and a synthetic
+food/quantity reproducing the same refusal. Do not copy raw curl output or headers.
+
+If sensitive health or personal evidence cannot be removed without losing the problem,
+ask Marco's explicit consent for the exact details and public destination **before**
+exporting those details. A safe synthetic report can still be filed immediately;
+ordinary sanitized reporting needs no blanket confirmation. If consent is absent,
+withhold the sensitive portion and say what evidence is unavailable. The API's narrow
+bearer/cookie guard is defense in depth, not a guarantee that all secrets are detected.
+
 ## A bug: file it immediately, then carry on
 
 The system did something wrong:
@@ -23,7 +42,7 @@ The system did something wrong:
 - The API has no way to record something that actually happened.
 
 **File it the moment you see it, even in the middle of a task.** Do not wait for
-the conversation to end and do not ask first. Then say in one line that you filed
+the conversation to end and do not ask first for a safe sanitized report. The public evidence boundary above always applies. Then say in one line that you filed
 it, give Marco the URL, and go straight back to what he was doing.
 
 The reason for the interruption is that you are the only thing that saw it. A bug
@@ -79,7 +98,7 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
     "kind": "bug",
     "title": "POST /sets 500s when target_reps is sent without reps",
     "problem": "What is wrong, in one paragraph.",
-    "evidence": "The exact call, the exact response, the dates it happened.",
+    "evidence": "Sanitized reproduction, sanitized response, dates; substitutions marked synthetic.",
     "suggestion": "Optional. What you think should change.",
     "docs": ["reference/sessions"]
   }'
@@ -89,10 +108,10 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   wrong. An improvement is anything that would work better — including a
   document that has proven incomplete.
 - **`evidence`** is required for a bug and optional for an improvement. Write
-  down the call and the response verbatim, not a summary of them: nobody can
-  reproduce a bug from a paraphrase, and a bug that cannot be reproduced cannot
-  be fixed. If you cannot show it, file it as an improvement and say what you
-  suspect.
+  down a reproducible, sanitized call and response, with relevant field names,
+  status and timing. Mark redactions and synthetic substitutions; never include
+  credentials or unnecessary health details. If reproduction is unavailable,
+  say what is missing rather than inventing evidence.
 - **`suggestion`** is welcome and is not binding. You are describing code you
   cannot read; say what would help, not what to write.
 - **`docs`** names the documents involved, as `SKILL.md` lists them.

@@ -70,6 +70,103 @@ Deno.test(
       return { status: res.status, body: parsed };
     }
 
+    await t.step(
+      "public report fields refuse credentials before outbound calls without echo",
+      async () => {
+        const logged: unknown[][] = [];
+        const originalError = console.error;
+        console.error = (...args: unknown[]) => {
+          logged.push(args);
+        };
+        try {
+          const secret = "synthetic-secret-42";
+          for (
+            const material of [
+              `Authorization: Bearer ${secret}`,
+              `bEaReR ${secret}`,
+              `Cookie: session=${secret}`,
+              `Set-Cookie: session=${secret}; HttpOnly`,
+              `{"Cookie":"session=${secret}"}`,
+              `curl --cookie 'session=${secret}'`,
+              `curl -b 'session=${secret}'`,
+            ]
+          ) {
+            for (
+              const field of [
+                "title",
+                "problem",
+                "evidence",
+                "suggestion",
+                "docs",
+              ]
+            ) {
+              const before = calls.length;
+              const id = crypto.randomUUID();
+              const { status, body } = await req("POST", "/issues", {
+                kind: "bug",
+                title: "Synthetic report",
+                problem: "Synthetic example",
+                evidence: "GET /intake returned 500",
+                request_id: id,
+                [field]: field === "docs" ? [material] : material,
+              });
+              assertEquals(status, 422);
+              assertStringIncludes(body.error, "sanitized");
+              assert(!JSON.stringify(body).includes(secret));
+              assertEquals(calls.length, before);
+              assertEquals(
+                (await sql`select 1 from coach_issues where request_id = ${id}`)
+                  .length,
+                0,
+              );
+            }
+            const before = calls.length;
+            const { status, body } = await req("POST", "/issues/7/comments", {
+              note: material,
+            });
+            assertEquals(status, 422);
+            assert(!JSON.stringify(body).includes(secret));
+            assertEquals(calls.length, before);
+          }
+          assertEquals(logged, []);
+        } finally {
+          console.error = originalError;
+        }
+      },
+    );
+
+    await t.step(
+      "redacted and benign public examples still publish",
+      async () => {
+        reply = {
+          status: 201,
+          body: { number: 420, html_url: "https://github.com/x/420" },
+        };
+        const id = crypto.randomUUID();
+        const evidence =
+          'curl -H "Authorization: Bearer [REDACTED]" -H "Cookie: [REDACTED]" /intake; synthetic response 500';
+        const { status } = await req("POST", "/issues", {
+          kind: "bug",
+          title: "Synthetic example",
+          problem: "const count = 1;",
+          evidence,
+          request_id: id,
+        });
+        assertEquals(status, 201);
+        assertStringIncludes(
+          (calls.at(-1)!.body as { body: string }).body,
+          evidence,
+        );
+        reply = { status: 201, body: { html_url: "https://github.com/x/c42" } };
+        assertEquals(
+          (await req("POST", "/issues/420/comments", { note: evidence }))
+            .status,
+          201,
+        );
+        await sql`delete from coach_issues where request_id = ${id}`;
+      },
+    );
+
     const requestId = crypto.randomUUID();
 
     await t.step("the list filters out GitHub's pull requests", async () => {
