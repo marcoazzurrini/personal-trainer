@@ -22,6 +22,20 @@ protected filenames, redaction and narrowly scoped fixture allowances in a
 temporary repository. CI runs that check too; bypassing local hooks does not
 bypass the CI scan. Neither check uploads findings.
 
+## Request diagnostics
+
+Each HTTP attempt receives a generated `X-Request-ID`; internal-error sentences
+carry the same diagnostic ID. Server records contain that ID, method, registered
+route template, status, elapsed handler time and an unexpected-error marker.
+Headers, bodies, query values, raw paths and exception text/stacks are omitted,
+not passed through a best-effort secret regex. Provider logs retain counts and
+fixed failure categories, not account/measurement values. This trades detailed
+exception dumps for privacy: reproduce unexpected errors on disposable state
+when the route/status record alone does not explain them.
+
+A diagnostic ID is not the stable write `request_id`. Failed responses do not
+prove rollback, especially across GitHub delivery and the local ledger.
+
 ## Hosting wording inventory (#67)
 
 Reviewed active `api/`, `plugin/`, `scripts/` and `docs/hosting.md` references to

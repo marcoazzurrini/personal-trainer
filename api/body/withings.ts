@@ -133,9 +133,7 @@ async function writeReadings(
     } catch (err) {
       if (!(err instanceof ApiError)) throw err;
       refused++;
-      console.error(
-        `withings: refused ${reading.valueKg} kg at ${reading.measuredAt}: ${err.message}`,
-      );
+      console.error(`withings: reading refused (status ${err.status})`);
     }
   }
   return { written, duplicate, refused };
@@ -157,9 +155,7 @@ async function sync(
   const { updatetime, groups } = await getWeights(cfg, token, range);
   const { accepted, skipped } = selectWeights(groups);
 
-  for (const s of skipped) {
-    console.log(`withings: ignored group ${s.grpid} — ${s.why}`);
-  }
+  if (skipped.length) console.log(`withings: ignored ${skipped.length} groups`);
 
   const counts = await writeReadings(accepted);
 
@@ -246,7 +242,7 @@ export async function catchUpIfDue(): Promise<
     return await catchUp();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`withings: catch-up failed — ${message}`);
+    console.error("withings: catch-up failed; provider/error details withheld");
     return { error: message };
   }
 }

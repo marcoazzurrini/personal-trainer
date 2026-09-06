@@ -53,6 +53,12 @@ bearer/cookie guard is defense in depth, not a guarantee that all secrets are de
   correct refusal as a bug. If the recommended correction still fails despite
   following the contract, that failed recovery is reportable.
 
+An error's diagnostic ID (also `X-Request-ID`) identifies one HTTP attempt and
+is safe to include in a sanitized report. It is not the write `request_id`:
+keep that original operation ID stable across retries. A failed response does
+not prove a database or external write rolled back. Read the affected record
+first, and reconcile GitHub delivery before repeating issue/comment writes.
+
 A status alone is not a diagnosis of a bug. An unexplained 500, an impossible
 successful result, or recovery instructions that do not work is reportable.
 An absent supported feature is an improvement, not proof of a broken call.

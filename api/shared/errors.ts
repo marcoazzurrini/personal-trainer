@@ -115,6 +115,21 @@ export function validationHook(
   return c.json({ error: message }, 422);
 }
 
+export interface Diagnostic {
+  id: string;
+  route: string;
+  error?: "unexpected";
+}
+
+export function internalError(diagnostic: Diagnostic, method: string): string {
+  diagnostic.error = "unexpected";
+  return `Internal error. Diagnostic ID: ${diagnostic.id}. ${
+    method === "GET" || method === "HEAD"
+      ? "Try this read again later."
+      : "Write outcome is uncertain. Read the affected record first; keep the original write request_id for the same operation. Reconcile GitHub issues or comments before repeating an external write."
+  }`;
+}
+
 export function errorResponse(err: unknown, c: Context): Response {
   if (err instanceof ApiError) {
     return c.json({ error: err.message }, err.status);
@@ -166,6 +181,15 @@ export function errorResponse(err: unknown, c: Context): Response {
       } Check for a misplaced decimal point, or per-serving values sent as per-100 g.`,
     }, 422);
   }
-  console.error(err);
-  return c.json({ error: "Internal error. See function logs." }, 500);
+  const diagnostic: Diagnostic = c.get("diagnostic") ?? {
+    id: crypto.randomUUID(),
+    route: c.req.routePath ?? "unmatched",
+  };
+  const error = internalError(diagnostic, c.req.method);
+  c.header("X-Request-ID", diagnostic.id);
+  // No raw exception messages, details, causes or stacks: database/provider
+  // errors can embed credentials and personal input. The outer request logger
+  // owns the record; standalone routers used in tests get the same safe fallback.
+  if (!c.get("diagnostic")) console.error(JSON.stringify(diagnostic));
+  return c.json({ error }, 500);
 }

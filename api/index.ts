@@ -1,6 +1,12 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { sql } from "./db.ts";
-import { ApiError, errorResponse, validationHook } from "./shared/errors.ts";
+import {
+  ApiError,
+  type Diagnostic,
+  errorResponse,
+  internalError,
+  validationHook,
+} from "./shared/errors.ts";
 import { boundedBody } from "./shared/body.ts";
 import {
   bodyfat,
@@ -46,7 +52,22 @@ import {
 // defaultHook is the single place a schema refusal becomes the { "error": … }
 // envelope. Passing it here rather than per route is what stops one endpoint
 // from answering in a shape the others do not.
-const app = new OpenAPIHono({ defaultHook: validationHook }).basePath("/api");
+const app = new OpenAPIHono<{
+  Bindings: { diagnostic: Diagnostic };
+  Variables: { diagnostic: Diagnostic };
+}>({
+  defaultHook: validationHook,
+}).basePath("/api");
+
+app.use(async (c, next) => {
+  const diagnostic = c.env.diagnostic;
+  c.set("diagnostic", diagnostic);
+  await next();
+  // routePath is the registered template, never the caller's raw URL. An
+  // unmatched request ends at middleware (*), not at a sensitive path value.
+  const route = c.req.routePath;
+  diagnostic.route = !route || route.endsWith("*") ? "unmatched" : route;
+});
 
 // Public readiness probe: check the database within one second, then trigger
 // (but never await) the topic-owned, throttled Withings catch-up.
@@ -304,20 +325,52 @@ async function normalized(req: Request): Promise<Request> {
 
 // The test server uses this same handler, with a verified disposable database.
 export async function handleRequest(req: Request): Promise<Response> {
+  const started = performance.now();
+  const diagnostic: Diagnostic = {
+    id: crypto.randomUUID(),
+    route: "unmatched",
+  };
+  const method =
+    ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].includes(
+        req.method,
+      )
+      ? req.method
+      : "OTHER";
+  let response: Response;
   try {
-    req = await boundedBody(req);
+    try {
+      req = await boundedBody(req);
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(
+        400,
+        "Request body could not be read. Send a complete request body.",
+      );
+    }
+    const url = new URL(req.url);
+    const collapsed = url.pathname.replace(/^(\/api)+(?=\/|$)/, "/api");
+    if (collapsed !== url.pathname) {
+      url.pathname = collapsed;
+      req = new Request(url, req);
+    }
+    response = await app.fetch(await normalized(req), { diagnostic });
   } catch (err) {
-    return Response.json({
+    response = Response.json({
       error: err instanceof ApiError
         ? err.message
-        : "Request body could not be read. Send a complete request body.",
-    }, { status: err instanceof ApiError ? err.status : 400 });
+        : internalError(diagnostic, method),
+    }, { status: err instanceof ApiError ? err.status : 500 });
   }
-  const url = new URL(req.url);
-  const collapsed = url.pathname.replace(/^(\/api)+(?=\/|$)/, "/api");
-  if (collapsed === url.pathname) return app.fetch(await normalized(req));
-  url.pathname = collapsed;
-  return app.fetch(await normalized(new Request(url, req)));
+  response.headers.set("X-Request-ID", diagnostic.id);
+  console.log(JSON.stringify({
+    diagnostic_id: diagnostic.id,
+    method,
+    route: diagnostic.route,
+    status: response.status,
+    duration_ms: Math.round(performance.now() - started),
+    ...(diagnostic.error ? { error: diagnostic.error } : {}),
+  }));
+  return response;
 }
 
 // The port is the container's business, not the app's.

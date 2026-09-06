@@ -40,7 +40,7 @@ withingsWebhook.post("/notify", async (c) => {
   const enddate = Number(form.get("enddate"));
 
   if (appli !== APPLI_WEIGHT) {
-    console.log(`withings: ignoring notification for appli ${appli}`);
+    console.log("withings: ignoring notification for another measurement type");
     return c.json({ status: "ok" });
   }
 
@@ -53,7 +53,7 @@ withingsWebhook.post("/notify", async (c) => {
     return c.json({ status: "ok" });
   }
   if (userid !== expected) {
-    console.log(`withings: ignoring notification for user ${userid}`);
+    console.log("withings: ignoring notification for another account");
     return c.json({ status: "ok" });
   }
 
@@ -64,16 +64,16 @@ withingsWebhook.post("/notify", async (c) => {
     const summary = Number.isFinite(startdate) && Number.isFinite(enddate)
       ? await syncNotifiedWindow(startdate, enddate)
       : await catchUp();
-    console.log(`withings: ${JSON.stringify(summary)}`);
-  } catch (err) {
+    console.log(
+      `withings: notification fetched ${summary.fetched}, written ${summary.written}, refused ${summary.refused}`,
+    );
+  } catch {
     // Answer 200 regardless. A retry from Withings would help, but a callback
     // that returns errors is a callback Withings eventually unsubscribes, and
     // losing the subscription costs more than losing one notification — the
     // catch-up pass exists to collect exactly what is lost here.
     console.error(
-      `withings: notification for ${startdate}–${enddate} failed — ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      "withings: notification sync failed; provider/error details withheld",
     );
   }
 
