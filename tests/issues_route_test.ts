@@ -89,6 +89,12 @@ Deno.test(
               `{"Cookie":"session=${secret}"}`,
               `curl --cookie 'session=${secret}'`,
               `curl -b 'session=${secret}'`,
+              `curl -b'session=${secret}' https://example.invalid`,
+              `curl -b"session=${secret}" https://example.invalid`,
+              `curl -bsession=${secret} https://example.invalid`,
+              `curl -b'[REDACTED]; session=${secret}'`,
+              `curl -b"[REDACTED]; session=${secret}"`,
+              `curl -b[REDACTED]${secret}`,
               `Bearer [REDACTED]${secret}`,
               `Cookie: [REDACTED]; session=${secret}`,
               `curl --cookie '[REDACTED]; session=${secret}'`,
@@ -147,7 +153,10 @@ Deno.test(
         };
         const id = crypto.randomUUID();
         const evidence =
-          'curl -H "Authorization: Bearer [REDACTED]" -H "Cookie: [REDACTED]" /intake; synthetic response 500';
+          'curl -H "Authorization: Bearer [REDACTED]" -H "Cookie: [REDACTED]" /intake; synthetic response 500\n' +
+          "curl -b'[REDACTED]' https://example.invalid\n" +
+          'curl -b"[REDACTED]" https://example.invalid\n' +
+          "curl https://example.invalid -b[REDACTED]";
         const { status } = await req("POST", "/issues", {
           kind: "bug",
           title: "Synthetic example",

@@ -88,7 +88,7 @@ function capped(value: string, max: number, field: string): string {
 // Only the explicit [REDACTED] marker is safe in a credential position.
 function requireSanitizedReport(value: string): void {
   const credentials = value.matchAll(
-    /(?:\bbearer\s+|\b(?:set-cookie|cookie)["']?\s*[:=]\s*["']?|(?:--cookie(?:-jar)?|(?:^|\s)-b)\s+["']?)([^\r\n"'`]+)/gi,
+    /(?:\bbearer\s+|\b(?:set-cookie|cookie)["']?\s*[:=]\s*["']?|(?:--cookie(?:-jar)?\s+|(?:^|\s)-b\s*)["']?)([^\r\n"'`]+)/gi,
   );
   for (const [, credential] of credentials) {
     if (credential.trim() === "[REDACTED]") continue;
