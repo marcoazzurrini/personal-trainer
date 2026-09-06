@@ -48,9 +48,25 @@ SIGTERM reaches the API through the image's real `deno task start` entrypoint.
 The API stops accepting requests and scheduling catch-up, drains both, then
 closes Postgres. An unfinished drain exits nonzero at the bound in
 `api/index.ts`; an interrupted operation may already have durable side effects.
-Keep the host/container stop grace at Docker's default or longer, never below
-that application deadline. Verify any Coolify stop-timeout override before
-release; the local container test does not establish the deployed setting.
+Keep the host/container stop grace longer than that application deadline.
+Coolify supplies its own timeout when stopping an application; an unset Docker
+container `StopTimeout` is not proof of the timeout used during deployment.
+
+Verified read-only on 6 September 2026: the installed Coolify 4.3.14 runs in
+production mode without Swarm. This application's `stop_grace_period` is null
+in Coolify's settings, so `ApplicationSetting::stopGracePeriodSeconds()` and
+`deploymentStopGracePeriodSeconds()` resolve to its 30-second default. Both
+`StopApplication` and `ApplicationDeploymentJob::graceful_shutdown_container()`
+pass that value to `dockerStopCommand`, which emits `docker stop --timeout=30`
+for the installed Docker 29.7.2. The running container has no stop-signal or
+timeout override. Thirty seconds accommodates the new API's eight-second drain
+bound; no host setting change is needed. Recheck after changing Coolify or its
+application settings.
+
+Evidence came from SSH container inspection, installed Coolify source, and a
+read-only query of Coolify's own application settings—not the training database.
+No live stop or deployment was performed. The running API image still names
+`04d6662`; the new shutdown code is locally tested, not yet deployed.
 
 `deno task test:shutdown` builds the production image and exercises it against
 the same identity-verified disposable cluster, using a private test network
