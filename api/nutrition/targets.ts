@@ -298,37 +298,47 @@ export async function setTarget(
         };
       }
 
-      const previous = await activeTarget(effectiveFrom);
+      return await sql.begin(async (tx) => {
+        // ponytail: target writes serialize table-wide; per-owner locks if this
+        // ever holds independent owners. The lock also covers an empty history.
+        await tx`lock table nutrition_targets in share row exclusive mode`;
+        const [previous] = await tx<TargetRow[]>`
+          ${selectTarget()}
+          where effective_from <= ${effectiveFrom}
+          order by effective_from desc, id desc limit 1`;
 
-      const [row] = await sql<TargetRow[]>`
-    insert into nutrition_targets
-      (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target,
-       decision, tdee_at_creation, clipped, clipped_reasons, request_id)
-    values
-      (${effectiveFrom}, ${goal}, ${rate}, ${kcalTarget}, ${proteinTarget},
-       ${decision}, ${tdeeAtCreation}, ${clipped}, ${sql.array(clippedReasons)},
-       ${b.request_id})
-    returning id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
-      protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
-      created_at`;
+        const [row] = await tx<TargetRow[]>`
+      insert into nutrition_targets
+        (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target,
+         decision, tdee_at_creation, clipped, clipped_reasons, request_id)
+      values
+        (${effectiveFrom}, ${goal}, ${rate}, ${kcalTarget}, ${proteinTarget},
+         ${decision}, ${tdeeAtCreation}, ${clipped}, ${
+          sql.array(clippedReasons)
+        },
+         ${b.request_id})
+      returning id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
+        protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
+        created_at`;
 
-      // A change of goal is a phase switch, and a phase switch moves 1–2 kg of
-      // water within days. Registered automatically so the expenditure estimate
-      // damps through it — the coach should not have to remember to do this, and
-      // forgetting would make the next check-in read the water as metabolism.
-      if (previous && previous.goal !== goal) {
-        await sql`
-      insert into nutrition_events (day, kind, note)
-      values (${effectiveFrom}, 'phase_switch',
-        ${`${previous.goal} -> ${goal}`})`;
-      }
+        // A change of goal is a phase switch, and a phase switch moves 1–2 kg of
+        // water within days. Registered automatically so the expenditure estimate
+        // damps through it — the coach should not have to remember to do this, and
+        // forgetting would make the next check-in read the water as metabolism.
+        if (previous && previous.goal !== goal) {
+          await tx`
+        insert into nutrition_events (day, kind, note)
+        values (${effectiveFrom}, 'phase_switch',
+          ${`${previous.goal} -> ${goal}`})`;
+        }
 
-      return {
-        target: row,
-        computation,
-        protein_computation: proteinComputation,
-        phase_switch_registered: Boolean(previous && previous.goal !== goal),
-      };
+        return {
+          target: row,
+          computation,
+          protein_computation: proteinComputation,
+          phase_switch_registered: Boolean(previous && previous.goal !== goal),
+        };
+      });
     },
   });
   return status === 201 ? { created: true, body } : { created: false, body };
