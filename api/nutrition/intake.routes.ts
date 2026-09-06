@@ -83,7 +83,7 @@ intake.openapi(
     tags: ["Nutrition"],
     summary: "Log something eaten",
     description:
-      'Exactly one of "meal", "food" or "adhoc_kcal". A meal writes one row per item, each carrying the food\'s numbers as they are now — the snapshot that keeps March\'s breakfast the breakfast that was eaten in March.',
+      'Exactly one of "meal", "food" or "adhoc_kcal". A meal writes one row per item, each carrying the food\'s numbers as they are now — recipe edits leave those rows alone, while food corrections rewrite linked historical intake.',
     request: {
       query: query({}),
       body: {

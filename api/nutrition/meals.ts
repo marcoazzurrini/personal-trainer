@@ -3,8 +3,8 @@
 //
 // A meal never reaches anything already logged. Logging a meal copies its
 // foods' numbers onto intake rows, so editing the recipe changes what future
-// logs write and nothing else. Same rule sets follow: a set copies its target
-// instead of pointing at one.
+// logs write and nothing else. Food corrections are different: correctFood
+// rewrites historical intake linked to that food, including meal-derived rows.
 
 import { sql } from "../db.ts";
 import { ApiError } from "../shared/errors.ts";
@@ -177,7 +177,8 @@ export async function saveMeal(b: {
  * it was logged with, and nothing here can reach it: intake rows carry their
  * own macros and do not consult meal_items. That is the guarantee the whole
  * snapshot design exists to provide, and it holds by construction rather than
- * by this function remembering to be careful.
+ * by this function remembering to be careful. This is not immunity from a
+ * separate food correction, which deliberately rewrites linked intake.
  */
 export async function editMeal(ref: string, b: {
   name?: string;

@@ -102,7 +102,7 @@ nutritionTargets.openapi(
     tags: ["Nutrition"],
     summary: "Set a target",
     description:
-      "Exactly one protein input is required: `protein_g_per_kg_ffm` on a deficit, `protein_g_per_kg_bw` at maintenance or in a surplus, or `protein_g_target` as a finished number when neither basis fits. kcal is computed from `rate_pct_bw_week` unless `kcal_target` is sent explicitly.",
+      "Exactly one protein input is required: `protein_g_per_kg_ffm` on a deficit, `protein_g_per_kg_bw` at maintenance or in a surplus, or `protein_g_target` as a finished number when neither basis fits. kcal is computed from `rate_pct_bw_week` unless `kcal_target` is sent explicitly. Protein-only targets are not stored: without an expenditure estimate or defensible explicit calories, the whole creation is refused.",
     request: {
       query: query({}),
       body: {

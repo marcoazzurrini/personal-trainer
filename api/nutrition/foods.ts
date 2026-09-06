@@ -286,10 +286,9 @@ export async function correctFood(
   };
 }
 
-// Only a food nothing has ever used — a typo'd duplicate, a mis-sourced row
-// caught before it was logged. Once a food is in the record, deleting it would
-// orphan history, so the answer there is a correction: fix the numbers and the
-// past fixes with them.
+// Only a food with no current intake or meal-item references can be deleted.
+// A removed mis-log no longer blocks deletion; aliases are removed below.
+// For a referenced food with wrong numbers, correction fixes its past too.
 export async function deleteFood(ref: string): Promise<string> {
   const id = await resolveFoodId(ref);
   const [{ entries, items }] = await sql`

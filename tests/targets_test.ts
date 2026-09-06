@@ -33,6 +33,23 @@ Deno.test("a target is computable before any estimate exists", async (t) => {
   });
 
   await t.step(
+    "baseline protein guidance cannot persist without calories",
+    async () => {
+      const { status, body } = await api.post("/nutrition-targets", {
+        goal: "maintain",
+        rate_pct_bw_week: 0,
+        protein_g_per_kg_bw: 1.8,
+        decision: "Synthetic baseline: no expenditure or explicit calories.",
+      });
+      assertEquals(status, 422);
+      assert(body.error.includes("cannot be computed yet"));
+      const read = await api.get("/nutrition-targets");
+      assertEquals(read.body.targets, []);
+      assertEquals(read.body.active, null);
+    },
+  );
+
+  await t.step(
     "an explicit target is accepted and marked as such",
     async () => {
       const { status, body } = await api.post("/nutrition-targets", {

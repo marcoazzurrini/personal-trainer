@@ -94,20 +94,29 @@ names every blocker at once. So there are two honest paths, and you pick one
 with him rather than silently:
 
 - **Baseline first (default).** Log habitual intake for 10–14 days with no
-  target at all, then set the first target from measured expenditure. This costs
+  persisted target at all, then review the blockers in `nutrition-state`. Set the
+  first target only when the estimate is available. This costs
   nothing: those two weeks are exactly the habit-building window the doctrine
   cares about, the logging practice is the real work, and the resulting target
-  is built on his data instead of a formula. Tell him the number is coming and
-  when.
+  is built on his data instead of a formula. Do not promise readiness in 14 days:
+  the window is three finished Monday–Sunday weeks, needs 14 usable days and at
+  least three weigh-in days in each week, plus body fat. Current-week data waits
+  for the week to finish. Relay the actual blockers and their window dates.
 - **Provisional target now.** If he wants a number to eat to immediately, set
   one with an explicit `kcal_target`, and say in the `decision` field that it is
   provisional and will be superseded once the estimate exists. Targets are
   append-only, so superseding is the normal mechanism, not a repair.
 
-Either way, set protein from the start — it is the one macro with a hard target
-and it does not need an expenditure estimate: `protein_g_per_kg_ffm` 2.3–3.1 in
-a deficit (needs the body-fat row), `protein_g_per_kg_bw` 1.6–2.2 at maintenance
-or in surplus. Send the multiplier, never a finished gram figure.
+Discuss protein from the start: `protein_g_per_kg_ffm` 2.3–3.1 in a deficit
+(needs body fat), `protein_g_per_kg_bw` 1.6–2.2 at maintenance or in surplus.
+On the baseline path this is **conversational guidance, not a saved target**.
+The API cannot persist protein alone: without expenditure or explicit calories,
+`POST /nutrition-targets` is refused. Do not call it on this path, invent calories,
+or tell Marco a protein target was saved. If useful, record the agreed goal and
+protein approach as user context via `reference/tracking`, explicitly labelled
+as guidance pending target creation, not an active target or computed gram figure.
+On the provisional path, send the protein multiplier with the defensible explicit
+calories in the same target call, and describe it as saved only after success.
 
 ### 4. Three to five saved staples — the highest-leverage step here
 
@@ -190,8 +199,8 @@ When weighing is running, a body-fat estimate is on record, the staples are
 saved, and one entry has actually been logged, say so plainly and name what
 happens next: daily logging under `tasks/nutrition-logging`, and the first
 `tasks/nutrition-checkin` once there is something to check — which is roughly
-two weeks out, not next Monday, because the estimate needs 14 usable days in a
-21-day window before it will say anything at all.
+two weeks out for a habit review, not a guaranteed target date. The estimate
+requires the qualifying finished-week window above; read its actual blockers.
 
 Tell him that timeline explicitly. The most common way this system loses someone
 is silence in week one, when he is logging diligently and the app appears to

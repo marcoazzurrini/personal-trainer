@@ -137,8 +137,8 @@ Created whole, in one transaction. Foods are referenced by id, name, or alias an
 already exist. Totals are computed at read time, never stored.
 
 **Meals are routines, not history.** Logging a meal copies its foods' numbers onto the
-intake rows, so editing a meal — or the foods in it — changes what future logs write
-and cannot reach anything already logged. A one-off variation ("usual breakfast but
+intake rows. Editing the meal recipe changes future logs only; **correcting a food
+rewrites historical intake linked to that food**, including entries logged via meals. A one-off variation ("usual breakfast but
 double yogurt") is the meal plus a separate food entry, not a new meal; create a new
 meal only when a variation has become a routine.
 
@@ -375,6 +375,11 @@ Protein — send exactly one:
 
 The two bases are ~40 g/day apart at the same multiplier, which is exactly why this is
 not multiplication to do in your head.
+
+**No protein-only persisted target.** A target needs both calories and protein.
+Without an expenditure estimate or a defensible explicit `kcal_target`, creation is
+refused and no protein target is saved. Baseline onboarding defers target creation;
+never invent calories to make a protein recommendation persist.
 
 Calories — omit `kcal_target` and the server computes it from the current estimate and
 the rate. Sending an explicit `kcal_target` bypasses the arithmetic and should be rare.

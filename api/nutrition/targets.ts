@@ -216,7 +216,8 @@ export async function setTarget(
       const bodyfat = (await latestBodyfat())?.percent ?? null;
 
       // Protein first: it is the one target that does not depend on the
-      // expenditure estimate, so it still resolves when the estimate does not.
+      // expenditure estimate. This computes protein, not a separate persisted
+      // target: the calorie branch below must also succeed before either is saved.
       let proteinTarget: number;
       let proteinComputation = null;
       const explicitProtein = b.protein_g_target ?? null;

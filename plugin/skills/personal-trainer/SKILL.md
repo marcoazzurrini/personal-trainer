@@ -90,8 +90,9 @@ call `get_api_token` again and retry the same call.
   only to retry that same call. A write is exempt only where a unique natural key
   already makes a retry collide: exercise and muscle names are unique, a bodyweight
   measurement is keyed by `(measured_at, source)`, a day flag upserts. Food names are
-  deliberately **not** unique — brands and reformulations share a name — which is why
-  `POST /foods` is not exempt despite being a catalogue write. Commenting on an open
+  **case-insensitive and unique**; brands and reformulations need distinct names.
+  `POST /foods` still requires a `request_id` to replay the same creation rather
+  than collide with that unique name. Commenting on an open
   issue is exempt on different grounds: a duplicated comment is a paragraph repeated in
   a thread, not a second thing to review.
 - **Errors are prompts.** A rejected call returns plain English stating what was
