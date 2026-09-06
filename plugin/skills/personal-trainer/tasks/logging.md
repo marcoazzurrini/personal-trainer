@@ -6,6 +6,11 @@ afterwards they say what they did — that report is how actuals reach the recor
 shapes are in `reference/sessions` (sessions, sets, corrections) and `reference/tracking`
 (user context, bodyweight).
 
+**Urgent care before records.** Potentially urgent systemic symptoms trigger the
+`SKILL.md` urgent exception: stop the whole workout and give urgent-care direction
+before any tool call. Defer logging, user-context writes and bug filing until urgent
+care is addressed; the same-conversation rules below never delay help.
+
 ## A workout that never got logged (retro session)
 
 `POST /sessions` with a past `date`, a `rationale` saying it was retro-logged and why the

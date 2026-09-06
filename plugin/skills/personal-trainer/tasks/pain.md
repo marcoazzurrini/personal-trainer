@@ -9,7 +9,27 @@ does about a symptom, and to recognise when the question has stopped being a tra
 question. Naming a suspected injury, estimating recovery time for one, or overruling
 a professional's advice with training logic is never the job.
 
-## Three buckets
+## Urgent systemic symptoms — before the local buckets
+
+**Stop the whole workout. Give urgent-care direction before token acquisition,
+state reads, logging or bug filing.** Do not train another area. Chest pain with
+marked breathlessness, fainting, or severe difficulty breathing calls for emergency
+help now: call 112 in Italy/EU (the local emergency number elsewhere), do not drive
+yourself, and ask someone nearby to help. Sudden persistent chest discomfort,
+spreading chest pain, chest pain with sweating or lightheadedness, gasping or being
+unable to speak normally, blue/grey lips or sudden confusion are emergency signs.
+Do not wait for an API, more questions, or this document before giving direction.
+
+New unexplained chest pain, dizziness or breathlessness out of proportion to effort
+stops the workout and needs prompt medical advice, not a substitution or a diagnosis.
+If severe, ongoing, worsening, or accompanied by the emergency signs above, direct
+to emergency services now. Do not resume training on the coach's reassurance; follow
+medical advice. Defer administrative work until urgent care is addressed.
+
+This is triage, not diagnosis: do not label it as anxiety, dehydration or an injury.
+The ordinary paths below apply only after urgent systemic symptoms are excluded.
+
+## Three local buckets
 
 **Muscle soreness.** Diffuse, in the belly of a muscle that worked, roughly matching
 what was trained, peaking a day or two after novel or hard work, easing as the muscle
@@ -33,14 +53,12 @@ gets a professional involved before any workaround is programmed:
 - pain following impact or trauma
 - night pain that doesn't change with position
 - pain that keeps worsening across one to two weeks despite backing off
-- anything systemic — chest pain, dizziness, breathlessness out of proportion to
-  effort
 
 Say plainly that this needs assessment, and don't program around the area until it
 has been assessed. A professional's restrictions, once given, outrank the plan the
 way spacing constraints do.
 
-## Mid-session rules
+## Mid-session rules — local symptoms only
 
 - **A set is never finished through sharp pain.** Stop the set, whatever the target
   said. The target records what was asked; the set records what was wise.
@@ -52,9 +70,12 @@ way spacing constraints do.
   less. The dose is not chased on a day the body said no; a short session recorded
   honestly is information (`tasks/session-generation`, "Don't cram").
 
-## Write it down, every time
+## Write it down — after urgent care, never before
 
-A pain report that isn't recorded is a pattern that can't be seen. Same conversation,
+For urgent systemic symptoms, defer logging and reporting until urgent care is
+addressed. No same-turn writing rule overrides that priority.
+
+A non-urgent pain report that isn't recorded is a pattern that can't be seen. Same conversation,
 per `tasks/logging`:
 
 - **User context**, under a durable topic ("left elbow", "lower back"): what hurts,
@@ -79,3 +100,11 @@ trains. Coaching through a red flag because the plan says 12 sets is worse. The
 buckets exist so neither happens: soreness trains, complaints modify, red flags
 refer. When genuinely unsure which bucket a report belongs to, treat it as the more
 cautious one and say why.
+
+## Safety wording review
+
+Public guidance checked: [NHS chest pain](https://www.nhs.uk/symptoms/chest-pain/)
+and [NHS shortness of breath](https://www.nhs.uk/symptoms/shortness-of-breath/).
+These inform escalation, not a diagnosis. **Qualified professional wording review
+is still pending and is a release blocker.** Document tests and synthetic scenario
+walkthroughs are not clinical validation or observed coach behavior.

@@ -14,6 +14,13 @@ the thing only you can produce is evidence — what you called, what came back,
 how often, what it cost the session. The diagnosis and the fix belong where the
 code is visible.
 
+## Urgent care outranks reporting
+
+For potentially urgent systemic symptoms, stop the whole workout and give the
+urgent-care direction in `SKILL.md` before token acquisition, state reads, logging,
+issue lookup or filing. Do not train another area or resume reporting while urgent
+help is needed. Continue administration only after urgent care is addressed.
+
 ## Public evidence boundary
 
 Reports and comments go to a **public repository**. Sanitize **every field**, including
@@ -41,7 +48,7 @@ The system did something wrong:
 - An error message told you to do something that did not work.
 - The API has no way to record something that actually happened.
 
-**File it the moment you see it, even in the middle of a task.** Do not wait for
+**Outside the urgent-care exception, file it the moment you see it, even in the middle of a task.** Do not wait for
 the conversation to end and do not ask first for a safe sanitized report. The public evidence boundary above always applies. Then say in one line that you filed
 it, give Marco the URL, and go straight back to what he was doing.
 
