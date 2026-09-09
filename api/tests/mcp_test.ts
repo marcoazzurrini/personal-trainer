@@ -1,0 +1,446 @@
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import {
+  challengeHeader,
+  handleMcp,
+  protectedResourceMetadata,
+  publicOrigin,
+  TOOL_NAME,
+} from "../access/mcp.ts";
+
+// The connector, in two halves. The dispatch is import-free and runs here
+// with a stub minter, so every branch of the protocol is exercised without a
+// sign-in. The route is probed live for what it does before a sign-in — the
+// refusal, the pointer to where to sign in, the discovery document — because
+// the local stack runs without the auth service. An in-process route check
+// below uses a test signing key for GET and POST, then a real minted token
+// against the disposable API. Hosted sign-in still needs a client smoke check.
+
+const CALLER = { subject: "user_01TEST" };
+const deps = {
+  issue: (subject: string) =>
+    Promise.resolve({
+      token: `minted-for-${subject}`,
+      expires_at: "2026-09-04T12:00:00.000Z",
+    }),
+  baseUrl: "https://example.test/api",
+  version: "1",
+};
+
+// deno-lint-ignore no-explicit-any
+function body(outcome: { status: number; body?: unknown }): any {
+  assert("body" in outcome, `a ${outcome.status} carries no body`);
+  return outcome.body;
+}
+
+Deno.test("the protocol, one message at a time", async (t) => {
+  await t.step(
+    "initialize answers in the client's version when known",
+    async () => {
+      const out = await handleMcp(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-03-26", capabilities: {} },
+        },
+        CALLER,
+        deps,
+      );
+      assertEquals(out.status, 200);
+      const b = body(out);
+      assertEquals(b.id, 1);
+      assertEquals(b.result.protocolVersion, "2025-03-26");
+      assertEquals(b.result.capabilities, { tools: {} });
+      assertEquals(b.result.serverInfo.name, "personal-trainer");
+      assert(typeof b.result.instructions === "string");
+    },
+  );
+
+  await t.step("and in the latest it knows when not", async () => {
+    const out = await handleMcp(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: { protocolVersion: "2031-01-01" },
+      },
+      CALLER,
+      deps,
+    );
+    assertEquals(body(out).result.protocolVersion, "2025-06-18");
+  });
+
+  await t.step("a notification is accepted with nothing to say", async () => {
+    const out = await handleMcp(
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      CALLER,
+      deps,
+    );
+    assertEquals(out.status, 202);
+    assert(!("body" in out));
+  });
+
+  await t.step("ping", async () => {
+    const out = await handleMcp(
+      { jsonrpc: "2.0", id: "p", method: "ping" },
+      CALLER,
+      deps,
+    );
+    assertEquals(body(out), { jsonrpc: "2.0", id: "p", result: {} });
+  });
+
+  await t.step("tools/list names the one tool, taking no input", async () => {
+    const out = await handleMcp(
+      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+      CALLER,
+      deps,
+    );
+    const tools = body(out).result.tools;
+    assertEquals(tools.length, 1);
+    assertEquals(tools[0].name, TOOL_NAME);
+    assertEquals(tools[0].inputSchema, { type: "object", properties: {} });
+    assertStringIncludes(tools[0].description, "curl");
+  });
+
+  await t.step(
+    "tools/call mints for the caller and says where to use it",
+    async () => {
+      const out = await handleMcp(
+        {
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: { name: TOOL_NAME, arguments: {} },
+        },
+        CALLER,
+        deps,
+      );
+      const content = body(out).result.content;
+      assertEquals(content.length, 1);
+      assertEquals(content[0].type, "text");
+      assertEquals(JSON.parse(content[0].text), {
+        token: "minted-for-user_01TEST",
+        base_url: "https://example.test/api",
+        expires_at: "2026-09-04T12:00:00.000Z",
+      });
+    },
+  );
+
+  await t.step("another tool name is a JSON-RPC error, in a 200", async () => {
+    const out = await handleMcp(
+      {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: { name: "log_set" },
+      },
+      CALLER,
+      deps,
+    );
+    assertEquals(out.status, 200);
+    assertEquals(body(out).error.code, -32602);
+    assertStringIncludes(body(out).error.message, TOOL_NAME);
+  });
+
+  await t.step("an unknown method is -32601", async () => {
+    const out = await handleMcp(
+      { jsonrpc: "2.0", id: 6, method: "resources/list" },
+      CALLER,
+      deps,
+    );
+    assertEquals(body(out).error.code, -32601);
+  });
+
+  await t.step("not a message at all is a 400", async () => {
+    for (const bad of [null, 42, "hi", [], { id: 1, method: "ping" }]) {
+      const out = await handleMcp(bad, CALLER, deps);
+      assertEquals(out.status, 400, JSON.stringify(bad));
+      assertEquals(body(out).error.code, -32600);
+    }
+  });
+});
+
+Deno.test("what a client is told before it signs in", async (t) => {
+  await t.step("the discovery document", () => {
+    assertEquals(
+      protectedResourceMetadata(
+        "https://x.example/api/mcp",
+        "https://x.example/auth/v1",
+      ),
+      {
+        resource: "https://x.example/api/mcp",
+        authorization_servers: ["https://x.example/auth/v1"],
+        bearer_methods_supported: ["header"],
+      },
+    );
+  });
+
+  await t.step("the origin is the one callers used, not the one seen", () => {
+    // Behind the proxy the runtime sees http; the outside world said https.
+    const hosted = {
+      protocol: "http:",
+      hostname: "trainer.marcoazzurrini.com",
+      host: "trainer.marcoazzurrini.com",
+    };
+    assertEquals(
+      publicOrigin({ ...hosted, forwardedProto: null }),
+      "https://trainer.marcoazzurrini.com",
+    );
+    // Traefik's word, and it may be a list when proxies stack.
+    assertEquals(
+      publicOrigin({ ...hosted, forwardedProto: "https" }),
+      "https://trainer.marcoazzurrini.com",
+    );
+    assertEquals(
+      publicOrigin({ ...hosted, forwardedProto: "https, http" }),
+      "https://trainer.marcoazzurrini.com",
+    );
+    // The local server really is plain http, and says so.
+    const local = {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      host: "127.0.0.1:8000",
+    };
+    assertEquals(
+      publicOrigin({ ...local, forwardedProto: null }),
+      "http://127.0.0.1:8000",
+    );
+    assertEquals(
+      publicOrigin({ ...local, forwardedProto: "http" }),
+      "http://127.0.0.1:8000",
+    );
+  });
+
+  await t.step("the challenge", () => {
+    assertEquals(
+      challengeHeader("https://x.example/m", false),
+      'Bearer resource_metadata="https://x.example/m"',
+    );
+    assertEquals(
+      challengeHeader("https://x.example/m", true),
+      'Bearer resource_metadata="https://x.example/m", error="invalid_token"',
+    );
+  });
+});
+
+Deno.test("signed connector calls enforce identity and mint usable API tokens", async () => {
+  const { BASE } = await import("./helpers.ts");
+  const { sql } = await import("../db.ts");
+  const { mcp } = await import("../access/mcp.routes.ts");
+  const { forgetJwks } = await import("../access/jwt.ts");
+  const issuer = "https://auth.example.test";
+  const resource = "https://example.test/";
+  const config = {
+    AUTH_ISSUER: issuer,
+    AUTH_JWKS_URL: `${issuer}/jwks`,
+    ALLOWED_SUBJECT: CALLER.subject,
+    PUBLIC_ORIGIN: "",
+  };
+  const previous = Object.keys(config).map((key) =>
+    [key, Deno.env.get(key)] as const
+  );
+  const fetch = globalThis.fetch;
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const key = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const encode = (bytes: Uint8Array) =>
+    btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  const json = (value: unknown) =>
+    encode(new TextEncoder().encode(JSON.stringify(value)));
+  try {
+    for (const [name, value] of Object.entries(config)) {
+      Deno.env.set(name, value);
+    }
+    forgetJwks();
+    globalThis.fetch = (input) => {
+      assertEquals(input, config.AUTH_JWKS_URL);
+      return Promise.resolve(
+        Response.json({ keys: [{ ...key, kid: "test" }] }),
+      );
+    };
+    for (
+      const [subject, status] of [[CALLER.subject, 405], [
+        "someone-else",
+        403,
+      ]] as const
+    ) {
+      const payload = `${json({ alg: "ES256", kid: "test" })}.${
+        json({
+          iss: issuer,
+          aud: resource,
+          sub: subject,
+          exp: Math.floor(Date.now() / 1000) + 60,
+        })
+      }`;
+      const signature = await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        pair.privateKey,
+        new TextEncoder().encode(payload),
+      );
+      const headers = {
+        authorization: `Bearer ${payload}.${encode(new Uint8Array(signature))}`,
+        "content-type": "application/json",
+      };
+      const res = await mcp.request(resource, { headers });
+      assertEquals(res.status, status);
+      assertEquals(res.headers.get("www-authenticate"), null);
+      assertStringIncludes(
+        await envelope(res),
+        status === 405 ? "no event stream" : "not them",
+      );
+      const called = await mcp.request(resource, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: TOOL_NAME },
+        }),
+      });
+      assertEquals(called.status, subject === CALLER.subject ? 200 : 403);
+      if (subject !== CALLER.subject) {
+        assertStringIncludes(await envelope(called), "not them");
+        continue;
+      }
+      const reply = await called.json();
+      const minted = JSON.parse(reply.result.content[0].text);
+      assert(Date.parse(minted.expires_at) > Date.now());
+      // Saved fetch bypasses only the JWKS stub, not the running API's auth.
+      const read = await fetch(`${BASE}/exercises`, {
+        headers: { authorization: `Bearer ${minted.token}` },
+      });
+      assertEquals(read.status, 200);
+      assert(Array.isArray((await read.json()).exercises));
+    }
+  } finally {
+    await sql.end();
+    globalThis.fetch = fetch;
+    forgetJwks();
+    for (const [name, value] of previous) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+});
+
+// --- Live: the route, up to the point a sign-in would be needed --------------
+
+async function envelope(res: Response): Promise<string> {
+  const parsed = await res.json();
+  assertEquals(Object.keys(parsed), ["error"], JSON.stringify(parsed));
+  assertEquals(typeof parsed.error, "string");
+  return parsed.error;
+}
+
+Deno.test("the connector before a sign-in", async (t) => {
+  const { BASE } = await import("./helpers.ts");
+  await t.step(
+    "GET discovery and POST calls give the same sign-in directions",
+    async () => {
+      const replies = [];
+      for (const method of ["POST", "GET"]) {
+        const res = await fetch(`${BASE}/mcp`, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: method === "POST"
+            ? JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })
+            : undefined,
+        });
+        assertEquals(res.status, 401, method);
+        const challenge = res.headers.get("www-authenticate") ?? "";
+        const match = challenge.match(/^Bearer resource_metadata="([^"]+)"$/);
+        assert(match !== null, `unexpected challenge: ${challenge}`);
+        assertEquals(match[1], `${BASE}/mcp/oauth-protected-resource`);
+        const error = await envelope(res);
+        assertStringIncludes(error, "Sign in first");
+        replies.push({ challenge, error });
+
+        // Follow the address the client actually receives, not a guessed route.
+        const metadata = await fetch(match[1]);
+        assertEquals(metadata.status, 200);
+        const doc = await metadata.json();
+        assertEquals(doc.resource, `${BASE}/mcp`);
+        assertEquals(doc.authorization_servers.length, 1);
+      }
+      assertEquals(replies[0], replies[1]);
+    },
+  );
+
+  await t.step(
+    "a token that is not a token is refused without a round trip",
+    async () => {
+      // Nothing here could have been checked against the sign-in server, which
+      // is not running locally: the refusal comes from the shape alone.
+      for (const method of ["POST", "GET"]) {
+        const res = await fetch(`${BASE}/mcp`, {
+          method,
+          headers: { authorization: "Bearer garbage" },
+          body: method === "POST" ? "{}" : undefined,
+        });
+        assertEquals(res.status, 401, method);
+        assertStringIncludes(
+          res.headers.get("www-authenticate") ?? "",
+          'error="invalid_token"',
+        );
+        await envelope(res);
+      }
+    },
+  );
+
+  await t.step(
+    "a well-formed token meets the sign-in server, or its absence",
+    async () => {
+      // A real-looking RS256 token, signed by nobody. In CI and on the usual
+      // local stack the auth service is not running, so the keys cannot be
+      // read and the answer is 503 without a challenge; with the service up
+      // the same token is a plain 401. Either is the right answer to what was
+      // sent, and the test says which it saw.
+      const segment = (value: unknown) =>
+        btoa(JSON.stringify(value)).replace(/=+$/, "");
+      const token = `${segment({ alg: "RS256", kid: "k" })}.${
+        segment({ iss: "x" })
+      }.AAAA`;
+      const res = await fetch(`${BASE}/mcp`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: "{}",
+      });
+      assert([401, 503].includes(res.status), String(res.status));
+      if (res.status === 503) {
+        assertEquals(res.headers.get("www-authenticate"), null);
+      }
+      await envelope(res);
+    },
+  );
+
+  await t.step("there is no session to end", async () => {
+    const res = await fetch(`${BASE}/mcp`, { method: "DELETE" });
+    assertEquals(res.status, 405);
+    await envelope(res);
+  });
+
+  await t.step("the discovery document opens without credentials", async () => {
+    const res = await fetch(`${BASE}/mcp/oauth-protected-resource`);
+    assertEquals(res.status, 200);
+    const doc = await res.json();
+    assert(
+      String(doc.resource).endsWith("/api/mcp"),
+      doc.resource,
+    );
+    assertEquals(Object.keys(doc).sort(), [
+      "authorization_servers",
+      "bearer_methods_supported",
+      "resource",
+    ]);
+    assertEquals(doc.authorization_servers.length, 1);
+    // Whatever the issuer is configured as, it must be an address a client
+    // can go and read metadata from.
+    new URL(doc.authorization_servers[0]);
+    assertEquals(doc.bearer_methods_supported, ["header"]);
+  });
+});

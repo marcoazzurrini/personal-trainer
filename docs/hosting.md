@@ -20,7 +20,7 @@ child network access to loopback. It removes only its own container/state in a
 `finally` block. A killed harness may require `docker rm -fv <printed-container-id>`;
 never remove a development container to repair a test run.
 
-Use `deno task test tests/nutrition_test.ts` (substitute an existing test file) for
+Use `deno task test api/tests/nutrition_test.ts` (substitute an existing test file) for
 a focused disposable run. Do not run destructive suites against `deno task dev`.
 The generated receipt is temporary, not a supported manually configured test
 environment. Production migrations still use the operator-facing migration task;
@@ -29,9 +29,9 @@ that task is not test setup.
 DB-free checks need no Docker or receipt, for example:
 
 ```sh
-deno test --allow-read --allow-env tests/rules_purity_test.ts tests/training_props_test.ts
-deno test --allow-net=127.0.0.1,0.0.0.0 --allow-env --allow-read --filter '/withings tokens|withings reads|withings measurement|withings scaling/' tests/withings_test.ts
-deno test --allow-net=127.0.0.1,0.0.0.0 --allow-env --allow-read --filter '/issue body|github client/' tests/issues_test.ts
+deno test --allow-read --allow-env api/tests/rules_purity_test.ts api/tests/training_props_test.ts
+deno test --allow-net=127.0.0.1,0.0.0.0 --allow-env --allow-read --filter '/withings tokens|withings reads|withings measurement|withings scaling/' api/tests/withings_test.ts
+deno test --allow-net=127.0.0.1,0.0.0.0 --allow-env --allow-read --filter '/issue body|github client/' api/tests/issues_test.ts
 ```
 
 Mixed suites import the destructive helper only inside their live tests, so a

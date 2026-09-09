@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import postgres from "postgres";
-import { verifiedDatabase, verifyDatabase } from "../tests/disposable.ts";
-import { mintToken } from "../tests/helpers.ts";
+import { verifiedDatabase, verifyDatabase } from "../api/tests/disposable.ts";
+import { mintToken } from "../api/tests/helpers.ts";
 
 Deno.test("the production container/task entrypoint drains and bounds SIGTERM", async (t) => {
   const d = await verifiedDatabase();
@@ -106,6 +106,17 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
       ".",
     );
     built = true;
+    await t.step("the production image excludes test files", async () => {
+      await docker(
+        "run",
+        "--rm",
+        "--network=none",
+        image,
+        "sh",
+        "-c",
+        "test ! -e /app/api/tests",
+      );
+    });
     await t.step(
       "the image refuses missing or invalid source revisions",
       async () => {

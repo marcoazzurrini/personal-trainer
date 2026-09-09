@@ -3,4 +3,5 @@
 !deno.json
 !deno.lock
 !api
+api/tests
 !db

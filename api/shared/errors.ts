@@ -29,7 +29,7 @@ export function requireRow<T>(rows: readonly T[], message: string): T {
 // still trigger. Everything else falls through to a generic message that
 // quotes the constraint name.
 //
-// Exported for the tripwire in tests/constraints_test.ts, which checks every
+// Exported for the tripwire in api/tests/constraints_test.ts, which checks every
 // name here against the live catalog — a constraint renamed in a migration
 // would otherwise demote its message to the generic fallback with nothing
 // going red.

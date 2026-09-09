@@ -15,7 +15,7 @@ pre-commit:
         # line, and YAML reads an indented line as a continuation of the
         # previous value — so allowed-tools gets swallowed into the
         # description and the skill loses permission to run curl. Same
-        # exclusion in deno.json; tests/plugin_test.ts holds the shape.
+        # exclusion in deno.json; api/tests/plugin_test.ts holds the shape.
         - plugin/**
       run: deno fmt {staged_files}
       stage_fixed: true

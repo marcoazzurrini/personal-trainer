@@ -19,7 +19,7 @@ jobs:
       - run: deno fmt --check
       - run: deno lint
       - run: deno task check
-      - run: deno test --allow-read --allow-env --allow-net=127.0.0.1 tests/deno_version_test.ts tests/deploy_test.ts tests/revision_test.ts
+      - run: deno test --allow-read --allow-env --allow-net=127.0.0.1 api/tests/deno_version_test.ts api/tests/deploy_test.ts api/tests/revision_test.ts
 
   test:
     runs-on: ubuntu-latest

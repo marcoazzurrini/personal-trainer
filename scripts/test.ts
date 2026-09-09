@@ -6,7 +6,7 @@ import {
   readyApiUrl,
   verifyApi,
   verifyDatabase,
-} from "../tests/disposable.ts";
+} from "../api/tests/disposable.ts";
 
 const run = crypto.randomUUID().replaceAll("-", "");
 const database = `pt_test_${run}`;
@@ -143,7 +143,7 @@ try {
       "--allow-env",
       "--allow-read",
       `--allow-write=${receipt}.ready`,
-      "tests/serve.ts",
+      "api/tests/serve.ts",
     ],
     env: childEnv,
     clearEnv: true,
@@ -180,7 +180,7 @@ try {
       "--allow-net=127.0.0.1,0.0.0.0",
       "--allow-env",
       "--allow-read",
-      ...(testArgs.length ? testArgs : ["tests/"]),
+      ...(testArgs.length ? testArgs : ["api/tests/"]),
     ],
     env: { ...childEnv, API_URL: d.apiUrl },
     clearEnv: true,
@@ -212,7 +212,10 @@ async function reportCoverage(): Promise<void> {
       const profile = JSON.parse(
         await Deno.readTextFile(`${coverageRoot}/${scope}/${entry.name}`),
       );
-      if (profile.url.startsWith(new URL("../api/", import.meta.url).href)) {
+      if (
+        profile.url.startsWith(new URL("../api/", import.meta.url).href) &&
+        !profile.url.startsWith(new URL("../api/tests/", import.meta.url).href)
+      ) {
         loadedApi.add(scope);
       }
       if (scope !== "api" || !profile.url.endsWith("/api/index.ts")) continue;
@@ -241,7 +244,12 @@ async function reportCoverage(): Promise<void> {
       ? [`${coverageRoot}/api`, `${coverageRoot}/tests`]
       : [`${coverageRoot}/${scope}`];
     const result = await new Deno.Command(Deno.execPath(), {
-      args: ["coverage", "--include=.*/api/.*", ...paths],
+      args: [
+        "coverage",
+        "--include=.*/api/.*",
+        "--exclude=.*/api/tests/.*",
+        ...paths,
+      ],
       env,
       clearEnv: true,
       stdout: "piped",

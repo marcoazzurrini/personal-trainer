@@ -39,7 +39,7 @@ Reviewed on 6 September 2026, against base `424ae3a`, on Deno 2.9.6:
   caches case-insensitive header schema metadata. JSR imports, one Hono/Zod
   identity, and all unrelated locked versions remain unchanged.
 
-Generated OpenAPI compared equal before/after. `tests/auth_test.ts` adds a
+Generated OpenAPI compared equal before/after. `api/tests/auth_test.ts` adds a
 media-type matrix covering successful writes/replays, missing/wrong headers,
 strict field/object refusals, doubled prefixes and body-less sync routing.
 Local validation: **162 tests / 518 steps**, production image build and
@@ -71,9 +71,9 @@ reports filtered to API source (not dependencies, test helpers or generated
 artifacts). CI retains that directory as an artifact. Empty test-process API
 coverage is reported honestly, not treated as missing server coverage.
 
-For a small proof, run `deno task coverage tests/coverage_http_test.ts`: it
+For a small proof, run `deno task coverage api/tests/coverage_http_test.ts`: it
 imports no handler and exercises the doubled-prefix branch over HTTP. For
-uncovered source lines use `deno coverage --detailed --include='.*/api/.*'
+uncovered source lines use `deno coverage --detailed --include='.*/api/.*' --exclude='.*/api/tests/.*'
 coverage/<run>/api coverage/<run>/tests`. Profile offsets belong to that source
 revision; rerun after source edits rather than merging unrelated runs.
 
@@ -144,4 +144,4 @@ longer names the retired `outside/` directory.
 Historical ADRs and applied migrations retain their original context. Ordinary
 programming uses of “function” stay. The caller-facing “function logs” error is
 tracked separately in #59, not changed as a comment cleanup. No runtime behavior
-changes under #67; `tests/hosting_wording_test.ts` checks the active explanations.
+changes under #67; `api/tests/hosting_wording_test.ts` checks the active explanations.

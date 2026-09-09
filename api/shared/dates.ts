@@ -6,7 +6,7 @@
 // nowhere else), never here. What this module does is
 // walk from one such day to another, and that walking is UTC-anchored on
 // purpose: anchored to local time it would gain or lose a day in the DST
-// weeks depending on the machine's zone data. tests/dates_test.ts holds
+// weeks depending on the machine's zone data. api/tests/dates_test.ts holds
 // mondayOf to the same answer as Postgres's date_trunc('week', …) so the two
 // implementations of the week cannot drift apart.
 //
