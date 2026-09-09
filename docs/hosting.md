@@ -155,8 +155,8 @@ Release prerequisites and operator checks:
    change source/build settings manually while a release job is running. The
    existing deployment concurrency group now covers pinning through verification.
 4. After an approved release, confirm its main CI run completes successfully.
-   Hosted prerequisites are prepared; the first live release verification is
-   still pending. Repository tests and operator setup do not establish it.
+   Hosted prerequisites are prepared and the first live release is verified
+   below. Repository tests and operator setup alone do not establish a release.
 
 Setup record, 9 September 2026: after Marco approved preparing Coolify, the
 application-settings model was used through the administrative console to enable
@@ -178,9 +178,18 @@ an existing deployment. The same verified token was uploaded to GitHub's
 at `2026-09-09T16:44:32Z`. No credential value was displayed or recorded here.
 The webhook secret was not changed. A final inspection confirmed the deployment
 count remained 13, the commit pin remained `HEAD`, and Coolify still reported the
-application running and healthy. No deployment was requested to test the `deploy`
-ability; the first release remains the end-to-end proof. The shared SSH connection
-was closed after setup.
+application running and healthy. No deployment was requested during setup. The
+shared SSH connection was closed before the release.
+
+First live verification, 9 September 2026: commit
+`3698b2310d1dbf77bd665b40f724731a04cb8813` passed all three jobs in
+[CI run 34378987395](https://github.com/marcoazzurrini/personal-trainer/actions/runs/34378987395).
+The release job verified Coolify deployment `rdgxblrat2ug8mgoczkgu0j6` and reported
+that exact tested revision live and healthy at `2026-09-09T16:51:09Z`. A separate
+uncached public `/api/health` read returned HTTP 200, `status: "ok"`, the same full
+revision, and `Cache-Control: no-store`. This establishes the first end-to-end
+release through CI, including the actual GitHub secrets and inspected Coolify
+contract. It is a dated observation, not a claim of continuous availability.
 
 The release script updates the application's commit pin before requesting a
 forced build, verifies the pin, then checks the returned deployment ID and queued
