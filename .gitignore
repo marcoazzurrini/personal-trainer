@@ -10,8 +10,8 @@
 !.vscode/settings.json
 *.swp
 
-# Generated coverage profiles and reports
-coverage/
+# Generated caches, including coverage profiles and reports
+/.cache/
 
 # Logs
 *.log

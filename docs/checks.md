@@ -65,16 +65,18 @@ These are local results, not GitHub CI, deployment or installed-plugin proof.
 `deno task coverage [files...]` uses the same disposable harness and collects
 raw profiles from both the HTTP API and the test process. The API must exit
 cleanly before reporting; a profile must show its HTTP handler actually ran.
-Each invocation gets its own ignored `coverage/<run>/` directory, with separate
+Each invocation gets its own ignored `.cache/coverage/<run>/` directory, with separate
 `api/` and `tests/` profiles and labeled `api.txt`, `tests.txt`, `combined.txt`
 reports filtered to API source (not dependencies, test helpers or generated
 artifacts). CI retains that directory as an artifact. Empty test-process API
 coverage is reported honestly, not treated as missing server coverage.
+These generated reports can be deleted at any time when no coverage run is active;
+the next coverage run recreates them. Ordinary test runs do not generate reports.
 
 For a small proof, run `deno task coverage api/tests/coverage_http_test.ts`: it
 imports no handler and exercises the doubled-prefix branch over HTTP. For
 uncovered source lines use `deno coverage --detailed --include='.*/api/.*' --exclude='.*/api/tests/.*'
-coverage/<run>/api coverage/<run>/tests`. Profile offsets belong to that source
+.cache/coverage/<run>/api .cache/coverage/<run>/tests`. Profile offsets belong to that source
 revision; rerun after source edits rather than merging unrelated runs.
 
 Initial #69 local full run: **161 tests / 510 steps passed**. API-source line

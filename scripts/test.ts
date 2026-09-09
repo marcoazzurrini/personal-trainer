@@ -12,7 +12,7 @@ const run = crypto.randomUUID().replaceAll("-", "");
 const database = `pt_test_${run}`;
 const coverage = Deno.args[0] === "--coverage";
 const testArgs = coverage ? Deno.args.slice(1) : Deno.args;
-const coverageRoot = `${Deno.cwd()}/coverage/${run}`;
+const coverageRoot = `${Deno.cwd()}/.cache/coverage/${run}`;
 let testsStarted = false;
 const directory = await Deno.makeTempDir({ prefix: "pt-test-" });
 const receipt = `${directory}/disposable.json`;

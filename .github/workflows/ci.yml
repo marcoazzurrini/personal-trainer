@@ -33,7 +33,9 @@ jobs:
         if: always()
         with:
           name: coverage
-          path: coverage/
+          path: .cache/coverage/
+          # The cache is hidden; include only this scoped report directory.
+          include-hidden-files: true
           retention-days: 7
       # Builds and exercises the production image/entrypoint on disposable state.
       - run: deno task test:shutdown

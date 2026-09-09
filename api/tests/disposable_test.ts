@@ -32,6 +32,24 @@ Deno.test("disposable Postgres readiness cannot use the initialization socket", 
   assertThrows(() => assertTcp(command.replace("-h 127.0.0.1 ", "")));
 });
 
+Deno.test("coverage stays in the ignored cache and CI includes its hidden directory", async () => {
+  const source = await Deno.readTextFile("scripts/test.ts");
+  assertEquals(
+    source.includes(
+      "const coverageRoot = `${Deno.cwd()}/.cache/coverage/${run}`;",
+    ),
+    true,
+  );
+  assertMatch(await Deno.readTextFile(".gitignore"), /^\/\.cache\/$/m);
+  const workflow = await Deno.readTextFile(".github/workflows/ci.yml");
+  const upload =
+    workflow.split(/^ {6}- /m).find((step) =>
+      step.startsWith("uses: actions/upload-artifact@")
+    ) ?? "";
+  assertMatch(upload, /^\s+path: \.cache\/coverage\/$/m);
+  assertMatch(upload, /^\s+include-hidden-files: true$/m);
+});
+
 Deno.test("API readiness waits through empty and incomplete addresses", () => {
   const url = "http://127.0.0.1:54321/api";
   // Every possible partial write must keep polling; only the full value is ready.
