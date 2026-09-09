@@ -320,7 +320,8 @@ Deno.test(
             new Request("http://localhost/api/health"),
           );
           assertEquals(response.status, 200);
-          assertEquals(await response.json(), { status: "ok" });
+          assertEquals(await response.json(), { status: "ok", revision: null });
+          assertEquals(response.headers.get("cache-control"), "no-store");
           assert(performance.now() - before < 1000);
           await started.promise;
           assertEquals(await watermarkEpoch(), base + 400);

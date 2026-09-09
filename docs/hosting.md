@@ -65,8 +65,11 @@ application settings.
 
 Evidence came from SSH container inspection, installed Coolify source, and a
 read-only query of Coolify's own application settings—not the training database.
-No live stop or deployment was performed. The running API image still names
-`04d6662`; the new shutdown code is locally tested, not yet deployed.
+No live stop or deployment was performed during that inspection. The running
+image then named `04d6662`. A later read-only inspection on 9 September 2026 found
+image tag `b0d4562739c0a04028e9a68c19b4d721005ae24e` running and Docker-healthy;
+Coolify records that deployment as finished. This is observed state, not proof
+that the new revision-verifying release path has run.
 
 `deno task test:shutdown` builds the production image and exercises it against
 the same identity-verified disposable cluster, using a private test network
@@ -74,7 +77,12 @@ and synthetic credentials only. Controlled SQL locks prove completed work
 survives termination, new HTTP work stops, stuck work cannot wait forever,
 termination during migration never starts HTTP, and startup errors omit
 credentials. It removes only its own containers, network and image. CI runs it;
-a successful image build alone is no longer the container check.
+a successful image build alone is no longer the container check. The same path
+also starts the image against a second, initially empty database on that verified
+cluster. It checks the applied migration versions, public routing, authentication
+refusals, and the embedded revision. The existing drain case exercises an
+authenticated write. Synthetic build metadata belongs only to this disposable
+test; it is not a claim about a dirty local checkout.
 
 ## Hosted
 
@@ -90,9 +98,11 @@ a successful image build alone is no longer the container check.
 - **Application**: built from this repository's `Dockerfile` by Coolify's
   GitHub App, port 8000, domain `https://trainer.marcoazzurrini.com`, health
   path `/api/health`. Traefik ends TLS and sets `x-forwarded-proto`.
-- **Deploy**: CI posts to Coolify's deploy webhook on a green main. Coolify's
-  own deploy-on-push is off, so a red main never ships. The webhook URL and
-  token are the GitHub secrets `COOLIFY_WEBHOOK` and `COOLIFY_TOKEN`.
+- **Deploy**: the release job pins the tested commit, requests deployment, and
+  waits for that deployment and the public API's revision-aware readiness check.
+  Coolify's own deploy-on-push stays off. A failed release verification can mean
+  the new container is already running; a red job does not prove that nothing
+  shipped. The prerequisites and verification limits are below.
 - **Sign-in**: AuthKit only issues tokens for resource addresses it knows.
   WorkOS dashboard > Connect > Configuration > MCP resource indicators must
   list `https://trainer.marcoazzurrini.com/api/mcp`, or every connector
@@ -108,6 +118,99 @@ a successful image build alone is no longer the container check.
   `personal-trainer-backups`. Coolify's own database goes to the same bucket.
   Off the server, in the password manager: the Coolify `APP_KEY` from
   `/data/coolify/source/.env` and the keys under `/data/coolify/ssh/keys`.
+
+## Exact-revision deployment (#63)
+
+The installed Coolify contract was inspected read-only on 9 September 2026,
+through SSH, selected columns in Coolify's own database, and installed source.
+The training database was not inspected. No deployment, application update, or
+secret change was performed.
+
+Coolify 4.3.14's `DeployController::deploy_resource()` does not pass a commit
+from the deploy request. `queue_application_deployment()` instead copies the
+application's `git_commit_sha` into the queue row. `ApplicationDeploymentJob`
+uses that queued value; branch-head resolution applies only to `HEAD` or an empty
+value. `Application::setGitImportSettings()` fetches/checks out the explicit
+commit and fails if checkout fails. This is why appending an expected SHA to the
+old webhook would not fix the race.
+
+At inspection this application used `main` and `git_commit_sha=HEAD`, Dockerfile
+builds, automatic and preview deployment disabled, build secrets disabled,
+Dockerfile build-argument injection enabled, and source-commit injection disabled.
+Coolify's separate health-check switch was off: it detected and used the
+Dockerfile's `/api/health` check instead. The panel's unused health path was `/`,
+not the effective check.
+
+Release prerequisites and operator checks:
+
+1. **Include Source Commit in Build** is now enabled (setup record below). Keep
+   Dockerfile argument injection enabled and build secrets disabled. Do not add
+   a custom `SOURCE_COMMIT` environment variable or build override: Coolify must
+   supply the commit it actually checks out.
+2. The CI token now has `read`, `write`, and `deploy` abilities (verification
+   below). Recheck access after changing the token or application ownership.
+   Sensitive-value read access is not needed. Keep the token in GitHub secrets;
+   never paste its value into logs, issues, or this document.
+3. Keep CI as the only deployment/configuration writer during a release. Do not
+   change source/build settings manually while a release job is running. The
+   existing deployment concurrency group now covers pinning through verification.
+4. After an approved release, confirm its main CI run completes successfully.
+   Hosted prerequisites are prepared; the first live release verification is
+   still pending. Repository tests and operator setup do not establish it.
+
+Setup record, 9 September 2026: after Marco approved preparing Coolify, the
+application-settings model was used through the administrative console to enable
+`include_source_commit_in_build`, and a fresh read confirmed the value. No custom
+`SOURCE_COMMIT` environment entry exists. The deployment count did not change;
+no deployment was requested. Other application settings were not changed.
+
+The token in the ignored local hosting file was matched by its hash to Coolify's
+`github-ci deploy, no expiry` token. It initially had only `deploy`, and an actual
+application read returned HTTP 403. After Marco explicitly approved the expanded
+configuration access, its abilities were changed to exactly `read`, `write`, and
+`deploy`; sensitive-value read access was not added. Its value and expiry were
+not changed.
+
+Actual API calls with that token then successfully read the application, wrote
+`include_source_commit_in_build=true` again without changing its value, and read
+an existing deployment. The same verified token was uploaded to GitHub's
+`COOLIFY_TOKEN` secret through standard input; GitHub reported the secret updated
+at `2026-09-09T16:44:32Z`. No credential value was displayed or recorded here.
+The webhook secret was not changed. A final inspection confirmed the deployment
+count remained 13, the commit pin remained `HEAD`, and Coolify still reported the
+application running and healthy. No deployment was requested to test the `deploy`
+ability; the first release remains the end-to-end proof. The shared SSH connection
+was closed after setup.
+
+The release script updates the application's commit pin before requesting a
+forced build, verifies the pin, then checks the returned deployment ID and queued
+commit. A later branch push cannot change that queued commit. Another queued or
+manual build cannot satisfy this job merely by becoming healthy. The application
+pin intentionally remains at the tested commit after success or failure; the next
+release updates it. A manual deploy therefore reuses that pin, not moving `main`.
+
+Coolify supplies `SOURCE_COMMIT` from the same commit it checks out. The Dockerfile
+requires a full SHA and writes it into the image. The API reads that file, not a
+runtime variable, so an expected value in CI or an environment override cannot
+relabel a running image. Native local runs report no release revision. This proves
+source revision under the inspected build contract, not a byte-identical image
+between CI and Coolify. Reinspect after a Coolify upgrade or source/build changes.
+
+Success requires both a finished deployment record for the tested commit and a
+successful, uncached public health response naming that commit. Missing secrets,
+unknown outcomes, invalid responses, failed/cancelled deployments, wrong revisions,
+and timeouts cannot produce a successful release job. An old healthy container
+can keep serving while the new one fails; health without revision is insufficient.
+The check establishes readiness at verification time, not ongoing availability or
+complete production behavior. PR checks never deploy. Failed verification does
+not cancel or roll back a deployment, and does not undo migrations; inspect the
+host before deciding how to recover.
+
+For repeated read-only SSH inspection, use a session-only `ControlMaster` with a
+socket in a private directory, no agent forwarding, and a short `ControlPersist`
+idle timeout. Close it explicitly when finished. Secretive then approves one
+connection instead of every command. Processes under the same local account can
+reuse that connection while it remains open; do not leave it open unattended.
 
 ## Static-token retirement (#61)
 

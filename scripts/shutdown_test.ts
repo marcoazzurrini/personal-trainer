@@ -1,6 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import postgres from "postgres";
-import { verifiedDatabase } from "../tests/disposable.ts";
+import { verifiedDatabase, verifyDatabase } from "../tests/disposable.ts";
 import { mintToken } from "../tests/helpers.ts";
 
 Deno.test("the production container/task entrypoint drains and bounds SIGTERM", async (t) => {
@@ -9,6 +9,10 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
   const gate = await db.reserve();
   const run = crypto.randomUUID();
   const image = `personal-trainer-shutdown:${run}`;
+  // This is a metadata fixture, not a claim that a dirty local tree is a commit.
+  const revision = "a".repeat(40);
+  const freshDatabase = `pt_test_${uuid().replaceAll("-", "")}`;
+  let freshCreated = false;
   const network = `pt-shutdown-${run}`;
   const containers: string[] = [];
   const requests: Promise<Response | null>[] = [];
@@ -48,6 +52,9 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
       "--detach",
       "--stop-timeout",
       "10",
+      // Exercise the image's actual HEALTHCHECK, with shorter test intervals.
+      "--health-interval=1s",
+      "--health-start-period=1s",
       "--network",
       network,
       "--label",
@@ -56,6 +63,9 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
       "127.0.0.1::8000",
       "--env",
       `DATABASE_URL=${databaseUrl ?? url.href}`,
+      // A runtime override must not relabel the image's embedded revision.
+      "--env",
+      `SOURCE_COMMIT=${"b".repeat(40)}`,
       image,
     );
     containers.push(id);
@@ -87,8 +97,38 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
     }, "Controlled SQL operation did not reach its lock");
   }
   try {
-    await docker("build", "-t", image, ".");
+    await docker(
+      "build",
+      "--build-arg",
+      `SOURCE_COMMIT=${revision}`,
+      "-t",
+      image,
+      ".",
+    );
     built = true;
+    await t.step(
+      "the image refuses missing or invalid source revisions",
+      async () => {
+        await assertRejects(
+          () => docker("build", "-t", image, "."),
+          Error,
+          "Docker build failed",
+        );
+        await assertRejects(
+          () =>
+            docker(
+              "build",
+              "--build-arg",
+              "SOURCE_COMMIT=HEAD",
+              "-t",
+              image,
+              ".",
+            ),
+          Error,
+          "Docker build failed",
+        );
+      },
+    );
     await docker("network", "create", network);
     networkCreated = true;
     await docker(
@@ -100,6 +140,84 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
       d.containerId,
     );
     connected = true;
+    await t.step(
+      "the image migrates an empty database and serves revision, routing and authentication",
+      async () => {
+        // The parent cluster is already identity-verified. This new random database
+        // stays empty until the production entrypoint, not the native harness, runs.
+        await db`create database ${db(freshDatabase)}`;
+        freshCreated = true;
+        const url = new URL(d.databaseUrl);
+        url.pathname = `/${freshDatabase}`;
+        await verifyDatabase(
+          { systemId: d.systemId, database: freshDatabase },
+          url.href,
+        );
+        const fresh = postgres(url.href);
+        try {
+          const [before] =
+            await fresh`select to_regclass('public.schema_migrations') as relation`;
+          assertEquals(before.relation, null);
+          url.hostname = "test-db";
+          url.port = "5432";
+          const { id, base } = await launch(url.href);
+          await until(
+            async () => {
+              try {
+                const r = await fetch(`${base}/health`, {
+                  signal: AbortSignal.timeout(1000),
+                });
+                const body = await r.json();
+                return r.ok && body.status === "ok" &&
+                  body.revision === revision;
+              } catch {
+                return false;
+              }
+            },
+            "Fresh production container never served its embedded revision",
+            30000,
+          );
+          await until(
+            async () =>
+              (await docker(
+                "inspect",
+                "--format",
+                "{{.State.Health.Status}}",
+                id,
+              )) === "healthy",
+            "The production image's Docker HEALTHCHECK never passed",
+          );
+          const expected: string[] = [];
+          for await (const entry of Deno.readDir("db/migrations")) {
+            if (entry.isFile && entry.name.endsWith(".sql")) {
+              expected.push(entry.name.slice(0, -4));
+            }
+          }
+          const applied =
+            await fresh`select version from schema_migrations order by version`;
+          assertEquals(applied.map((row) => row.version), expected.sort());
+          for (
+            const authorization of [undefined, "Bearer synthetic-invalid-token"]
+          ) {
+            const response = await fetch(`${base}/blocks`, {
+              headers: authorization ? { authorization } : {},
+              signal: AbortSignal.timeout(1000),
+            });
+            assertEquals(response.status, 401);
+            await response.body?.cancel();
+          }
+          const document = await fetch(`${base}/openapi.json`, {
+            signal: AbortSignal.timeout(1000),
+          });
+          assertEquals(document.status, 200);
+          assert((await document.json()).paths["/api/blocks"]);
+          await docker("kill", "--signal=SIGTERM", id);
+          assertEquals(await stopped(id), 0);
+        } finally {
+          await fresh.end();
+        }
+      },
+    );
     await db`create function test_shutdown_gate() returns trigger language plpgsql as $$
       begin perform pg_advisory_xact_lock(9060); return new; end $$`;
     await db`create trigger test_shutdown_gate before insert on blocks for each row execute function test_shutdown_gate()`;
@@ -215,6 +333,7 @@ Deno.test("the production container/task entrypoint drains and bounds SIGTERM", 
     await Promise.allSettled(
       requests.map(async (r) => (await r)?.body?.cancel()),
     );
+    if (freshCreated) await db`drop database ${db(freshDatabase)}`;
     await db`drop trigger if exists test_shutdown_gate on blocks`;
     await db`drop function if exists test_shutdown_gate()`;
     await db.end();

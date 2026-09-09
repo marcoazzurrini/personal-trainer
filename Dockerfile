@@ -13,6 +13,14 @@ COPY --chown=deno:deno db ./db
 USER deno
 RUN deno install --entrypoint --frozen api/index.ts db/migrate.ts
 
+# Coolify supplies the commit it actually checks out, not an expected SHA from
+# the polling client. A missing/invalid value must fail the build. Native local
+# runs have no file; container smoke tests explicitly use a synthetic SHA.
+USER root
+ARG SOURCE_COMMIT
+RUN deno eval 'const sha = Deno.env.get("SOURCE_COMMIT") ?? ""; if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error("SOURCE_COMMIT must identify the checked-out source"); Deno.writeTextFileSync("build-revision.txt", sha + "\n")'
+
+USER deno
 ENV PORT=8000
 EXPOSE 8000
 

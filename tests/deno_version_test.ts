@@ -5,18 +5,22 @@ function assertDenoVersions(dockerfile: string, workflow: string): void {
   assert(image, "Dockerfile must pin an exact production Deno version.");
   const jobs = [...workflow.matchAll(/uses: denoland\/setup-deno@/g)];
   const versions = [...workflow.matchAll(/deno-version:\s*(\S+)/g)];
-  assertEquals(jobs.length, 2, "Check both native CI jobs.");
+  assertEquals(
+    jobs.length,
+    3,
+    "Check every native CI job, including deployment.",
+  );
   assertEquals(
     versions.map((match) => match[1]),
-    [image[1], image[1]],
-    "Both CI runtimes must match the authoritative Dockerfile pin.",
+    [image[1], image[1], image[1]],
+    "Every CI runtime must match the authoritative Dockerfile pin.",
   );
 }
 
 const dockerfile = await Deno.readTextFile("Dockerfile");
 const workflow = await Deno.readTextFile(".github/workflows/ci.yml");
 
-Deno.test("both CI Deno versions match the production image", () => {
+Deno.test("all CI Deno versions match the production image", () => {
   assertDenoVersions(dockerfile, workflow);
 });
 

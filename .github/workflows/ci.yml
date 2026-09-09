@@ -19,7 +19,7 @@ jobs:
       - run: deno fmt --check
       - run: deno lint
       - run: deno task check
-      - run: deno test --allow-read tests/deno_version_test.ts
+      - run: deno test --allow-read --allow-env --allow-net=127.0.0.1 tests/deno_version_test.ts tests/deploy_test.ts tests/revision_test.ts
 
   test:
     runs-on: ubuntu-latest
@@ -38,21 +38,27 @@ jobs:
       # Builds and exercises the production image/entrypoint on disposable state.
       - run: deno task test:shutdown
 
-  # Only a green main reaches the host: Coolify's own deploy-on-push stays
-  # off, and this webhook is the one way a deploy starts. Until the secrets
-  # exist the step is skipped, not failed.
+  # A green main proves tests AND the exact tested revision's live readiness.
+  # Hold serialization through pinning, queue acceptance and bounded polling.
+  # Missing credentials fail; PR checks deliberately do not deploy.
   deploy:
     needs: [checks, test]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     concurrency:
       group: deploy
       cancel-in-progress: false
     env:
       COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      DEPLOY_HEALTH_URL: https://trainer.marcoazzurrini.com/api/health
     steps:
-      - name: Ask Coolify to deploy
-        if: env.COOLIFY_WEBHOOK != ''
-        run: |
-          curl -fsS -X POST "$COOLIFY_WEBHOOK" -H "Authorization: Bearer $COOLIFY_TOKEN"
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.9.6
+      - name: Deploy and verify the tested revision
+        run: deno task deploy

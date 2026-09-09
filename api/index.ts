@@ -8,6 +8,7 @@ import {
   validationHook,
 } from "./shared/errors.ts";
 import { boundedBody } from "./shared/body.ts";
+import { readBuildRevision } from "./shared/revision.ts";
 import {
   bodyfat,
   bodyweight,
@@ -41,6 +42,8 @@ import {
   weeklyVolume,
   weekSchedule,
 } from "./training/index.ts";
+
+const revision = readBuildRevision();
 
 // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
 // mounted below stays an ordinary Hono router and keeps working untouched.
@@ -93,7 +96,8 @@ app.get("/health", async (c) => {
     clearTimeout(timer);
   }
   startCatchUp();
-  return c.json({ status: "ok" });
+  c.header("Cache-Control", "no-store");
+  return c.json({ status: "ok", revision });
 });
 
 // Withings cannot send our bearer token, so its two routes are registered here,
