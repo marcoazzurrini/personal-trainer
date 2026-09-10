@@ -284,7 +284,25 @@ Deno.test("main CI cannot skip deployment for missing secrets or stop at webhook
   const workflow = await Deno.readTextFile(".github/workflows/ci.yml");
   const job = workflow.split("\n  deploy:\n")[1];
   assert(job);
-  assert(job.includes("needs: [checks, test]"));
+  assert(job.includes("needs: [checks, test, web]"));
+  const webJob = workflow.split("\n  web:\n")[1]?.split("\n  deploy:\n")[0];
+  assert(webJob);
+  for (
+    const command of [
+      "npm ci --prefix web",
+      "npm --prefix web run build",
+      "npm --prefix web run check",
+      "npm --prefix web test",
+      "npm --prefix web run test:browser",
+    ]
+  ) {
+    assert(
+      webJob.includes(`run: ${command}`),
+      `Web gate is missing ${command}`,
+    );
+  }
+  assert(!webJob.includes("continue-on-error"));
+  assert(!webJob.includes("secrets.WORKOS"));
   assert(job.includes("github.event_name != 'pull_request'"));
   assert(job.includes("github.ref == 'refs/heads/main'"));
   assert(job.includes("group: deploy"));

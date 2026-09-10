@@ -1,11 +1,11 @@
 # Personal trainer
 
-Marco's strength and nutrition coach: a Claude plugin that talks to a small API.
-Only Marco and Claude work in this repository.
+Marco's strength and nutrition coach, with a private dashboard onto the same
+record. Only Marco and Claude work in this repository.
 
 ## The shape that holds
 
-Three parts, and the split between them is the design (ADR-0007):
+Four parts, with separate responsibilities (ADR-0007 and ADR-0009):
 
 - **The skill is the coach.** `plugin/` holds the role, the method and every
   procedure as documents read from disk. They are the product, and a change to
@@ -15,17 +15,21 @@ Three parts, and the split between them is the design (ADR-0007):
 - **The API is the record.** It stores facts and computes arithmetic, and
   decides nothing about training or eating. Nothing reaches the database but the
   API.
+- **The web app is a view.** It shows the record through the API, not through a
+  second database path. Authentication does not grant it the coach's write
+  access.
 
-The API's client is a model, so a refusal message is part of the contract: it
-says what a correct call looks like. A quiet success is the one unforgivable
-failure. Never invent data.
+The API serves a model as well as the web app, so a refusal message is part of
+the contract: it says what a correct call looks like. A quiet success is the one
+unforgivable failure. Never invent data.
 
 ## Source of truth
 
 The codebase. This file holds intent and process, never technical state: the
-commands are the tasks in `deno.json`, the variables are in `.env.example`, the
-API describes itself at `/openapi.json`, and the folder names say what they
-hold. A sentence here that a file could contradict is a bug in this file.
+commands are in `deno.json` and `web/package.json`, the variables are in the
+respective `.env.example` files, the API describes itself at `/openapi.json`,
+and the folder names say what they hold. A sentence here that a file could
+contradict is a bug in this file.
 
 ## Where the why lives
 

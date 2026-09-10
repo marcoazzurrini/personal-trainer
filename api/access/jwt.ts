@@ -180,10 +180,12 @@ export function canonicalResource(url: string): string {
   }${parsed.search}`;
 }
 
-export async function verifyJwt(
+// Shared cryptographic checks do not decide which application may use a token.
+// Each public verifier below applies its own, non-interchangeable claim policy.
+async function verifiedClaims(
   token: string,
-  opts: { issuer: string; audience: string; jwks: Jwks; now?: number },
-): Promise<Identity> {
+  opts: { issuer: string; jwks: Jwks; now?: number },
+): Promise<Record<string, unknown>> {
   const { alg, kid, segments } = readHeader(token);
   const [headerSegment, payloadSegment, signatureSegment] = segments;
 
@@ -217,6 +219,28 @@ export async function verifyJwt(
     throw new JwtError("The token is not valid yet.");
   }
 
+  if (typeof claims.sub !== "string" || claims.sub === "") {
+    throw new JwtError("The token names no subject.");
+  }
+  return claims;
+}
+
+function identity(claims: Record<string, unknown>): Identity {
+  return {
+    sub: claims.sub as string,
+    email: typeof claims.email === "string" && claims.email !== ""
+      ? claims.email
+      : null,
+    client_id: typeof claims.client_id === "string" ? claims.client_id : null,
+    exp: claims.exp as number,
+  };
+}
+
+export async function verifyJwt(
+  token: string,
+  opts: { issuer: string; audience: string; jwks: Jwks; now?: number },
+): Promise<Identity> {
+  const claims = await verifiedClaims(token, opts);
   // The audience: a token is minted for one resource, and this endpoint
   // accepts only tokens minted for it. A token for another of the
   // authorization server's resources is refused here, whoever signed it.
@@ -233,17 +257,28 @@ export async function verifyJwt(
     );
   }
 
-  if (typeof claims.sub !== "string" || claims.sub === "") {
-    throw new JwtError("The token names no subject.");
+  return identity(claims);
+}
+
+// WorkOS web-session tokens name an application with client_id and a session
+// with sid. Connect/MCP tokens name a resource with aud instead. Do not relax
+// the connector's audience check to accept a web token, or accept a Connect
+// token here merely because its subject belongs to Marco.
+export async function verifyWebSessionJwt(
+  token: string,
+  opts: { issuer: string; clientId: string; jwks: Jwks; now?: number },
+): Promise<Identity> {
+  const claims = await verifiedClaims(token, opts);
+  if (
+    claims.client_id !== opts.clientId ||
+    typeof claims.sid !== "string" || claims.sid === "" ||
+    claims.aud !== undefined || claims.act !== undefined
+  ) {
+    throw new JwtError(
+      "This endpoint requires a direct web session for this application, not a connector or impersonation token. Sign in to the dashboard again.",
+    );
   }
-  return {
-    sub: claims.sub,
-    email: typeof claims.email === "string" && claims.email !== ""
-      ? claims.email
-      : null,
-    client_id: typeof claims.client_id === "string" ? claims.client_id : null,
-    exp: claims.exp,
-  };
+  return identity(claims);
 }
 
 // --- What the authorization server publishes, read rarely -------------------

@@ -223,9 +223,10 @@ reuse that connection while it remains open; do not leave it open unattended.
 
 ## Static-token retirement (#61)
 
-Marco confirmed no remaining consumers of static authentication. The API now
+Marco confirmed no remaining consumers of static authentication. Coach access
 accepts only minted, unexpired tokens; old server environment values grant no
-access. Tests and container checks use disposable token rows, never a configured
+access. The separately configured web-session policy is described in ADR-0009
+and does not restore a static-token shortcut. Tests and container checks use disposable token rows, never a configured
 bearer shortcut.
 
 At release, remove `API_TOKEN` and `API_TOKEN_PREVIOUS` from Coolify's application

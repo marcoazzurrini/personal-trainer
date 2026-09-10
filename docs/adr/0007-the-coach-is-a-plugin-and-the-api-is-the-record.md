@@ -54,3 +54,8 @@ document a bug report may cite.
 - What the connector tells a client about itself names the documents only to
   say where they are not. A coach that once read them through the API would
   otherwise go looking for the route that served them.
+
+**Epilogue.** ADR-0009 adds a read-only web dashboard as another API client.
+The three responsibilities above remain; the dashboard does not coach, mint
+coach tokens, or access the database. Moving the coach itself into the web app
+is a later decision.

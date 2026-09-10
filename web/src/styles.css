@@ -1,0 +1,259 @@
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #253c32;
+  background: #f6f5f0;
+  font-synthesis: none;
+  line-height: 1.5;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+a {
+  color: inherit;
+}
+button,
+.button {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #246449;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  background: #246449;
+  color: white;
+  text-decoration: none;
+  display: inline-block;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+button:hover,
+.button:hover {
+  filter: brightness(0.93);
+}
+:focus-visible {
+  outline: 3px solid #9b652b;
+  outline-offset: 4px;
+}
+.page {
+  max-width: 1060px;
+  margin: 0 auto;
+  padding: 0 28px 32px;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 0;
+  border-bottom: 1px solid #dce1d8;
+}
+.brand {
+  text-decoration: none;
+  font-weight: 700;
+}
+.brand span {
+  display: block;
+  color: #647169;
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+.quiet {
+  background: transparent;
+  border-color: #cbd6cc;
+  color: #345443;
+}
+.intro {
+  padding: 44px 0 24px;
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #246449;
+}
+h1 {
+  font-size: clamp(1.9rem, 5vw, 2.8rem);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  margin: 12px 0;
+}
+h2 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+p {
+  color: #5b6a61;
+}
+.card {
+  background: #fff;
+  border: 1px solid #dfe5dc;
+  border-radius: 14px;
+}
+.message {
+  padding: 32px;
+}
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+.stat {
+  padding: 24px;
+}
+.stat p {
+  font-size: 0.85rem;
+  margin: 0 0 8px;
+}
+.stat strong {
+  display: block;
+  font-weight: 600;
+  font-size: 2.1rem;
+  letter-spacing: -0.03em;
+}
+.stat strong span {
+  font-size: 1rem;
+  font-weight: 400;
+  color: #647169;
+}
+.stat small {
+  display: block;
+  margin-top: 8px;
+  color: #647169;
+}
+.chart-card {
+  padding: 26px;
+}
+.chart-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.periods {
+  display: flex;
+  gap: 4px;
+}
+.periods button {
+  color: #50675a;
+  border: 0;
+  background: transparent;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+}
+.periods button[aria-pressed="true"] {
+  background: #e8f0e7;
+  color: #1e523c;
+}
+.legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 0;
+  margin: 22px 0 12px;
+  font-size: 0.8rem;
+  color: #5b6a61;
+}
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.raw-key {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #778881;
+  opacity: 0.65;
+}
+.trend-key {
+  width: 20px;
+  height: 3px;
+  background: #246449;
+}
+.caption {
+  font-size: 0.75rem;
+  max-width: 650px;
+}
+.chart-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #ecf0e9;
+  padding-top: 12px;
+  margin-top: 18px;
+}
+.empty {
+  padding: 55px 10px;
+  text-align: center;
+}
+.records {
+  margin-top: 20px;
+  padding: 20px 26px;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  text-align: left;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-top: 18px;
+}
+caption {
+  text-align: left;
+  color: #647169;
+  padding-bottom: 14px;
+  font-size: 0.75rem;
+}
+th,
+td {
+  padding: 12px 8px;
+  border-bottom: 1px solid #ecf0e9;
+  white-space: nowrap;
+}
+.page-footer {
+  color: #647169;
+  font-size: 0.75rem;
+  padding-top: 28px;
+}
+@media (max-width: 600px) {
+  .page {
+    padding: 0 16px 24px;
+  }
+  .intro {
+    padding-top: 30px;
+  }
+  .stats {
+    gap: 10px;
+  }
+  .stat {
+    padding: 16px;
+  }
+  .stat strong {
+    font-size: 1.65rem;
+  }
+  .chart-card {
+    padding: 18px 12px;
+  }
+  .records {
+    padding: 18px 14px;
+  }
+  .chart-footer {
+    align-items: flex-start;
+  }
+}

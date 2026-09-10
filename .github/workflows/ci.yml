@@ -40,11 +40,27 @@ jobs:
       # Builds and exercises the production image/entrypoint on disposable state.
       - run: deno task test:shutdown
 
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --prefix web
+      - run: npm --prefix web run build
+      - run: npm --prefix web run check
+      - run: npm --prefix web test
+      - run: npm exec --prefix web -- playwright install --with-deps chromium
+      - run: npm --prefix web run test:browser
+
   # A green main proves tests AND the exact tested revision's live readiness.
   # Hold serialization through pinning, queue acceptance and bounded polling.
   # Missing credentials fail; PR checks deliberately do not deploy.
   deploy:
-    needs: [checks, test]
+    needs: [checks, test, web]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20

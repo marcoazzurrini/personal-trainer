@@ -26,6 +26,16 @@
     "fast-check": "npm:fast-check@^4.9.0",
     "postgres": "npm:postgres@^3.4"
   },
+  "exclude": [
+    "web/node_modules",
+    "web/dist",
+    "web/.output",
+    "web/.tanstack",
+    "web/src/routeTree.gen.ts",
+    "web/package-lock.json",
+    "web/test-results",
+    "web/playwright-report"
+  ],
   "fmt": {
     "exclude": [
       "docs/",

@@ -18,6 +18,7 @@ import {
 import { startCatchUp, stopCatchUp } from "./body/withings.ts";
 import { issues } from "./surfaces/index.ts";
 import { verifyToken } from "./access/tokens.ts";
+import { authorizeWebRead } from "./access/web.ts";
 import { mcp } from "./access/index.ts";
 import {
   days,
@@ -134,7 +135,7 @@ app.openAPIRegistry.registerComponent("securitySchemes", "bearer", {
   type: "http",
   scheme: "bearer",
   description:
-    "The coach token. Every path here except /health and this document itself refuses a request without it.",
+    "A minted coach token. GET /bodyweight also accepts a configured WorkOS web-session access token; web tokens cannot access other operations.",
 });
 
 app.doc("/openapi.json", {
@@ -182,17 +183,21 @@ app.get("/reference", (c) =>
 // where to sign in. The auth matrix names it beside the Withings webhook.
 app.route("/mcp", mcp);
 
-// The connector mints the bearer after sign-in. Only its stored hash and
-// unexpired lifetime authorize a call; deleting the row revokes it.
+// Coach tokens are opaque base64url strings; web access tokens are JWTs.
+// Their formats select disjoint policies, with no fallback between them.
+// Only the API decides which reads a web session can authorize.
 app.use(async (c, next) => {
+  c.header("Cache-Control", "private, no-store");
   const refusal = {
     error:
-      "Missing, invalid or expired bearer token. Call the connector's get_api_token tool and send its token as Authorization: Bearer <token>.",
+      "Missing, invalid or expired bearer token. Call the connector's get_api_token tool and send its token as Authorization: Bearer <token>. Dashboard users: sign in again.",
   };
   const sent = c.req.header("authorization") ?? "";
   const bearer = sent.startsWith("Bearer ") ? sent.slice("Bearer ".length) : "";
   if (bearer === "") return c.json(refusal, 401);
-  if ((await verifyToken(bearer)) === null) {
+  if (bearer.includes(".")) {
+    await authorizeWebRead(bearer, c.req.method, c.req.path);
+  } else if ((await verifyToken(bearer)) === null) {
     return c.json(refusal, 401);
   }
   await next();

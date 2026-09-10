@@ -13,6 +13,15 @@
 # Generated caches, including coverage profiles and reports
 /.cache/
 
+# Web build output and dependencies
+web/node_modules/
+web/dist/
+web/.output/
+web/.tanstack/
+web/src/routeTree.gen.ts
+web/test-results/
+web/playwright-report/
+
 # Logs
 *.log
 
