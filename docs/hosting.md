@@ -249,11 +249,47 @@ Neither value was written to the repository or displayed in the conversation.
 The new GitHub secret `COOLIFY_DASHBOARD_WEBHOOK` was configured and its presence
 verified; the existing API webhook and CI token were not changed.
 
-This is preparation, not a deployment record. The dashboard has not been started,
-TLS has not been verified, and a real web-session JWT and authenticated chart read
-remain unverified. The API's hosted web-auth settings have not been enabled; the
-actual issuer, application, session, and subject claims must first satisfy
-ADR-0009. Existing API and database resources were not changed during preparation.
+### Verified release and authentication
+
+Release record, 11 September 2026: both applications serve revision
+`3f6059d55cffd47abf8f3a60ce47e59372379928`. The fourth attempt of
+[CI run 34546359154](https://github.com/marcoazzurrini/personal-trainer/actions/runs/34546359154)
+completed successfully after the hosted configuration was corrected. These fixes
+changed server settings, not the application code or training records.
+
+The first certificate requests failed during Let's Encrypt's secondary DNS
+validation. Traefik continued serving its default certificate, and dashboard
+release verification exhausted its 15-minute deadline. DNS checks later passed
+against all four Netlify nameservers, but no further issuance attempts appeared
+in the proxy logs. After Marco approved restarting the shared `coolify-proxy`,
+Traefik obtained a valid Let's Encrypt certificate for the dashboard. HTTPS checks
+then passed for the dashboard, API, and Coolify; the browser's certificate was
+also verified. The original DNS-network failure was not conclusively explained.
+A proxy restart briefly affects all applications behind it; waiting or rebuilding
+the dashboard alone is not a reliable remedy for this fallback state. See
+[Traefik's documented fallback](https://doc.traefik.io/traefik/v3.6/reference/install-configuration/tls/certificate-resolvers/acme/#fallback).
+
+The dashboard initially rejected Marco because its `ALLOWED_SUBJECT` had been
+copied from the local `.env` placeholder, `user_test`. It now matches the existing
+hosted API owner. The API's allowed account and Connect settings were left
+unchanged. This account mismatch was independent of the certificate failure.
+
+Marco completed a real email-code login. The WorkOS SDK authenticated that
+session, and the API's unchanged JWT verifier separately accepted its signature,
+issuer, application, session, expiry, and owner claims. The token had neither an
+`aud` claim nor impersonation. Only after that verification were the API's three
+`WEB_AUTH_*` settings configured and deployed, using the observed issuer and
+application-specific signing keys. Those settings and their disabled-preview
+copies were verified as runtime-only. The existing policy still permits web
+sessions only to read `GET /api/bodyweight`; no authorization checks were relaxed.
+
+End-to-end verification loaded 38 measurements and 32 trend points through the
+API and displayed the chart. Manual refresh succeeded, an expired access token
+was automatically renewed, and the renewed session authenticated successfully.
+An anonymous bodyweight request returned 401. Sign-out returned to the sign-in
+page, removed the session cookie, and removed the private chart. The cookie was
+verified as Secure and HttpOnly. The dashboard was left signed out after testing;
+temporary credential copies used for verification were cleared.
 
 ## Static-token retirement (#61)
 
