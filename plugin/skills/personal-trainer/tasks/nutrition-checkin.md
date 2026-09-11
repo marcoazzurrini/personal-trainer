@@ -43,9 +43,12 @@ target and rate ranges there are binding.
   gain +0.25–0.5%/wk ceiling, recomp maintenance to a 200 kcal/day deficit —
   all three enforced by the server's clips) and set protein for the phase
   (deficit → 2.3–3.1 g/kg FFM).
-- Register the phase switch as a nutrition event so expenditure updates damp
-  through the water/glycogen step; tell Marco the scale will jump and that it
-  is glycogen, before it happens, not after.
+- `POST /nutrition-targets` automatically registers a phase switch when it changes
+  an existing goal. Read `phase_switch_registered` in the response. Do not send a
+  second `POST /nutrition-events` for that switch: it is already recorded so
+  expenditure updates damp through the water/glycogen step. The first target has
+  no previous goal to switch from. Tell Marco the scale will jump and that it is
+  glycogen, before it happens, not after.
 - After a long cut, default to a maintenance phase, and when a cut passes
   6–12 weeks or diet-fatigue signals climb, offer a 1-week diet break — framed
   as an adherence tool, never as metabolic protection.

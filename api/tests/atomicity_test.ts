@@ -111,9 +111,9 @@ Deno.test("a session whose sets break a rule is not created", async (t) => {
 
   await t.step("effort on a warmup is refused by the database", async () => {
     // Not caught by parseNewSet — effort is legal on a set, and the rule that
-    // warmups do not carry it lives in a CHECK. So the session row and the
-    // first set are already inserted when the second one fails, which is
-    // exactly the shape this suite is about.
+    // warmups do not carry it lives in a CHECK. The session row is already
+    // inserted when the sets fail, even when those sets share one INSERT.
+    // The parent must roll back too.
     const { status, body } = await api.post("/sessions", {
       date: today(),
       rationale: "one good set and one impossible one",

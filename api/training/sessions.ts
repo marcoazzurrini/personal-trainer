@@ -158,10 +158,27 @@ interface NewSet {
   notes: string | null;
 }
 
+// Cache only reference resolution, never validation or set values. The maps
+// belong to one write: a later request must see changed plans and exercises.
+interface SetReferences {
+  exercises: Map<
+    Reference | undefined,
+    Awaited<ReturnType<typeof resolveExercise>>
+  >;
+  mesocycles: Map<number, Map<Reference | undefined, number | null>>;
+}
+
 // One set entry of POST /sessions. Targets only (upcoming) or actuals only
 // (retro) — a target written after the work would always match what was done.
-async function parseNewSet(s: SetEntry): Promise<NewSet> {
-  const exercise = await resolveExercise(s.exercise);
+async function parseNewSet(
+  s: SetEntry,
+  references?: SetReferences,
+): Promise<NewSet> {
+  let exercise = references?.exercises.get(s.exercise);
+  if (exercise === undefined) {
+    exercise = await resolveExercise(s.exercise);
+    references?.exercises.set(s.exercise, exercise);
+  }
   const kind = s.kind;
 
   const target = {
@@ -200,9 +217,22 @@ async function parseNewSet(s: SetEntry): Promise<NewSet> {
     actual.reps,
     effort,
   );
+  let plans = references?.mesocycles.get(exercise.id);
+  if (plans === undefined && references !== undefined) {
+    plans = new Map();
+    references.mesocycles.set(exercise.id, plans);
+  }
+  let mesocycleId = plans?.get(s.mesocycle);
+  // null is a resolved off-plan result; undefined means it has not been read.
+  // The explicit plan reference is part of the key: two sets of the same
+  // exercise may intentionally serve different plans.
+  if (mesocycleId === undefined) {
+    mesocycleId = await resolveSetMesocycleId(exercise.id, s.mesocycle);
+    plans?.set(s.mesocycle, mesocycleId);
+  }
   return {
     exerciseId: exercise.id,
-    mesocycleId: await resolveSetMesocycleId(exercise.id, s.mesocycle),
+    mesocycleId,
     kind,
     targetWeightKg: target.weightKg,
     targetReps: target.reps,
@@ -234,28 +264,47 @@ export async function writeSession(b: {
     select: sql`id`,
     replay: (seen) => sessionDetail(seen.id),
     write: async () => {
+      const references: SetReferences = {
+        exercises: new Map(),
+        mesocycles: new Map(),
+      };
       const sets: NewSet[] = [];
-      for (const entry of b.sets) sets.push(await parseNewSet(entry));
+      for (const entry of b.sets) {
+        sets.push(await parseNewSet(entry, references));
+      }
 
       const id = await sql.begin(async (tx) => {
         const [session] = await tx`
       insert into sessions (date, rationale, request_id)
       values (${b.date}, ${b.rationale}, ${b.request_id})
       returning id`;
-        let position = 1;
-        for (const s of sets) {
-          await tx`
-        insert into sets
-          (session_id, exercise_id, mesocycle_id, position, kind,
-           target_weight_kg, target_reps, target_distance_m,
-           target_duration_s, weight_kg, reps, distance_m, duration_s,
-           effort, performed_at, notes)
-        values
-          (${session.id}, ${s.exerciseId}, ${s.mesocycleId}, ${position++},
-           ${s.kind}, ${s.targetWeightKg}, ${s.targetReps},
-           ${s.targetDistanceM}, ${s.targetDurationS}, ${s.weightKg},
-           ${s.reps}, ${s.distanceM}, ${s.durationS},
-           ${s.effort}, ${s.performedAt}, ${s.notes})`;
+        // Sixteen parameters per row. Bound large inputs below Postgres's
+        // parameter limit without imposing a new limit on session size.
+        // Every batch remains in this transaction, including a failing last one.
+        const batchSize = 1000;
+        for (let offset = 0; offset < sets.length; offset += batchSize) {
+          const rows = sets.slice(offset, offset + batchSize).map((
+            s,
+            index,
+          ) => ({
+            session_id: session.id,
+            exercise_id: s.exerciseId,
+            mesocycle_id: s.mesocycleId,
+            position: offset + index + 1,
+            kind: s.kind,
+            target_weight_kg: s.targetWeightKg,
+            target_reps: s.targetReps,
+            target_distance_m: s.targetDistanceM,
+            target_duration_s: s.targetDurationS,
+            weight_kg: s.weightKg,
+            reps: s.reps,
+            distance_m: s.distanceM,
+            duration_s: s.durationS,
+            effort: s.effort,
+            performed_at: s.performedAt,
+            notes: s.notes,
+          }));
+          await tx`insert into sets ${tx(rows)}`;
         }
         return session.id as number;
       });

@@ -76,8 +76,9 @@ preferences, equipment, refusals, spacing needs, how they're eating. This arrive
 constantly and in no fixed shape. When they say something with lasting relevance, write it
 in the same conversation — the next conversation has no other way to learn it.
 
-1. **First `GET /user-context`** and reuse an existing topic string. "lower back" and
-   "lumbar" must not become two live topics saying different things.
+1. Reuse fresh `user_context` from `GET /training-state` if you already read it for
+   this turn. Otherwise call `GET /user-context`. Reuse an existing topic string:
+   "lower back" and "lumbar" must not become two live topics saying different things.
 2. `POST /user-context` with the topic and content. Rows are never edited: correcting a
    fact means writing a new row on the same topic, and the latest row per topic is the
    current truth.

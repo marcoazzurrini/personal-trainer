@@ -184,6 +184,42 @@ Deno.test("the coaching documents", async (t) => {
   );
 });
 
+// These are wording tripwires, not proof of a model's behavior. The matching
+// response guarantees are exercised through HTTP in workflow_reads_test.ts.
+Deno.test("coaching procedures reuse returned facts and read sets before judging effort", async () => {
+  const logging = (await read("tasks/logging")).replace(/\s+/g, " ");
+  assert(logging.includes("fresh `user_context` from `GET /training-state`"));
+  assert(logging.includes("Otherwise call `GET /user-context`"));
+
+  const checkin = (await read("tasks/nutrition-checkin")).replace(/\s+/g, " ");
+  assert(checkin.includes("`phase_switch_registered`"));
+  assert(checkin.includes("Do not send a second `POST /nutrition-events`"));
+
+  const nutrition = (await read("tasks/nutrition-logging")).replace(
+    /\s+/g,
+    " ",
+  );
+  assert(nutrition.includes("send `POST /intake` directly"));
+  assert(
+    nutrition.includes(
+      "Reuse the write response's `entries`, `totals`, and `flags`",
+    ),
+  );
+  assert(nutrition.includes("Never infer the date from conversation history"));
+
+  for (const name of ["tasks/evaluation", "tasks/charts"]) {
+    const text = (await read(name)).replace(/\s+/g, " ");
+    assert(
+      text.includes("headers only"),
+      `${name} must distinguish headers from sets.`,
+    );
+    assert(
+      text.includes("GET /sessions/:id"),
+      `${name} must name the set-level read.`,
+    );
+  }
+});
+
 // DOCUMENTED_TRACKS says which tracks have a method document, so that
 // /training-state can say so without a folder to look in. It is a claim
 // about files, and this holds it to them: every track is either in the list

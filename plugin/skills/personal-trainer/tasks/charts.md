@@ -35,9 +35,12 @@ lift or a declared light week is a chosen reduction, and the decision row is wha
 so. `?mesocycle=all` is not available here the way it is on view 2 — these week numbers
 count from the mesocycle's start, so weeks from different plans cannot share an axis.
 
-**4. How hard it's felt** — `GET /sessions?limit=30`: the effort mix per session from
-its sets (`easy` / `hard` / `failure` — the plottable series), with `overall_feel`
-quoted as annotations where it says something. It is free text by design and has no
+**4. How hard it's felt** — `GET /sessions?limit=30` returns headers only. Read
+`GET /sessions/:id` for each session being plotted, reusing details already read
+for this view. Plot the effort mix from performed working sets (`easy` / `hard` /
+`failure`), not warmups or untouched planned sets. A null effort is not `easy`;
+explosive and conditioning work has no effort chip. Use `overall_feel` as a quoted
+annotation where it says something. It is free text by design and has no
 axis to sit on; the chips are what goes on the chart. Two patterns are worth naming
 when you see them: drift toward `failure` at flat weights is fatigue showing up before
 the numbers stall, and a wall of `easy` means the loads are too light no matter what

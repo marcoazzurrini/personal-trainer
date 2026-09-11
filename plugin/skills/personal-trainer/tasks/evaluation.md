@@ -23,9 +23,11 @@ dose shown is the dose **in force during that week** — a mid-mesocycle redose
 changes later weeks' number, never earlier ones', so an early week is never compared
 against today's dose.
 
-**2. Was the work hard enough?** Effort chips on the working sets, from
-`GET /sessions?limit=30` or the exercise's history. Sets delivered at the wrong effort are
-not the work the plan asked for, even though the count matches. Explosive and conditioning work carries no
+**2. Was the work hard enough?** Effort chips on the performed working sets, from
+`GET /exercises/:name/history?limit=20`. Reuse that history for question 3. For
+session-level detail, use `GET /sessions/:id`; `GET /sessions?limit=30` returns
+headers only, not sets or effort. Sets delivered at the wrong effort are not the
+work the plan asked for, even though the count matches. Explosive and conditioning work carries no
 chip at all — for those the output itself is the intensity record, and a sprint block
 delivering its metres at drifting times, or a jump session losing height across sets, is
 the same finding as a wall of `easy`.
