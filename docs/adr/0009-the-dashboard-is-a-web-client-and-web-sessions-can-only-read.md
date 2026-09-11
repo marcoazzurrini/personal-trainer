@@ -104,3 +104,8 @@ source. It does not open a database path or expose training records. Container
 checks use synthetic credentials and no runtime network. Health proves that the
 process serves the built revision, not that WorkOS or a real authenticated read
 has been verified. The tenant-claim check above still gates hosted API access.
+
+**Epilogue.** [ADR-0010](0010-the-dashboard-is-installable-and-remains-online-only.md)
+adds Home Screen installation for the iPhone. It supersedes the installability
+deferral above. The dashboard remains online-only, read-only, and free of
+service workers or persistent browser record caches.

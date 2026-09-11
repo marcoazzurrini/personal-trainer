@@ -16,7 +16,16 @@ export const Route = createRootRoute({
       { name: "robots", content: "noindex, nofollow" },
       { name: "theme-color", content: "#f6f5f0" },
     ],
-    links: [{ rel: "stylesheet", href: styles }],
+    links: [
+      { rel: "stylesheet", href: styles },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/icons/apple-touch-icon.png",
+      },
+      { rel: "icon", type: "image/svg+xml", href: "/icons/pt.svg" },
+    ],
   }),
   component: Outlet,
   shellComponent: Shell,

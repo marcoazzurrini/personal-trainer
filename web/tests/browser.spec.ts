@@ -283,6 +283,64 @@ test("public health reports uncached build metadata without a session or API rea
   expect(reads).toBe(before);
 });
 
+test("installation metadata and PT icons are public without reading personal data", async ({ page, request }) => {
+  const before = reads;
+  await page.goto(appUrl);
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+    "href",
+    "/manifest.webmanifest",
+  );
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
+    "href",
+    "/icons/apple-touch-icon.png",
+  );
+  const response = await request.get(`${appUrl}/manifest.webmanifest`);
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain(
+    "application/manifest+json",
+  );
+  expect(response.headers()["set-cookie"]).toBeUndefined();
+  const manifest = await response.json();
+  expect(manifest).toMatchObject({
+    id: "/",
+    name: "Personal trainer",
+    short_name: "PT",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#f6f5f0",
+    theme_color: "#f6f5f0",
+    icons: [
+      { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+  });
+  for (
+    const [path, size] of [
+      ["/icons/icon-192.png", 192],
+      ["/icons/icon-512.png", 512],
+      ["/icons/apple-touch-icon.png", 180],
+    ] as const
+  ) {
+    const icon = await request.get(`${appUrl}${path}`);
+    expect(icon.status()).toBe(200);
+    expect(icon.headers()["content-type"]).toContain("image/png");
+    expect(icon.headers()["set-cookie"]).toBeUndefined();
+    const png = await icon.body();
+    expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(png.readUInt32BE(16)).toBe(size);
+    expect(png.readUInt32BE(20)).toBe(size);
+    const dimensions = await page.evaluate(async (src) => {
+      const image = new Image();
+      image.src = src;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }, path);
+    expect(dimensions).toEqual([size, size]);
+  }
+  expect(reads).toBe(before);
+});
+
 test("client assets contain no server-only configuration or API implementation", async () => {
   for (const file of await readdir(".output/public/assets")) {
     if (!file.endsWith(".js")) continue;
@@ -392,6 +450,14 @@ test("the owner sees real chart data at phone width, without credentials in HTML
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect.poll(() => reads).toBeGreaterThan(beforeRefresh);
   expect(errors).toEqual([]);
+  expect(
+    await page.evaluate(async () => ({
+      workers: (await navigator.serviceWorker.getRegistrations()).length,
+      caches: await caches.keys(),
+      localStorage: localStorage.length,
+      databases: await indexedDB.databases(),
+    })),
+  ).toEqual({ workers: 0, caches: [], localStorage: 0, databases: [] });
   await page.screenshot({ path: "/tmp/trainer-dashboard.png", fullPage: true });
   expect(output).not.toContain(token);
   expect(output).not.toContain("synthetic-refresh-token");

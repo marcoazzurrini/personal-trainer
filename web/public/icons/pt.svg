@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"
+  viewBox="0 0 512 512">
+  <title>Personal trainer</title>
+  <rect width="512" height="512" fill="#f6f5f0" />
+  <!-- Original letter outlines keep every export independent of installed fonts. -->
+  <path fill="#246449" fill-rule="evenodd"
+    d="M115 160h62c44 0 70 24 70 62s-26 62-70 62h-22v68h-40V160zm40 36v52h22c20 0 30-9 30-26s-10-26-30-26h-22z" />
+  <path fill="#246449" d="M265 160h132v38h-46v154h-40V198h-46z" />
+</svg>

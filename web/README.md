@@ -1,9 +1,38 @@
 # Personal trainer dashboard
 
 A read-only React/TanStack Start web client. It shows measurements and the trend
-returned by the existing API. It is not yet an installable or offline PWA. The
-design and authentication boundaries are in
+returned by the existing API. It can be installed on an iPhone Home Screen and
+requires an internet connection. The design and authentication boundaries are in
 [ADR-0009](../docs/adr/0009-the-dashboard-is-a-web-client-and-web-sessions-can-only-read.md).
+[ADR-0010](../docs/adr/0010-the-dashboard-is-installable-and-remains-online-only.md)
+adds installation without offline storage.
+
+## Install on iPhone
+
+Open the hosted HTTPS dashboard in Safari. Open Share, select **Add to Home
+Screen**, enable **Open as Web App** if shown, and tap **Add**. Launch the PT
+icon and sign in if asked. The dashboard opens without the usual browser
+controls. There is no App Store submission or native app build.
+
+Installation does not provide offline access. No service worker, offline record
+cache, or background sync is added. Private HTML and data responses remain
+`private, no-store`.
+
+The manifest is `public/manifest.webmanifest`. The original PT artwork is
+`public/icons/pt.svg`, with letter outlines rather than a font dependency. The
+192×192, 512×512, and 180×180 PNG exports are committed, so production builds
+need no image generator. After changing the SVG, regenerate them with:
+
+```sh
+npm exec playwright install chromium
+npm run icons
+```
+
+Before considering iPhone support verified, test installation on the hosted
+HTTPS site, sign-in from the Home Screen app, closing and reopening the app,
+refresh, and sign-out. Desktop browser tests verify the served metadata, icons,
+and lack of persistent record storage, not iOS installation or the real WorkOS
+flow.
 
 ## Local development
 
