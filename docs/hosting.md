@@ -221,6 +221,40 @@ idle timeout. Close it explicitly when finished. Secretive then approves one
 connection instead of every command. Processes under the same local account can
 reuse that connection while it remains open; do not leave it open unattended.
 
+## Dashboard preparation
+
+Setup record, 11 September 2026: a second application, `personal-trainer-web`
+(`e01dr4pgprfgfs4d7gdbwosv`), was created in Trainer / production through the existing
+GitHub App. Its Dockerfile build uses `/web` as the base directory. Automatic and
+preview deployments are disabled; source-commit build arguments and Dockerfile
+argument injection are enabled, and build secrets remain disabled. These settings
+were verified through Coolify's API, not inferred from the unsaved-changes banner
+(the banner remained visible after a successful save).
+
+The application routes `https://app.trainer.marcoazzurrini.com` to container port
+3000 and forces HTTPS. At preparation the hostname did not resolve. Marco added
+its A record before release: direct queries to `dns1.p06.nsone.net`,
+`dns2.p06.nsone.net`, Cloudflare's resolver, and Google's resolver all returned
+`91.99.234.12` with a 300-second TTL on 11 September 2026. The local resolver still
+cached the earlier negative answer at that check. No nameservers or existing
+records were changed during this setup.
+
+The existing Staging AuthKit application now registers the dashboard's callback,
+sign-in, and sign-out addresses. Its Connect configuration was not changed. The
+web application's eight server variables are configured in Coolify and verified
+as runtime-only. Coolify automatically created corresponding preview entries;
+those are also runtime-only, and preview deployments remain disabled. The existing
+application API key was reused, and a fresh cookie-encryption secret was generated.
+Neither value was written to the repository or displayed in the conversation.
+The new GitHub secret `COOLIFY_DASHBOARD_WEBHOOK` was configured and its presence
+verified; the existing API webhook and CI token were not changed.
+
+This is preparation, not a deployment record. The dashboard has not been started,
+TLS has not been verified, and a real web-session JWT and authenticated chart read
+remain unverified. The API's hosted web-auth settings have not been enabled; the
+actual issuer, application, session, and subject claims must first satisfy
+ADR-0009. Existing API and database resources were not changed during preparation.
+
 ## Static-token retirement (#61)
 
 Marco confirmed no remaining consumers of static authentication. Coach access

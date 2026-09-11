@@ -42,6 +42,7 @@ npm run check
 npm test
 npm exec playwright install chromium
 npm run test:browser
+npm run test:container
 ```
 
 The build generates the ignored route tree, so build before type-checking a
@@ -55,6 +56,12 @@ logout, a narrow viewport, and empty/error screens. Proxy tests also cover an
 internal HTTP connection behind a public HTTPS address, forged host headers, and
 CSRF checks without browser fetch-metadata headers. API authentication tests use
 the root disposable-Postgres harness.
+
+The container check requires Docker. It builds the production image with a
+synthetic revision and runs it without a network, database, or real credentials.
+It checks image contents, non-root execution, health metadata, anonymous
+sign-in, configuration refusals, and shutdown. Its containers and image are
+removed after the run.
 
 ## Production preparation
 
@@ -79,11 +86,41 @@ over HTTP. Request host and forwarded headers cannot override it. Missing or
 invalid configuration refuses requests; HTTP callbacks are allowed only on
 localhost. No additional origin variable or proxy-trust setting is needed.
 
-This change does not configure Coolify, add a web domain, change provider
-settings, or deploy the web app. The existing CI deployment still deploys only
-the API. After hosting is configured, verify a real sign-in, authenticated chart
+### Container and release
+
+The Docker build context is `web/`. In Coolify, use a separate GitHub App
+application with base directory `/web`, Dockerfile location `/Dockerfile`, and
+container port `3000`. Disable automatic and preview deployments. Enable source
+commit availability during the build and Dockerfile argument injection; leave
+build secrets disabled. Supply all dashboard credentials at runtime only, never
+as build arguments. Coolify currently mirrors environment variables into preview
+entries, so keep those runtime-only too and leave preview deployments disabled.
+
+The Dockerfile requires Coolify's full `SOURCE_COMMIT`, builds the standalone
+Nitro output, and writes its revision into that output. The final image contains
+no source tree or build dependencies and runs as an unprivileged user. Its
+files, including the revision, are root-owned. A runtime environment variable
+cannot replace the recorded revision. Native builds without that file report
+`null`.
+
+`GET /api/health` and `HEAD /api/health` are public, uncached process/build
+checks. They do not read training records, create sessions, or contact WorkOS.
+Invalid public-origin configuration or malformed revision metadata returns 503.
+These checks do not establish that a real WorkOS login or API read works.
+
+CI tests the production web image, validates both release configurations before
+writing either commit pin, then deploys and verifies the API and dashboard in
+one serialized release job. Both must report the exact tested revision.
+Configure `COOLIFY_DASHBOARD_WEBHOOK` in GitHub secrets for the dashboard's
+deployment URL; the existing `COOLIFY_WEBHOOK` still selects the API, and
+`COOLIFY_TOKEN` is shared. A failed dashboard release does not roll back a
+successful API release.
+
+After DNS and hosting are configured, verify a real sign-in, authenticated chart
 read, token refresh, and sign-out before treating hosted authentication as
 complete. Locally signed-token tests do not prove the provider configuration.
+See [the hosting record](../docs/hosting.md#dashboard-preparation) for the
+prepared hosted settings and remaining verification.
 
 The access token stays out of browser JavaScript. The SDK cookie contains an
 encrypted session; logout clears it and redirects through WorkOS. JWT expiry

@@ -35,8 +35,12 @@ it("the web source can reach neither API implementation nor a database driver", 
           `${file}: ${specifier}`,
         ).toBe(true);
       } else {
+        // Only the health endpoint may read the image's build-revision file.
+        // Do not grant filesystem or networking imports to other web modules.
+        const imageMetadata = file === resolve(root, "health.server.ts") &&
+          specifier === "node:fs";
         expect(
-          allowed.some((prefix) =>
+          imageMetadata || allowed.some((prefix) =>
             specifier === prefix ||
             specifier.startsWith(prefix.endsWith("/") ? prefix : prefix + "/")
           ),

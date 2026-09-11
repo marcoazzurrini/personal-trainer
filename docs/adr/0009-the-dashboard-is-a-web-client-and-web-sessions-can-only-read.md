@@ -87,6 +87,20 @@ storage, mutation queues, and installability wait for a use case that needs
 them. This is a responsive web application, not yet a PWA.
 
 The web app has its own Node build in `web/`; the API remains Deno. Both live in
-this repository and are checked in CI. The API deployment is unchanged. The
-web build can run as a separate Node process, but a hosted web deployment and
-real WorkOS sign-in require separate configuration and smoke verification.
+this repository and are checked in CI. The first web slice left API deployment
+unchanged and required separate hosting configuration and smoke verification.
+
+## Deployment follow-through
+
+The dashboard now has a separate Docker image and Coolify application. CI keeps
+one serialized release job, validates both target configurations, and deploys the
+same tested source revision to the API and dashboard. Each application must pass
+its own revision-aware health check. An API deployment is not rolled back when a
+later dashboard deployment fails.
+
+The web health endpoint reads only the image's build-revision file. The import
+boundary grants `node:fs` only to that server module, not to the rest of the web
+source. It does not open a database path or expose training records. Container
+checks use synthetic credentials and no runtime network. Health proves that the
+process serves the built revision, not that WorkOS or a real authenticated read
+has been verified. The tenant-claim check above still gates hosted API access.

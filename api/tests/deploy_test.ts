@@ -294,6 +294,7 @@ Deno.test("main CI cannot skip deployment for missing secrets or stop at webhook
       "npm --prefix web run check",
       "npm --prefix web test",
       "npm --prefix web run test:browser",
+      "npm --prefix web run test:container",
     ]
   ) {
     assert(
@@ -307,8 +308,22 @@ Deno.test("main CI cannot skip deployment for missing secrets or stop at webhook
   assert(job.includes("github.ref == 'refs/heads/main'"));
   assert(job.includes("group: deploy"));
   assert(job.includes("cancel-in-progress: false"));
-  assert(job.includes("timeout-minutes: 20"));
-  assert(job.includes("run: deno task deploy"));
+  assert(job.includes("timeout-minutes: 35"));
+  assertEquals([...job.matchAll(/run: deno task deploy/g)].length, 2);
+  assert(job.includes("secrets.COOLIFY_DASHBOARD_WEBHOOK"));
+  assert(
+    job.includes(
+      "DASHBOARD_HEALTH_URL: https://app.trainer.marcoazzurrini.com/api/health",
+    ),
+  );
+  assert(job.includes("COOLIFY_WEBHOOK: ${{ env.COOLIFY_DASHBOARD_WEBHOOK }}"));
+  assert(job.includes("DEPLOY_HEALTH_URL: ${{ env.DASHBOARD_HEALTH_URL }}"));
+  const preflight = job.indexOf("name: Validate both release configurations");
+  assert(preflight >= 0 && preflight < job.indexOf("run: deno task deploy"));
+  assert(
+    job.includes('COOLIFY_WEBHOOK: Deno.env.get("COOLIFY_DASHBOARD_WEBHOOK")'),
+  );
+  assertEquals([...job.matchAll(/deploymentConfig\(\{/g)].length, 2);
   assertEquals([...job.matchAll(/^\s+if:/gm)].length, 1);
   assert(!job.includes("if: env.COOLIFY"));
   assert(!job.includes("continue-on-error"));

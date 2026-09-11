@@ -11,7 +11,8 @@
     "start": "node --env-file-if-exists=.env .output/server/index.mjs",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:container": "node --test tests/container.test.mjs"
   },
   "dependencies": {
     "@tanstack/charts": "0.17.0",

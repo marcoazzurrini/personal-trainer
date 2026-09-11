@@ -1,5 +1,6 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
-import { publicRequest } from "./public-request.server";
+import { publicRequest } from "./public-request.server.ts";
+import { healthResponse } from "./health.server.ts";
 
 export default createServerEntry({
   fetch(request, options) {
@@ -17,6 +18,9 @@ export default createServerEntry({
           },
         },
       );
+    }
+    if (new URL(incoming.url).pathname === "/api/health") {
+      return healthResponse(incoming);
     }
     return handler.fetch(incoming, options);
   },

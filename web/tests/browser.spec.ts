@@ -269,6 +269,20 @@ test.beforeEach(() => {
   missingTrend = false;
 });
 
+test("public health reports uncached build metadata without a session or API read", async ({ request }) => {
+  const before = reads;
+  for (const url of [appUrl, proxyAppUrl]) {
+    const response = await request.get(`${url}/api/health`);
+    expect(response.status()).toBe(200);
+    expect(response.headers()["cache-control"]).toBe("no-store");
+    expect(response.headers()["set-cookie"]).toBeUndefined();
+    expect(await response.json()).toEqual({ status: "ok", revision: null });
+    const refused = await request.post(`${url}/api/health`);
+    expect(refused.status()).toBe(405);
+  }
+  expect(reads).toBe(before);
+});
+
 test("client assets contain no server-only configuration or API implementation", async () => {
   for (const file of await readdir(".output/public/assets")) {
     if (!file.endsWith(".js")) continue;
@@ -279,6 +293,8 @@ test("client assets contain no server-only configuration or API implementation",
         "WORKOS_COOKIE_PASSWORD",
         "WORKOS_REDIRECT_URI",
         "publicRequest",
+        "readBuildRevision",
+        "build-revision.txt",
         "TRAINER_API_ORIGIN",
         "ALLOWED_SUBJECT",
         "readDashboard",

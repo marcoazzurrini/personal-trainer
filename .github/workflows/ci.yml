@@ -55,6 +55,7 @@ jobs:
       - run: npm --prefix web test
       - run: npm exec --prefix web -- playwright install --with-deps chromium
       - run: npm --prefix web run test:browser
+      - run: npm --prefix web run test:container
 
   # A green main proves tests AND the exact tested revision's live readiness.
   # Hold serialization through pinning, queue acceptance and bounded polling.
@@ -63,7 +64,7 @@ jobs:
     needs: [checks, test, web]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: read
     concurrency:
@@ -72,11 +73,35 @@ jobs:
     env:
       COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      COOLIFY_DASHBOARD_WEBHOOK: ${{ secrets.COOLIFY_DASHBOARD_WEBHOOK }}
       DEPLOY_HEALTH_URL: https://trainer.marcoazzurrini.com/api/health
+      DASHBOARD_HEALTH_URL: https://app.trainer.marcoazzurrini.com/api/health
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
           deno-version: 2.9.6
-      - name: Deploy and verify the tested revision
+      # Check both targets before changing either application's commit pin.
+      - name: Validate both release configurations
+        run: |
+          deno eval '
+            import { deploymentConfig } from "./scripts/deploy.ts";
+            const common = Object.fromEntries(
+              ["COOLIFY_TOKEN", "GITHUB_SHA", "GITHUB_REPOSITORY"].map(key => [key, Deno.env.get(key)])
+            );
+            deploymentConfig({ ...common,
+              COOLIFY_WEBHOOK: Deno.env.get("COOLIFY_WEBHOOK"),
+              DEPLOY_HEALTH_URL: Deno.env.get("DEPLOY_HEALTH_URL")
+            });
+            deploymentConfig({ ...common,
+              COOLIFY_WEBHOOK: Deno.env.get("COOLIFY_DASHBOARD_WEBHOOK"),
+              DEPLOY_HEALTH_URL: Deno.env.get("DASHBOARD_HEALTH_URL")
+            });
+          '
+      - name: Deploy and verify the API revision
+        run: deno task deploy
+      - name: Deploy and verify the dashboard revision
+        env:
+          COOLIFY_WEBHOOK: ${{ env.COOLIFY_DASHBOARD_WEBHOOK }}
+          DEPLOY_HEALTH_URL: ${{ env.DASHBOARD_HEALTH_URL }}
         run: deno task deploy
