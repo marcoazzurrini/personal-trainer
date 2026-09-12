@@ -52,6 +52,7 @@ const PURE = [
   `${API_DIR}/nutrition/rules.ts`,
   `${API_DIR}/shared/dates.ts`,
   `${API_DIR}/training/rules.ts`,
+  `${API_DIR}/training/set_correction.ts`,
 ];
 
 // Static imports, side-effect imports, re-exports and dynamic imports all

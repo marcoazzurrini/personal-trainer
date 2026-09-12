@@ -10,12 +10,100 @@ import {
 } from "../training/rules.ts";
 import type { SetMeasures } from "../training/rules.ts";
 import { ApiError } from "../shared/errors.ts";
+import {
+  prepareSetCorrection,
+  type SetForCorrection,
+  TARGET_FIELDS,
+} from "../training/set_correction.ts";
 
 // The measure table, restated as behaviour. training.ts holds one RULES table
 // read from three sides — what a set may carry, which units a dose may use,
 // how delivered work converts — and these tests pin the three sides to each
 // other and to this spec, so a table edit that breaks their agreement fails
 // here by name.
+
+Deno.test("partial set corrections preserve omissions, explicit nulls and the first timestamp", () => {
+  fc.assert(fc.property(
+    fc.integer({ min: 0, max: 3000 }),
+    fc.integer({ min: 1, max: 30 }),
+    fc.option(fc.string({ minLength: 1, maxLength: 40 }), { nil: null }),
+    (tenths, reps, notes) => {
+      const before: SetForCorrection = Object.freeze({
+        id: 1,
+        kind: "working",
+        exercise: "Test squat",
+        measure: "load_reps",
+        stimulus_type: "strength",
+        weight_kg: null,
+        reps: null,
+        distance_m: null,
+        duration_s: null,
+        effort: null,
+        performed_at: null,
+        notes: "Unchanged unless supplied",
+      });
+      const input = Object.freeze({
+        weight_kg: tenths / 10,
+        reps,
+        effort: "hard" as const,
+      });
+      const first = prepareSetCorrection(
+        before,
+        input,
+        "2020-01-01T10:00:00.000Z",
+      );
+      const stored = { ...before, ...first };
+      assertEquals(stored.weight_kg, tenths / 10);
+      assertEquals(stored.notes, before.notes);
+      assertEquals(stored.performed_at, "2020-01-01T10:00:00.000Z");
+      const replay = prepareSetCorrection(
+        stored,
+        input,
+        "2020-01-02T10:00:00.000Z",
+      );
+      assertEquals({ ...stored, ...replay }, stored);
+      const changed = prepareSetCorrection(stored, {
+        notes,
+        performed_at: null,
+      }, "unused");
+      assertEquals({ ...stored, ...changed }, {
+        ...stored,
+        notes,
+        performed_at: null,
+      });
+      assertEquals(before.reps, null);
+    },
+  ));
+});
+
+Deno.test("the shared correction rule refuses every frozen target even when clearing it", () => {
+  const before: SetForCorrection = {
+    id: 1,
+    kind: "working",
+    exercise: "Test squat",
+    measure: "load_reps",
+    stimulus_type: "strength",
+    weight_kg: null,
+    reps: null,
+    distance_m: null,
+    duration_s: null,
+    effort: null,
+    performed_at: null,
+    notes: null,
+  };
+  for (const field of TARGET_FIELDS) {
+    for (const value of [null, 0, 10]) {
+      assert(
+        refused(() =>
+          prepareSetCorrection(before, {
+            [field]: value,
+            notes: "Do not write",
+          }, "unused")
+        ),
+      );
+    }
+  }
+});
 
 interface Spec {
   needs: readonly ("reps" | "distance" | "duration")[];

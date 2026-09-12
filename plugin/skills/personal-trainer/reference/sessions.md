@@ -7,7 +7,8 @@ in `tasks/session-generation` (writing today's session) and `tasks/logging`
 A set is **written with targets or actuals, never both** in one write. Targets
 mean "what was asked before the work"; actuals mean what happened. Targets are
 frozen once created and can never be edited; actuals attach later, through
-`PATCH /sets/:id`, so a mature planned set carries both, the frozen ask beside
+`PATCH /sessions/:id` with set corrections or `PATCH /sets/:id`, so a mature planned
+set carries both, the frozen ask beside
 what actually happened. The rule guards the write, not the row: a target
 authored after the work would always match what was done.
 
@@ -41,7 +42,7 @@ not done, and the two must never collapse into each other.
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /sessions?limit=N` | Recent sessions, newest first. `?mesocycle=<id>` filters to sessions containing work for that plan. |
+| `GET /sessions?limit=N` | Recent session headers only, newest first; no sets or effort. `?mesocycle=<id>` filters to sessions containing work for that plan. |
 | `GET /sessions/:id` | One session with its sets, their measures, their plan links, and their ids (needed for corrections). |
 
 ## Creating a session
@@ -77,6 +78,39 @@ Resolved from the exercise, so the payload usually says nothing about it:
 - in more than one → refused, naming the candidate tracks. Add
   `"mesocycle": "current:<track>"` to that set to say which.
 
+## Reporting a planned workout
+
+`PATCH /sessions/:id` accepts session facts and a non-empty `sets` array of partial
+corrections to existing sets. Use the ids returned by `GET /sessions/:id`, not exercise
+names or positions. For example, if session 42 contains sets 101 and 102:
+
+```json
+PATCH /sessions/42
+{
+  "sets": [
+    { "id": 101, "weight_kg": 100, "reps": 6, "effort": "hard" },
+    { "id": 102, "weight_kg": 100, "reps": 5, "effort": "failure", "notes": "Last rep slowed" }
+  ],
+  "overall_feel": "solid"
+}
+```
+
+Every correction and session field succeeds together or none is saved. A missing set,
+a set from another session, a duplicate id, an empty correction, an immutable target,
+or an invalid resulting measure/effort refuses the report. The response contains the
+complete session, including sets the report did not mention.
+
+Omitted sets remain untouched. On a named set, an omitted field remains unchanged;
+explicit null clears it. An unloaded set still uses `weight_kg: 0`. Measurements get an
+automatic `performed_at` only when no timestamp exists and none was explicitly supplied.
+An identical retry does not add sets or restamp an existing timestamp. This is an ordinary
+partial update, not a replay ledger: read again before retrying if another correction
+has intervened. No `request_id` is required.
+
+Completion is never inferred. Supply a known `completed_at` with an explicit timezone
+offset when recording the finish; omit `sets` entirely when changing only session facts.
+Appending unplanned sets is still a separate operation below, not part of this transaction.
+
 ## Additions and corrections
 
 - Extra sets performed but not logged → `POST /sessions/:id/sets` with actuals and
@@ -85,7 +119,8 @@ Resolved from the exercise, so the payload usually says nothing about it:
 - Correcting an actual → `PATCH /sets/:id` with the corrected fields (set ids via
   `GET /sessions/:id`). The measure rule is checked against what the row *becomes*,
   so clearing one half of a pair is refused.
-- Session-level facts — notes, `overall_feel`, completion → `PATCH /sessions/:id`.
+- A workout report with several known sets, or session-level facts — notes,
+  `overall_feel`, completion → `PATCH /sessions/:id`. Sets are optional.
 - A mis-planned session nothing has touched → `DELETE /sessions/:id`, then write it
   again. A planned session with no actuals is a proposal, not history — iterating on
   a plan means discarding the draft, never superseding it into dead rows. Refused

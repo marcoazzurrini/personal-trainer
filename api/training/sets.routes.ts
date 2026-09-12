@@ -1,16 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { correctSet } from "./sets.ts";
 import { EFFORTS, KINDS } from "./rules.ts";
-import {
-  body,
-  idParam,
-  oneOf,
-  optionalInt,
-  optionalNumber,
-  optionalText,
-  optionalTimestamp,
-  query,
-} from "../shared/schema.ts";
+import { body, idParam, query } from "../shared/schema.ts";
+import { setCorrectionShape } from "./set_correction.schema.ts";
 
 export const sets = new OpenAPIHono();
 
@@ -34,15 +26,6 @@ const Set = z.object({
   notes: z.string().nullable(),
 });
 
-// Named in the schema rather than left to the unknown-field check, so the
-// document says why they are refused instead of only that they are. Sending
-// one is a mistake with a specific explanation, and it deserves it.
-const immutableTarget = () =>
-  z.unknown().optional().meta({
-    description:
-      "Refused. Targets are the record of what was asked that day and never change after the session exists.",
-  });
-
 sets.openapi(
   createRoute({
     method: "patch",
@@ -57,19 +40,7 @@ sets.openapi(
       body: {
         content: {
           "application/json": {
-            schema: body({
-              weight_kg: optionalNumber({ min: 0 }),
-              reps: optionalInt({ min: 1 }),
-              distance_m: optionalNumber({ min: 0 }),
-              duration_s: optionalNumber({ min: 0 }),
-              effort: oneOf(EFFORTS).nullish(),
-              performed_at: optionalTimestamp(),
-              notes: optionalText(),
-              target_weight_kg: immutableTarget(),
-              target_reps: immutableTarget(),
-              target_distance_m: immutableTarget(),
-              target_duration_s: immutableTarget(),
-            }),
+            schema: body(setCorrectionShape()),
           },
         },
       },

@@ -220,6 +220,21 @@ Deno.test("coaching procedures reuse returned facts and read sets before judging
   }
 });
 
+Deno.test("planned workout reports use one session write without inventing unreported work", async () => {
+  const logging = (await read("tasks/logging")).replace(/\s+/g, " ");
+  assert(logging.includes("one `PATCH /sessions/:id`"));
+  assert(logging.includes("Omitted sets remain untouched"));
+  assert(logging.includes("Do not copy targets into actuals"));
+  assert(
+    logging.includes("If any correction fails, none of the report is saved"),
+  );
+  assert(logging.includes("Those appends are separate writes"));
+  const reference = (await read("reference/sessions")).replace(/\s+/g, " ");
+  assert(reference.includes("non-empty `sets` array of partial corrections"));
+  assert(reference.includes("Completion is never inferred"));
+  assert(reference.includes("No `request_id` is required"));
+});
+
 // DOCUMENTED_TRACKS says which tracks have a method document, so that
 // /training-state can say so without a folder to look in. It is a claim
 // about files, and this holds it to them: every track is either in the list

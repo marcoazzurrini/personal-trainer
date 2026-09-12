@@ -6,13 +6,13 @@
 // so nothing here touches them.
 
 import { sql } from "../db.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
+import { requireRow } from "../shared/errors.ts";
+import { type Effort, type Kind } from "./rules.ts";
 import {
-  assertEffort,
-  assertSetMeasures,
-  type Effort,
-  type Kind,
-} from "./rules.ts";
+  type CorrectSetInput,
+  prepareSetCorrection,
+  type SetForCorrection,
+} from "./set_correction.ts";
 
 export interface SetRow {
   id: number;
@@ -32,37 +32,6 @@ export interface SetRow {
   effort: Effort | null;
   performed_at: string | null;
   notes: string | null;
-}
-
-export const TARGET_FIELDS = [
-  "target_weight_kg",
-  "target_reps",
-  "target_distance_m",
-  "target_duration_s",
-] as const;
-
-const ACTUAL_FIELDS = [
-  "weight_kg",
-  "reps",
-  "distance_m",
-  "duration_s",
-  "effort",
-  "performed_at",
-  "notes",
-] as const;
-
-export interface CorrectSetInput {
-  weight_kg?: number | null;
-  reps?: number | null;
-  distance_m?: number | null;
-  duration_s?: number | null;
-  effort?: Effort | null;
-  performed_at?: string | null;
-  notes?: string | null;
-  target_weight_kg?: unknown;
-  target_reps?: unknown;
-  target_distance_m?: unknown;
-  target_duration_s?: unknown;
 }
 
 /**
@@ -88,66 +57,16 @@ export async function correctSet(
       `No set with id ${setId}.`,
     );
     const existing = requireRow(
-      await tx`
+      await tx<SetForCorrection[]>`
     select t.id, t.kind, t.performed_at, t.effort, t.weight_kg::float8, t.reps,
-      t.distance_m::float8, t.duration_s::float8,
+      t.distance_m::float8, t.duration_s::float8, t.notes,
       e.name as exercise, e.measure, e.stimulus_type
     from sets t join exercises e on e.id = t.exercise_id
     where t.id = ${setId}`,
       `No set with id ${setId}.`,
     );
 
-    const target = TARGET_FIELDS.find((f) => b[f] !== undefined);
-    if (target) {
-      throw new ApiError(
-        422,
-        `Targets are immutable once the session exists: they are the record of what was asked that day, and "${target}" is one of them. Only actuals (weight_kg, reps, distance_m, duration_s, effort), performed_at, and notes can change. If the whole session was mis-planned and nothing has been performed yet, DELETE /sessions/:id discards the draft — then write it again.`,
-      );
-    }
-
-    // Absent and explicitly null are different instructions — leave it alone
-    // against clear it — and the schema keeps them apart: an omitted field
-    // parses to undefined, a null one to null.
-    const fields: Record<string, unknown> = {};
-    for (const f of ACTUAL_FIELDS) {
-      if (b[f] !== undefined) fields[f] = b[f];
-    }
-    if (Object.keys(fields).length === 0) {
-      throw new ApiError(
-        422,
-        'Send at least one of "weight_kg", "reps", "distance_m", "duration_s", "effort", "performed_at", "notes".',
-      );
-    }
-
-    // A patch is partial, so the measure rule has to be checked against what the
-    // row will be, not against what arrived. Correcting a squat's reps to null
-    // and leaving its weight behind would otherwise sail through here and be
-    // caught only by the constraint, which cannot explain itself as well.
-    const pick = <T>(field: string, was: T) =>
-      field in fields ? fields[field] as T : was;
-    assertSetMeasures(existing.measure, existing.exercise, "actual", {
-      weightKg: pick("weight_kg", existing.weight_kg),
-      reps: pick("reps", existing.reps),
-      distanceM: pick("distance_m", existing.distance_m),
-      durationS: pick("duration_s", existing.duration_s),
-    });
-    assertEffort(
-      existing.stimulus_type,
-      existing.exercise,
-      existing.kind,
-      pick("reps", existing.reps),
-      pick("effort", existing.effort),
-    );
-
-    // A set being performed right now gets its timestamp for free.
-    const nowMeasured = fields.reps != null || fields.distance_m != null ||
-      fields.duration_s != null;
-    if (
-      fields.performed_at === undefined && existing.performed_at === null &&
-      nowMeasured
-    ) {
-      fields.performed_at = new Date().toISOString();
-    }
+    const fields = prepareSetCorrection(existing, b, new Date().toISOString());
 
     const rows = await tx<SetRow[]>`
     update sets set ${sql(fields)} where id = ${setId}

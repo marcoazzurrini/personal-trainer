@@ -8,10 +8,12 @@ import {
   writeSession,
 } from "./sessions.ts";
 import { EFFORTS, KINDS } from "./rules.ts";
+import { setCorrectionShape } from "./set_correction.schema.ts";
 import {
   body,
   date,
   idParam,
+  int,
   limitParam,
   oneOf,
   optionalInt,
@@ -265,9 +267,9 @@ sessions.openapi(
     method: "patch",
     path: "/{id}",
     tags: ["Training"],
-    summary: "Session-level facts",
+    summary: "Record a workout report or correct session facts",
     description:
-      "Finishing a workout is completed_at changing, not a separate action.",
+      "One atomic write for session facts and optional corrections to existing sets by id. Each set id must belong to this session and appear once. Omitted sets and fields are untouched; explicit null clears a field. Targets never change. Nothing is saved if any correction fails. No sets are appended and completion is never inferred. Read the complete session in the response; an identical retry does not duplicate sets or restamp existing performed_at values.",
     request: {
       params: z.object({ id: idParam("session") }),
       query: query({}),
@@ -280,6 +282,17 @@ sessions.openapi(
               overall_feel: optionalText(),
               notes: optionalText(),
               rationale: text().optional(),
+              sets: z.array(
+                body(
+                  { id: int({ min: 1 }), ...setCorrectionShape() },
+                  'an entry in "sets"',
+                ),
+              )
+                .min(1, {
+                  error: () =>
+                    '"sets" must be a non-empty array of corrections with set ids. Omit it when changing only session facts.',
+                })
+                .optional(),
             }),
           },
         },
@@ -287,15 +300,25 @@ sessions.openapi(
     },
     responses: {
       200: {
-        description: "The session as it now stands.",
+        description:
+          "The complete session after all corrections, read before releasing its write lock.",
         content: {
           "application/json": {
             schema: z.object({ session: SessionDetail }),
           },
         },
       },
-      404: { description: "No session carries that id." },
-      422: { description: "Nothing was sent." },
+      404: {
+        description: "The session or a named set within it does not exist.",
+      },
+      409: {
+        description:
+          "The complete update could not be applied. Nothing was saved.",
+      },
+      422: {
+        description:
+          "Nothing was sent, a set id was repeated, a target was sent, or a correction would break a measure, effort or database rule. Nothing was saved.",
+      },
     },
   }),
   async (c) =>

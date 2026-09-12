@@ -88,3 +88,17 @@ surface a human touched directly and the least defended thing here. #30 was
 first written to lift it out of the string so the toolchain could see it.
 Deleting a surface is the cheaper answer than tooling one, and it is only
 available when nobody needs the surface.
+
+## Follow-through: one write for the reported workout
+
+The per-set writes above outlived the page that needed them. `PATCH /sessions/:id`
+now accepts corrections to several existing sets alongside session facts. A report
+validates against current actuals under the session lock, updates the sets together,
+and returns the complete session before releasing that lock. A refused report leaves
+neither partial actuals nor a completion marker behind.
+
+`PATCH /sets/:id` remains for small corrections and shares the same correction rule.
+Unplanned sets still append separately with their own retry identity. The coach must
+not infer unreported sets, effort, or completion from the plan. This changes the unit
+of writing, not the responsibilities: the conversation still collects the report,
+the API records it, and no browser logger returns.

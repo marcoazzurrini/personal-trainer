@@ -11,6 +11,30 @@ shapes are in `reference/sessions` (sessions, sets, corrections) and `reference/
 before any tool call. Defer logging, user-context writes and bug filing until urgent
 care is addressed; the same-conversation rules below never delay help.
 
+## Reporting a planned workout
+
+Read `GET /sessions/:id` for the current sets and their ids. Gather the actuals the
+person reports, including effort where required, then send one `PATCH /sessions/:id`
+with a `sets` array of corrections by id. Include reported session facts in that same
+call. Do not loop over `PATCH /sets/:id` for a whole workout report.
+
+- Name only the sets the person reported. Omitted sets remain untouched, not marked
+  as performed. Do not copy targets into actuals to fill gaps.
+- Each set id must belong to this session and appear once. An omitted field stays
+  unchanged; explicit null clears it. Targets never change.
+- Completion is explicit: include `completed_at` only when the finish time is known.
+  Do not invent start or finish times from the plan or its expected duration.
+- If any correction fails, none of the report is saved. Correct the payload and
+  resend it. A retry does not duplicate sets or replace an existing `performed_at`
+  with a new automatic timestamp. After an intervening correction, read the session
+  before resending stale values.
+- Reuse the complete session in the response. No `request_id` is needed because
+  these are updates to known rows, not new sets.
+
+Extra, unplanned sets still use `POST /sessions/:id/sets` with their own `request_id`.
+Those appends are separate writes, not part of the report's atomic operation. A small
+correction to one known set still uses `PATCH /sets/:id`.
+
 ## A workout that never got logged (retro session)
 
 `POST /sessions` with a past `date`, a `rationale` saying it was retro-logged and why the
@@ -19,7 +43,7 @@ session happened, and `sets` carrying actuals.
 **Never invent targets for a retro session.** A target means "what was asked before the
 work"; a forgotten session had no ask. The API rejects a **new** set written with both
 targets and actuals, and the rejection is protecting the distinction — a planned set
-acquires its actuals later through `PATCH /sets/:id`, but a target authored after the
+acquires its actuals later through the session report or `PATCH /sets/:id`, but a target authored after the
 work would always match what was done, and you could no longer tell a session that went
 to plan from one that didn't.
 

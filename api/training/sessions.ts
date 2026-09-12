@@ -7,7 +7,12 @@
 // inserting, which is why targets are immutable afterwards: they are the
 // record of what was asked that day.
 
-import { sql } from "../db.ts";
+import { sql, type Tx } from "../db.ts";
+import {
+  type CorrectSetInput,
+  prepareSetCorrection,
+  type SetForCorrection,
+} from "./set_correction.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import {
@@ -96,9 +101,18 @@ function appendedSetColumns() {
     effort, performed_at, notes`;
 }
 
-export async function sessionDetail(id: number): Promise<SessionDetailRow> {
+export function sessionDetail(id: number): Promise<SessionDetailRow> {
+  return readSessionDetail(sql, id);
+}
+
+// A session report reads its response before releasing the parent lock. Public
+// callers never receive a transaction handle; the operation owns that boundary.
+async function readSessionDetail(
+  on: typeof sql | Tx,
+  id: number,
+): Promise<SessionDetailRow> {
   const session = requireRow(
-    await sql<SessionHeaderRow[]>`
+    await on<SessionHeaderRow[]>`
     select id, date, rationale, notes,
       overall_feel, started_at, completed_at
     from sessions where id = ${id}`,
@@ -106,7 +120,7 @@ export async function sessionDetail(id: number): Promise<SessionDetailRow> {
   );
   // Each set says which plan it serves; the session says nothing, because a
   // session that sprints and then squats serves two.
-  const sets = await sql<SessionSetRow[]>`
+  const sets = await on<SessionSetRow[]>`
     select t.id, e.name as exercise, t.exercise_id, e.measure, t.mesocycle_id,
       t.position, t.kind,
       t.target_weight_kg::float8, t.target_reps,
@@ -382,8 +396,9 @@ export async function appendSet(
 }
 
 /**
- * Session-level facts: notes, how it felt, marking complete. Finishing a
- * workout is completed_at changing, not a separate action.
+ * One reported workout: session facts and partial corrections to known sets.
+ * Nothing is appended or inferred. Every writer locks this session before
+ * reading actuals, so a refused report cannot leave half a workout behind.
  */
 export async function correctSession(sessionId: number, b: {
   started_at?: string | null;
@@ -391,37 +406,108 @@ export async function correctSession(sessionId: number, b: {
   overall_feel?: string | null;
   notes?: string | null;
   rationale?: string;
+  sets?: (CorrectSetInput & { id: number })[];
 }): Promise<SessionDetailRow> {
-  requireRow(
-    await sql`select id from sessions where id = ${sessionId}`,
-    `No session with id ${sessionId}.`,
-  );
-
-  const fields: Record<string, unknown> = {};
-  for (
-    const f of [
-      "notes",
-      "overall_feel",
-      "rationale",
-      "started_at",
-      "completed_at",
-    ] as const
-  ) {
-    if (b[f] !== undefined) fields[f] = b[f];
-  }
-  if (Object.keys(fields).length === 0) {
-    throw new ApiError(
-      422,
-      'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at".',
+  return await sql.begin(async (tx) => {
+    requireRow(
+      await tx`select id from sessions where id = ${sessionId} for update`,
+      `No session with id ${sessionId}.`,
     );
-  }
-  requireRow(
-    await sql`update sessions set ${
-      sql(fields)
-    } where id = ${sessionId} returning id`,
-    `No session with id ${sessionId}.`,
-  );
-  return await sessionDetail(sessionId);
+    const fields: Record<string, unknown> = {};
+    for (
+      const f of [
+        "notes",
+        "overall_feel",
+        "rationale",
+        "started_at",
+        "completed_at",
+      ] as const
+    ) {
+      if (b[f] !== undefined) fields[f] = b[f];
+    }
+    if (Object.keys(fields).length === 0 && b.sets === undefined) {
+      throw new ApiError(
+        422,
+        'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at", or a non-empty "sets" array of corrections with set ids.',
+      );
+    }
+    if (b.sets !== undefined) {
+      if (b.sets.length === 0) {
+        throw new ApiError(
+          422,
+          '"sets" must be a non-empty array of corrections with set ids. Omit it when changing only session facts.',
+        );
+      }
+      const ids = b.sets.map((s) => s.id);
+      if (new Set(ids).size !== ids.length) {
+        throw new ApiError(
+          422,
+          'Each set id may appear only once in "sets". Combine corrections for the same set into one entry. Nothing was written.',
+        );
+      }
+      const existing = await tx<SetForCorrection[]>`
+        select t.id, t.kind, t.performed_at, t.effort, t.weight_kg::float8, t.reps,
+          t.distance_m::float8, t.duration_s::float8, t.notes,
+          e.name as exercise, e.measure, e.stimulus_type
+        from sets t join exercises e on e.id = t.exercise_id
+        where t.session_id = ${sessionId} and t.id = any(${ids})`;
+      const byId = new Map(existing.map((s) => [s.id, s]));
+      const performedAt = new Date().toISOString();
+      const rows = b.sets.map((entry) => {
+        const was = byId.get(entry.id);
+        if (was === undefined) {
+          throw new ApiError(
+            404,
+            `No set with id ${entry.id} in session ${sessionId}. Read GET /sessions/${sessionId} for its set ids. Nothing was written.`,
+          );
+        }
+        return {
+          id: entry.id,
+          fields: prepareSetCorrection(was, entry, performedAt),
+        };
+      });
+      // One bounded HTTP payload, one JSON parameter: neither statement count
+      // nor bind count grows per set. Presence checks preserve omitted columns
+      // in Postgres itself, including precision a JS read cannot round-trip.
+      // Explicit JSON null becomes SQL null only when that field was supplied.
+      const updated = await tx`
+        update sets as t set
+          weight_kg = case when v.fields ? 'weight_kg'
+            then (v.fields ->> 'weight_kg')::numeric else t.weight_kg end,
+          reps = case when v.fields ? 'reps'
+            then (v.fields ->> 'reps')::integer else t.reps end,
+          distance_m = case when v.fields ? 'distance_m'
+            then (v.fields ->> 'distance_m')::numeric else t.distance_m end,
+          duration_s = case when v.fields ? 'duration_s'
+            then (v.fields ->> 'duration_s')::numeric else t.duration_s end,
+          effort = case when v.fields ? 'effort'
+            then v.fields ->> 'effort' else t.effort end,
+          performed_at = case when v.fields ? 'performed_at'
+            then (v.fields ->> 'performed_at')::timestamptz else t.performed_at end,
+          notes = case when v.fields ? 'notes'
+            then v.fields ->> 'notes' else t.notes end
+        from jsonb_to_recordset(${
+        tx.json(rows)
+      }::jsonb) as v(id bigint, fields jsonb)
+        where t.id = v.id and t.session_id = ${sessionId}
+        returning t.id`;
+      if (updated.length !== rows.length) {
+        throw new ApiError(
+          409,
+          `The session changed while recording it. Nothing was saved. Read GET /sessions/${sessionId} before retrying.`,
+        );
+      }
+    }
+    if (Object.keys(fields).length > 0) {
+      requireRow(
+        await tx`update sessions set ${
+          tx(fields)
+        } where id = ${sessionId} returning id`,
+        `No session with id ${sessionId}.`,
+      );
+    }
+    return await readSessionDetail(tx, sessionId);
+  });
 }
 
 /**

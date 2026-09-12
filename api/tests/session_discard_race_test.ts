@@ -36,7 +36,15 @@ Deno.test("discard and every actual writer honor the same session boundary", asy
         if TG_OP = 'DELETE' then return old; end if;
         return new;
       end $$`;
-    for (const writer of ["correct", "append", "start", "finish"] as const) {
+    for (
+      const writer of [
+        "correct",
+        "report",
+        "append",
+        "start",
+        "finish",
+      ] as const
+    ) {
       for (const deletionWins of [false, true]) {
         await t.step(
           `${writer}: ${deletionWins ? "deletion" : "logging"} wins`,
@@ -61,6 +69,16 @@ Deno.test("discard and every actual writer honor the same session boundary", asy
                   weight_kg: 100,
                   effort: "hard",
                 })
+                : writer === "report"
+                ? api.patch(`/sessions/${session.id}`, {
+                  sets: [{
+                    id: session.sets[0].id,
+                    reps: 8,
+                    weight_kg: 100,
+                    effort: "hard",
+                  }],
+                  notes: "Reported together",
+                })
                 : writer === "append"
                 ? api.post(`/sessions/${session.id}/sets`, {
                   exercise: "squat",
@@ -76,7 +94,8 @@ Deno.test("discard and every actual writer honor the same session boundary", asy
                 });
             const remove = () => api.delete(`/sessions/${session.id}`);
             const table =
-              deletionWins || writer === "correct" || writer === "append"
+              deletionWins || writer === "correct" || writer === "report" ||
+                writer === "append"
                 ? "sets"
                 : "sessions";
             const event = deletionWins
@@ -105,7 +124,9 @@ Deno.test("discard and every actual writer honor the same session boundary", asy
               const saved = await api.get(`/sessions/${session.id}`);
               assertEquals(saved.status, deletionWins ? 404 : 200);
               if (
-                !deletionWins && (writer === "correct" || writer === "append")
+                !deletionWins &&
+                (writer === "correct" || writer === "report" ||
+                  writer === "append")
               ) {
                 assert(
                   saved.body.session.sets.some((s: { reps: number | null }) =>
