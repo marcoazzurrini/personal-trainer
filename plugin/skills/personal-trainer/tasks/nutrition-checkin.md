@@ -43,9 +43,11 @@ target and rate ranges there are binding.
   gain +0.25–0.5%/wk ceiling, recomp maintenance to a 200 kcal/day deficit —
   all three enforced by the server's clips) and set protein for the phase
   (deficit → 2.3–3.1 g/kg FFM).
-- `POST /nutrition-targets` automatically registers a phase switch when it changes
-  an existing goal. Read `phase_switch_registered` in the response. Do not send a
-  second `POST /nutrition-events` for that switch: it is already recorded so
+- The API derives phase switches from successive effective eating plans. Read
+  `phase_switch_registered` in a new target's 201 response. An idempotent 200 retry
+  returns only the saved target; use `GET /nutrition-events` when you need the
+  resulting switch history. Do not send a second `POST /nutrition-events` for that
+  switch: the automatic signal already makes
   expenditure updates damp through the water/glycogen step. The first target has
   no previous goal to switch from. Tell Marco the scale will jump and that it is
   glycogen, before it happens, not after.

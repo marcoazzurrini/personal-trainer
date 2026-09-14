@@ -14,7 +14,7 @@ Europe/Rome calendar dates.
 | `GET /nutrition-state` | The complete current picture, opening with `now`: today's entries and totals against the active target, trend weight and its 7/21-day slope, the expenditure estimate with band and status, active target, active transients, the last 13 finished days, logging and weigh-in adherence. The start of every nutrition conversation. |
 | `GET /nutrition/weekly` | Finished weeks: mean kcal and protein, days logged and flagged, weigh-ins, trend start/end/delta, the week's own `rate_pct_bw_week`, implied expenditure, events, and **the target that governed that week**. `?weeks=N` (default 8). |
 | `GET /nutrition-targets` | Every target ever set, plus the active one. |
-| `GET /nutrition-events` | Registered transients, plus those still inside the damping window. |
+| `GET /nutrition-events` | Recorded transients and automatic goal switches, plus those still inside the damping window. |
 | `GET /intake` | Today's entries, totals, and flags. `?day=YYYY-MM-DD` for another day. |
 | `GET /bodyweight` | Two series in one call: `bodyweight` (raw instants) and `trend` (one point per day, the EMA the estimate runs on). The bodyweight chart's single read. |
 | `GET /foods?q=<search>` | Foods matching a substring of name, brand, or alias. No `q` returns the whole registry. |
@@ -301,7 +301,7 @@ what the coach is allowed to say.
 | Status | Meaning |
 | --- | --- |
 | `ok` | Back-solved over the current window. `tdee_kcal` ± `band_kcal`. |
-| `damped` | A registered transient is being absorbed; the update is capped at 100 kcal/day. Explain the water, don't chase it. |
+| `damped` | A recorded transient or automatic goal switch is being absorbed; the update is capped at 100 kcal/day. Explain the water, don't chase it. |
 | `stale` | The current window stopped qualifying, so the last good estimate is **held** — `as_of` says which window it came from. Frozen, never extrapolated. |
 | `insufficient_data` | No estimate at all. `blockers` lists every unmet condition; `as_of` is null, because there is nothing to date-stamp. |
 
@@ -409,9 +409,16 @@ the rate. Sending an explicit `kcal_target` bypasses the arithmetic and should b
   without a written reason.
 - Append-only. The latest row by `effective_from` (then id) is active; two targets can
   share a day and the later wins. Never edit a target — supersede it.
-- Changing `goal` **automatically registers a `phase_switch` event**, because a phase
-  switch moves 1–2 kg of water within days and the estimate must damp through it.
-  `phase_switch_registered` in the response confirms it.
+- Changes between successive effective goals **automatically produce a `phase_switch`
+  signal**, because a phase switch moves 1–2 kg of water within days and the estimate
+  must damp through it. The API derives this from saved targets, not a separate event
+  write. Only the latest target on each date governs that date. A first target or an
+  unchanged goal produces no switch. Backdating a target can change later switches.
+  `phase_switch_registered` confirms whether the newly saved target currently produces
+  an unsuppressed switch; it does not list changes to later switches. The 201 response
+  includes this flag. An idempotent 200 retry returns only the saved target. After
+  backdating or replacing a same-date target, read `GET /nutrition-events` to see the
+  resulting history.
 
 ## Events
 
@@ -423,8 +430,23 @@ POST /nutrition-events
 
 Register anything that moves bodyweight for reasons that are not fat or muscle. For
 ~14 days afterwards the back-solve damps large jumps instead of reading them as
-metabolism. `DELETE /nutrition-events/:id` removes one registered by mistake — a
-transient on the wrong day damps an estimate that had nothing to absorb. `logging_change` matters more than it looks: the estimate self-corrects for
+metabolism. `GET /nutrition-events` lists recorded events and automatic goal switches.
+Recorded events have positive ids; automatic switches have negative ids identifying
+their target. Use the id from that list, including its sign. Manual
+`POST /nutrition-events` entries remain independent, including an explicit
+`phase_switch`. Do not manually duplicate a switch already derived from targets.
+
+`DELETE /nutrition-events/:id` removes a recorded event or dismisses an automatic
+switch without changing its eating plan. A dismissal belongs to that target, not a
+later replacement. Read the current list before deleting: a superseded or already
+dismissed switch returns 404. A transient on the wrong day damps an estimate that had
+nothing to absorb.
+
+Older recorded switches can coexist with automatic ones because their origin was not
+stored. After the schema upgrade, review overlapping or obsolete events; previously
+deleted switches may need dismissing again because no dismissal record existed.
+
+`logging_change` matters more than it looks: the estimate self-corrects for
 *stable* under-logging, so a change in logging habit is the one thing that genuinely
 breaks it.
 

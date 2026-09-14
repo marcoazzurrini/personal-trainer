@@ -168,6 +168,7 @@ Deno.test("recomp and gain are guarded like cuts", async (t) => {
         goal: "recomp",
         rate_pct_bw_week: -0.5, // legal for a cut; past recomp's kcal floor
         protein_g_per_kg_ffm: 2.7,
+        effective_from: daysBefore(lastFinishedSunday(), 1),
         decision: "Recomp: high protein, slight deficit, judged by strength.",
         request_id: uuid(),
       });

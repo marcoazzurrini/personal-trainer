@@ -81,7 +81,7 @@ export async function finishedWeeks(
         as days_flagged,
       coalesce((select json_agg(json_build_object(
                  'day', e.day, 'kind', e.kind, 'note', e.note) order by e.day)
-                from nutrition_events e
+                from nutrition_effective_events e
                 where e.day >= w.week_start and e.day <= w.week_start + 6),
                '[]') as events,
       -- What the week was supposed to be, alongside what it was. Without this

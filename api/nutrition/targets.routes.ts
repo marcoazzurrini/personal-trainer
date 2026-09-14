@@ -126,7 +126,7 @@ nutritionTargets.openapi(
     responses: {
       201: {
         description:
-          "The target that was set, the arithmetic behind it, and whether the change of goal registered a phase switch.",
+          "The target that was set, the arithmetic behind it, and whether that target currently derives an automatic phase switch. phase_switch_registered is retained for compatibility; no event row is written. Compare the winning target on each effective date (highest id) with the previous date's winner. The first effective date has no switch. Backdating also recomputes later switches; read GET /nutrition-events for the full current result.",
         content: {
           "application/json": {
             schema: z.object({

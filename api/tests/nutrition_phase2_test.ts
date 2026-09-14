@@ -231,31 +231,38 @@ Deno.test("expenditure and targets", async (t) => {
     assertEquals(status, 422);
   });
 
-  await t.step("changing goal registers a phase switch", async () => {
-    const { body } = await api.post("/nutrition-targets", {
-      goal: "maintain",
-      rate_pct_bw_week: 0,
-      protein_g_per_kg_bw: 1.8,
-      decision: "Cut has run 10 weeks; a maintenance phase before the next.",
-      request_id: uuid(),
-    });
-    assertEquals(body.phase_switch_registered, true);
+  await t.step(
+    "changing the effective goal derives a phase switch",
+    async () => {
+      const { body } = await api.post("/nutrition-targets", {
+        goal: "maintain",
+        rate_pct_bw_week: 0,
+        protein_g_per_kg_bw: 1.8,
+        decision: "Cut has run 10 weeks; a maintenance phase before the next.",
+        request_id: uuid(),
+      });
+      assertEquals(body.phase_switch_registered, true);
 
-    const events = await api.get("/nutrition-events");
-    const switches = events.body.events.filter(
-      (e: { kind: string }) => e.kind === "phase_switch",
-    );
-    assertEquals(switches.length, 1);
-    assert(switches[0].note.includes("maintain"));
-  });
+      const events = await api.get("/nutrition-events");
+      const switches = events.body.events.filter(
+        (e: { kind: string }) => e.kind === "phase_switch",
+      );
+      assertEquals(switches.length, 1);
+      assertEquals(switches[0].id, -body.target.id);
+      assert(switches[0].note.includes("maintain"));
+    },
+  );
 
-  await t.step("a registered transient damps the estimate", async () => {
-    const { body } = await api.get("/nutrition-state");
-    // The phase switch above is inside the transient window, so it is
-    // surfaced for the coach to explain before the scale moves.
-    assert(body.active_transients.length > 0);
-    assertEquals(body.active_transients[0].kind, "phase_switch");
-  });
+  await t.step(
+    "a derived transient is visible before the scale moves",
+    async () => {
+      const { body } = await api.get("/nutrition-state");
+      // The phase switch above is inside the transient window, so it is
+      // surfaced for the coach to explain before the scale moves.
+      assert(body.active_transients.length > 0);
+      assertEquals(body.active_transients[0].kind, "phase_switch");
+    },
+  );
 });
 
 Deno.test("the estimate holds rather than extrapolating", async (t) => {

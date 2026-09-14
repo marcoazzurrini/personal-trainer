@@ -36,11 +36,11 @@ function eventColumns() {
   return sql`id, day, kind, note, created_at`;
 }
 
-/** Every event ever registered, newest first. */
+/** Recorded events and unsuppressed effective goal changes, newest first. */
 export async function listEvents(): Promise<EventRow[]> {
   return await sql<EventRow[]>`
     select ${eventColumns()}
-    from nutrition_events order by day desc, id desc`;
+    from nutrition_effective_events order by day desc, id desc`;
 }
 
 /** Those still inside the damping window on the given day. */
@@ -48,7 +48,7 @@ export async function activeTransients(
   asOf: string,
 ): Promise<ActiveTransient[]> {
   return await sql<ActiveTransient[]>`
-    select id, day, kind, note from nutrition_events
+    select id, day, kind, note from nutrition_effective_events
     where day >= ${addDays(asOf, -TRANSIENT_WINDOW_DAYS)} and day <= ${asOf}
     order by day desc, id desc`;
 }
@@ -83,10 +83,26 @@ export async function registerEvent(b: {
 export async function withdrawEvent(
   id: number,
 ): Promise<Pick<EventRow, "day" | "kind" | "note">> {
+  const missing =
+    `No nutrition event with id ${id}. Read GET /nutrition-events and use an id from the current events list.`;
+  if (id < 0) {
+    // A single statement both verifies that the event still exists and saves
+    // its dismissal. Concurrent/repeated deletes cannot quietly succeed twice.
+    // The target remains the record of what Marco was told to eat.
+    return requireRow(
+      await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
+        update nutrition_targets t set phase_switch_suppressed = true
+        from nutrition_goal_switches e
+        where t.id = ${-id} and e.id = ${id}
+          and not t.phase_switch_suppressed
+        returning e.day, e.kind, e.note`,
+      missing,
+    );
+  }
   return requireRow(
     await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
-    delete from nutrition_events where id = ${id}
-    returning day, kind, note`,
-    `No nutrition event with id ${id}.`,
+      delete from nutrition_events where id = ${id}
+      returning day, kind, note`,
+    missing,
   );
 }

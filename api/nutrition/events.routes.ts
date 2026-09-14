@@ -9,7 +9,6 @@ import {
 import { romeToday } from "../shared/calendar.ts";
 import {
   body,
-  idParam,
   oneOf,
   optionalDate,
   optionalText,
@@ -20,7 +19,9 @@ import {
 export const nutritionEvents = new OpenAPIHono();
 
 const Event = z.object({
-  id: z.int(),
+  id: z.int().describe(
+    "Positive for a recorded event; negative for an automatic switch, using the negated target id. Use the returned id to withdraw either kind.",
+  ),
   day: z.string(),
   kind: z.enum(KINDS),
   note: z.string().nullable(),
@@ -36,12 +37,12 @@ nutritionEvents.openapi(
     method: "get",
     path: "/",
     tags: ["Nutrition"],
-    summary: "Registered transients, and which are still damping",
+    summary: "Recorded and automatic transients, and which are still damping",
     request: { query: query({}) },
     responses: {
       200: {
         description:
-          "Every event ever registered under `events`, and under `active` those still inside the damping window as of today in Europe/Rome.",
+          "Recorded events plus unsuppressed goal changes between effective-dated targets under `events`; under `active`, those inside the damping window as of today in Europe/Rome. Same-date targets use the highest id. Backdating recomputes adjacent switches. Existing recorded events remain independent, even if a legacy switch overlaps an automatic one.",
         content: {
           "application/json": {
             schema: z.object({
@@ -108,14 +109,25 @@ nutritionEvents.openapi(
     method: "delete",
     path: "/{id}",
     tags: ["Nutrition"],
-    summary: "Withdraw a registered transient",
+    summary: "Withdraw a recorded transient or dismiss an automatic switch",
     request: {
-      params: z.object({ id: idParam("nutrition event") }),
+      params: z.object({
+        id: z.string().refine(
+          (value) =>
+            /^-?[1-9]\d*$/.test(value) &&
+            Number.isSafeInteger(Number(value)),
+          {
+            error:
+              "Use a non-zero whole-number nutrition event id from GET /nutrition-events: positive for recorded events, negative for automatic switches.",
+          },
+        ).transform(Number),
+      }),
       query: query({}),
     },
     responses: {
       200: {
-        description: "The event that was withdrawn.",
+        description:
+          "The event that was withdrawn. A positive id deletes the recorded event. A negative id suppresses that target's automatic switch without changing the saved eating plan. A later replacement target is independent.",
         content: {
           "application/json": {
             schema: z.object({ deleted: ActiveTransient.omit({ id: true }) }),

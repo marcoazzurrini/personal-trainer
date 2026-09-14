@@ -673,7 +673,11 @@ Deno.test("nutrition tracking", async (t) => {
     ) {
       const { status, body } = await call;
       assertEquals(status, 422);
-      assert(body.error.includes("is not a valid"), body.error);
+      assert(
+        body.error.includes("is not a valid") ||
+          body.error.includes("whole-number nutrition event id"),
+        body.error,
+      );
     }
   });
 
