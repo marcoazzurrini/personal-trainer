@@ -18,9 +18,18 @@ Deno.test("nutrition documents agree with food identity, corrections and target 
   assertStringIncludes(skill, "`POST /foods` still requires a `request_id`");
   assertStringIncludes(
     ref,
-    "correcting a food\nrewrites historical intake linked to that food",
+    "correcting a food updates the\ncalculated totals of historical intake linked to that food",
   );
   assert(!ref.includes("editing a meal — or the foods in it"));
+  assertStringIncludes(
+    ref,
+    "Food-backed entries record the food and grams actually eaten",
+  );
+  assertStringIncludes(
+    ref,
+    "An explicit macro override applies until the next correction",
+  );
+  assert(!ref.includes("Every entry stores its own kcal and macros"));
   assertStringIncludes(
     onboarding,
     "conversational guidance, not a saved target",

@@ -83,7 +83,7 @@ intake.openapi(
     tags: ["Nutrition"],
     summary: "Log something eaten",
     description:
-      'Exactly one of "meal", "food" or "adhoc_kcal". A meal writes one row per item, each carrying the food\'s numbers as they are now — recipe edits leave those rows alone, while food corrections rewrite linked historical intake.',
+      'Exactly one of "meal", "food" or "adhoc_kcal". A meal records each food and its quantity. Recipe edits leave those facts alone; historical macros are derived from corrected food values.',
     request: {
       query: query({}),
       body: {
@@ -134,7 +134,7 @@ intake.openapi(
     tags: ["Nutrition"],
     summary: "Correct a logged entry",
     description:
-      '"grams" re-scales from the food as it is now; the macro fields override outright. The two cannot be combined. "day" moves the entry to another date without touching its numbers.',
+      '"grams" re-scales from the food as it is now; the macro fields override until the next correction of that food\'s macros. The two cannot be combined. "day" moves the entry to another date without touching its numbers.',
     request: {
       params: z.object({ id: idParam("intake entry") }),
       query: query({}),

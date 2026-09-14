@@ -73,7 +73,8 @@ PATCH /foods/:ref
 **Editing a food fixes every entry ever logged against it.** If white rice was saved at
 130 kcal and it is 360, those entries were wrong the moment they were written — that is
 an error, not history. The grams on each entry never change; only what those grams mean.
-The response says how many entries were rewritten and over what dates.
+The response says how many entries now use corrected values and over what dates. The
+API calculates their totals from the corrected food; it does not rewrite what was eaten.
 
 This is the exact opposite of a meal, and the difference is the whole rule:
 
@@ -136,9 +137,9 @@ POST /meals
 Created whole, in one transaction. Foods are referenced by id, name, or alias and must
 already exist. Totals are computed at read time, never stored.
 
-**Meals are routines, not history.** Logging a meal copies its foods' numbers onto the
-intake rows. Editing the meal recipe changes future logs only; **correcting a food
-rewrites historical intake linked to that food**, including entries logged via meals. A one-off variation ("usual breakfast but
+**Meals are routines, not history.** Logging a meal records its foods and quantities.
+Editing the meal recipe changes future logs only; **correcting a food updates the
+calculated totals of historical intake linked to that food**, including entries logged via meals. A one-off variation ("usual breakfast but
 double yogurt") is the meal plus a separate food entry, not a new meal; create a new
 meal only when a variation has become a routine.
 
@@ -189,13 +190,13 @@ state the assumption, and log it — an ad-hoc entry is a first-class record, no
 failure. A day genuinely beyond estimating gets flagged `incomplete` instead, which
 excludes it rather than counting it as zero.
 
-Every entry stores its own kcal and macros, copied from the food at the moment of
-logging. This is the design, not an optimisation, and it splits into two rules that
-look contradictory until you see what each is for:
+Food-backed entries record the food and grams actually eaten. Their macros are
+calculated from the food's current corrected values. Ad-hoc estimates and explicit
+entry overrides retain their own numbers. These are two different history rules:
 
 - **A food's numbers were wrong** — they were always wrong, including on the day it
   was eaten. `PATCH /foods/:ref` corrects the food *and every entry ever logged from
-  it*, and says how many it rewrote.
+  it*, and says how many entries are affected.
 - **A meal's recipe changed** — the old version really was eaten. Editing a meal
   changes what future logs write and leaves history alone.
 
@@ -213,6 +214,11 @@ DELETE /intake/:id                              // a duplicate log, removed not 
 These fix **one entry**, when that entry is what was wrong: the amount was misheard, or
 that day's portion was unusual. If the *food's* numbers are wrong, don't correct entries
 one by one — `PATCH /foods/:ref` fixes the food and every entry at once.
+
+An explicit macro override applies until the next correction of that food's macros,
+matching the same retroactive correction policy. Renaming a food or resending unchanged
+macros does not clear an override. Correcting grams clears the override and uses the
+food's current values.
 
 Sending `day` moves an entry to another date and changes nothing else — for logging
 after midnight, or a day misremembered by one. Use it instead of deleting and logging

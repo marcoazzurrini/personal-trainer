@@ -180,7 +180,7 @@ foods.openapi(
     tags: ["Nutrition"],
     summary: "Fix a food's numbers, and every entry logged against them",
     description:
-      "Only ever for fixing a mistake. A different product — another brand, a reformulated recipe — is a new food, not an edit. Changing macros rewrites every intake entry ever logged against this food, and the response says how many and over what dates.",
+      "Only ever for fixing a mistake. A different product — another brand, a reformulated recipe — is a new food, not an edit. Changing macros corrects the derived totals of every intake entry logged against this food without rewriting entries. Explicit entry overrides expire. The response says how many entries are affected and over what dates.",
     request: {
       query: query({}),
       params: z.object({ ref: ref() }),
@@ -226,6 +226,10 @@ foods.openapi(
       422: {
         description:
           "Nothing was sent, or the corrected numbers do not survive the mass and energy checks.",
+      },
+      409: {
+        description:
+          "The food changed during validation. Read its current values before retrying.",
       },
     },
   }),

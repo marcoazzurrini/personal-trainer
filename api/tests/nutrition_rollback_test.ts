@@ -132,7 +132,7 @@ Deno.test("meal replacement restores name, aliases and deleted items after a lat
   }
 });
 
-Deno.test("food correction rolls back the food and historical intake together", async () => {
+Deno.test("food correction updates historical totals without writing intake", async () => {
   await foods();
   for (const grams of [100, 200]) {
     assertEquals(
@@ -145,7 +145,6 @@ Deno.test("food correction rolls back the food and historical intake together", 
     );
   }
   const path = "/foods/Rollback oats";
-  const before = (await api.get(path)).body;
   const db = postgres(DB_URL);
   const snapshot =
     async () => [...await db`select * from intake_entries order by id`];
@@ -153,24 +152,25 @@ Deno.test("food correction rolls back the food and historical intake together", 
     const intake = await snapshot();
     await db`create function test_food_correct_failure() returns trigger language plpgsql as $$
       begin
-        if not exists (select 1 from foods where id = new.food_id and kcal_100g = 360) then
-          raise exception 'injection did not reach the food update';
-        end if;
-        raise exception 'injected historical correction failure' using errcode = '23514', constraint = 'test_food_correct_failure';
+        raise exception 'food corrections must not rewrite intake' using errcode = '23514', constraint = 'test_food_correct_failure';
       end $$`;
     await db`create trigger test_food_correct_failure before update on intake_entries
       for each row execute function test_food_correct_failure()`;
     const input = { kcal_100g: 360, carbs_100g: 80 };
-    const failed = await api.patch(path, input);
-    assertEquals(failed.status, 422);
-    assert(failed.body.error.includes("test_food_correct_failure"));
-    assertEquals((await api.get(path)).body, before);
-    assertEquals(await snapshot(), intake);
-    await db`drop trigger test_food_correct_failure on intake_entries`;
     const saved = await api.patch(path, input);
     assertEquals(saved.status, 200);
     assertEquals(saved.body.corrected_entries.count, 2);
-    assertEquals((await snapshot()).map((r) => Number(r.kcal)), [360, 720]);
+    assertEquals(await snapshot(), intake);
+    assertEquals(
+      (await api.get("/intake")).body.entries.map((r: { kcal: number }) =>
+        r.kcal
+      ),
+      [360, 720],
+    );
+    assertEquals(
+      (await db`select kcal from daily_intake where day = ${today()}`)[0].kcal,
+      1080,
+    );
     const replay = await api.patch(path, input);
     assertEquals(replay.status, 200);
     assertEquals(replay.body.corrected_entries.count, 0);

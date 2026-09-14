@@ -198,6 +198,13 @@ name for code that belongs nowhere: twenty-three importers and twenty-one
 respectively, and this ADR's own *What does not move* leans on them. The trade
 is one sorting principle across the tree against two names that each said more.
 
+## Epilogue: derived intake values
+
+ADR-0011 replaces the macro snapshot inside `logIntake` with recorded ingredients
+and quantities plus derived label values. A meal log is one atomic bulk INSERT.
+The service boundary remains unchanged; an operation does not need an explicit
+transaction when a single statement already provides its all-or-nothing guarantee.
+
 The layout as built:
 
 ```

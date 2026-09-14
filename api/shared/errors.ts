@@ -79,8 +79,8 @@ export const constraintMessages: Record<string, string> = {
     "That food is already in the meal. A second helping is more grams on the existing item, not a second row.",
   intake_entries_food_grams_pair:
     "food and grams arrive together: send both (a food entry) or neither (an ad-hoc entry with adhoc_kcal).",
-  intake_entries_food_macros_complete:
-    "A food entry stores the food's full macros as they were when logged. This one is missing protein, carbs, or fat — the food itself is probably incomplete.",
+  intake_entries_macro_shape:
+    "A food entry derives macros from its food and grams. An explicit override must carry complete macros and its food revision; an ad-hoc estimate must carry kcal.",
   intake_entries_request_food_key:
     "That request_id has already logged this food. Retrying with the same id is safe and did nothing; use a fresh id for a genuinely new entry.",
   day_flags_day_flag_key: "That day already carries that flag.",

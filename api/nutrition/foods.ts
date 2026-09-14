@@ -183,8 +183,8 @@ export interface CorrectedFood {
 // reference and logging docs because the coach is the one who will be tempted
 // to "just update the yogurt".
 //
-// Nothing happens silently: the answer says how many entries were rewritten
-// and over what dates.
+// Nothing happens silently: the answer says how many entries now use corrected
+// values and over what dates. Their ingredients and quantities never change.
 export async function correctFood(
   ref: string,
   b: CorrectFoodInput,
@@ -232,56 +232,51 @@ export async function correctFood(
     merged.source_note as string | null,
   );
 
-  // Compared as numbers, not as text. Postgres hands back numeric as a string
-  // carrying its scale ("130.0"), while the incoming field is a JS number
-  // (130) — so a string comparison called every resend a change, rewrote every
-  // entry logged against the food, and reported "Corrected 3 logged entries"
-  // when nothing had moved. On an API whose contract with the coach is that it
-  // never overstates what it did, that is the worst kind of wrong.
+  // Compare the numeric values Postgres will actually store, at its one-
+  // decimal precision. A resend of 100.01 to a stored 100.0 is not a label
+  // correction and must not expire an override. SQL rounding also avoids
+  // JavaScript's binary floating-point differences at decimal half steps.
   const MACRO_COLUMNS = [
     "kcal_100g",
     "protein_100g",
     "carbs_100g",
     "fat_100g",
     "fiber_100g",
-  ];
-  const sameValue = (a: unknown, b: unknown) =>
-    a === null || b === null ? a === b : Number(a) === Number(b);
-  const macrosChanged = MACRO_COLUMNS.some(
-    (k) => k in fields && !sameValue(fields[k], before[k]),
-  );
+  ] as const;
+  const macroChange = MACRO_COLUMNS.filter((k) => k in fields)
+    .map((k) =>
+      sql`${sql(k)} is distinct from round(${b[k] ?? null}::numeric, 1)`
+    )
+    .reduce((a, b) => sql`(${a} or ${b})`, sql`false`);
 
-  const rewritten = await sql.begin(
-    async (tx): Promise<{ day: string }[]> => {
-      await tx`update foods set ${tx(fields)} where id = ${id}`;
-      if (!macrosChanged) return [];
-      // Recomputed in one statement from each entry's own grams, so a row that
-      // recorded 200 g still records 200 g — only what 200 g means changes.
-      return await tx<{ day: string }[]>`
-      update intake_entries i set
-        kcal = round(f.kcal_100g * i.grams / 100, 1),
-        protein_g = round(f.protein_100g * i.grams / 100, 1),
-        carbs_g = round(f.carbs_100g * i.grams / 100, 1),
-        fat_g = round(f.fat_100g * i.grams / 100, 1),
-        fiber_g = round(f.fiber_100g * i.grams / 100, 1)
-      from foods f
-      where f.id = i.food_id and i.food_id = ${id}
-      returning i.id, i.day`;
-    },
-  );
-
-  const days = rewritten.map((r) => r.day).sort();
+  // One row changes. Readers derive the historical totals; the revision also
+  // invalidates old explicit overrides, as the former blanket rewrite did.
+  // Refuse a concurrent macro correction rather than validate against a stale
+  // label or claim an identical retry changed the record.
+  const updated = await sql<{ macros_changed: boolean }[]>`
+    update foods set ${sql(fields)},
+      macro_revision = macro_revision + case when ${macroChange} then 1 else 0 end
+    where id = ${id} and macro_revision = ${before.macro_revision}
+    returning macro_revision <> ${before.macro_revision} as macros_changed`;
+  if (!updated.length) {
+    throw new ApiError(
+      409,
+      "That food changed while this correction was being checked. Read GET /foods/:ref again, then resend the correction against its current values.",
+    );
+  }
+  const macrosChanged = updated[0].macros_changed;
+  const [affected] = macrosChanged
+    ? await sql<{ count: number; from: string | null; to: string | null }[]>`
+      select count(*)::int as count, min(day) as "from", max(day) as "to"
+      from intake_entries where food_id = ${id}`
+    : [{ count: 0, from: null, to: null }];
   return {
     food: await foodById(id),
-    corrected_entries: {
-      count: rewritten.length,
-      from: days[0] ?? null,
-      to: days[days.length - 1] ?? null,
-    },
+    corrected_entries: affected,
     note: macrosChanged
-      ? `Corrected ${rewritten.length} logged ${
-        rewritten.length === 1 ? "entry" : "entries"
-      }: those numbers were wrong when they were written, so the record now says what was actually eaten. Meals containing this food update on their own — their totals are computed, never stored.`
+      ? `Corrected ${affected.count} logged ${
+        affected.count === 1 ? "entry" : "entries"
+      }: their totals now use the corrected food values, without changing what was eaten. Meals containing this food update on their own — their totals are computed, never stored.`
       : "No macros changed, so nothing logged was affected.",
   };
 }

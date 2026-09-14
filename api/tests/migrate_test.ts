@@ -197,6 +197,68 @@ Deno.test("a populated historical schema upgrades without losing weigh-ins", asy
   }
 });
 
+Deno.test("derived intake migration preserves historical overrides and unknown fiber", async () => {
+  const url = await freshDatabase();
+  const all = await listMigrations();
+  const cutoff = all.findIndex((m) =>
+    m.version === "20260908120000_intake_macros_are_derived"
+  );
+  assert(cutoff > 0);
+  const db = postgres(url, { max: 1, onnotice: () => {} });
+  try {
+    await migrate(url, "status");
+    for (const m of all.slice(0, cutoff)) {
+      const text = await Deno.readTextFile(
+        new URL(`../../db/migrations/${m.file}`, import.meta.url),
+      );
+      await db.begin(async (tx) => {
+        await tx.unsafe(text);
+        await tx`insert into schema_migrations (version) values (${m.version})`;
+      });
+    }
+    const [food] = await db`insert into foods
+      (name, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, source)
+      values ('Historical yogurt', 100, 10, 15, 0, 5, 'label') returning id`;
+    await db`insert into intake_entries
+      (day, food_id, grams, kcal, protein_g, carbs_g, fat_g, fiber_g) values
+      ('2026-09-01', ${food.id}, 200, 200, 20, 30, 0, 10),
+      ('2026-09-01', ${food.id}, 200, 250, 22, 30, 0, 10),
+      ('2026-09-01', ${food.id}, 200, 200, 20, 30, 0, null),
+      ('2026-09-01', null, null, 500, null, null, null, null)`;
+    const before = [...await db`select * from intake_entries order by id`];
+    await migrate(url);
+    assertEquals(
+      [...await db`select * from intake_values order by id`],
+      before,
+    );
+    assertEquals(
+      (await db`select count(*)::int as n from intake_entries
+      where food_id is not null and kcal is null`)[0].n,
+      1,
+    );
+    assertEquals(
+      (await db`select count(*)::int as n from intake_entries
+      where food_macro_revision = 0`)[0].n,
+      2,
+    );
+    await db`update foods set kcal_100g = 80, protein_100g = 8,
+      carbs_100g = 12, macro_revision = macro_revision + 1 where id = ${food.id}`;
+    assertEquals(
+      (await db`select kcal::float8 from intake_values order by id`).map((r) =>
+        r.kcal
+      ),
+      [160, 160, 160, 500],
+    );
+    assertEquals(
+      (await db`select protein_entries from daily_intake`)[0].protein_entries,
+      3,
+    );
+    assertEquals((await migrate(url)).ran, []);
+  } finally {
+    await db.end();
+  }
+});
+
 Deno.test("baseline records every file without running it", async () => {
   const url = await freshDatabase();
   const all = await listMigrations();

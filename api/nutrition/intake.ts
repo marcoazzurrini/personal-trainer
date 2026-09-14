@@ -1,27 +1,12 @@
-// What was actually eaten. Three ways in — a saved meal, a single food, or an
-// ad-hoc estimate — and one way out: rows carrying their own numbers.
-//
-// The row's shape is its kind. food_id + grams is a food; neither is ad-hoc.
-// Logging a meal writes one row per item, all sharing meal_id, so a day's
-// total is one sum over one uniform table and "the usual breakfast but double
-// yogurt" is an ordinary extra row rather than a special case.
-//
-// Every row's macros are copied from the food at the moment of logging. That
-// is deliberate and it is the whole design: a meal's recipe evolves, and the
-// breakfast logged in March must stay the breakfast that was eaten in March.
-// The cost, accepted knowingly: correcting a mistyped food does not fix past
-// entries — those rows are corrected explicitly when it matters.
+// What was actually eaten: food and grams, or an ad-hoc estimate.
+// Meal logging preserves its ingredients and quantities, never a live recipe.
+// intake_values derives macros from corrected food labels. Only ad-hoc entries
+// and explicit overrides store numbers; food corrections invalidate overrides.
 
-import { sql, type Tx } from "../db.ts";
+import { sql } from "../db.ts";
 import { requireNotFuture } from "../shared/dates.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
-import {
-  foodMacros,
-  gramsEaten,
-  type MacroTotals,
-  scaleFood,
-  sumMacros,
-} from "./rules.ts";
+import { gramsEaten, type MacroTotals, sumMacros } from "./rules.ts";
 import { writeOnce } from "../shared/idempotency.ts";
 import { romeToday } from "../shared/calendar.ts";
 import { resolveFoodId, resolveMealId } from "./resolve.ts";
@@ -74,7 +59,7 @@ async function dayView(day: string): Promise<DayView> {
       i.protein_g::float8, i.carbs_g::float8, i.fat_g::float8,
       i.fiber_g::float8, i.note, i.created_at,
       i.food_id, f.name as food, i.meal_id, m.name as meal
-    from intake_entries i
+    from intake_values i
     left join foods f on f.id = i.food_id
     left join meals m on m.id = i.meal_id
     where i.day = ${day}
@@ -89,33 +74,7 @@ async function dayView(day: string): Promise<DayView> {
   };
 }
 
-// The one place intake rows are written. Everything above it decides what to
-// log; this decides nothing and invents nothing.
-async function insertEntry(
-  tx: Tx,
-  day: string,
-  requestIdValue: string | null,
-  row: {
-    foodId: number | null;
-    grams: number | null;
-    mealId: number | null;
-    kcal: number;
-    protein_g: number | null;
-    carbs_g: number | null;
-    fat_g: number | null;
-    fiber_g: number | null;
-    note: string | null;
-  },
-) {
-  await tx`
-    insert into intake_entries
-      (day, food_id, grams, meal_id, kcal, protein_g, carbs_g, fat_g, fiber_g,
-       note, request_id)
-    values
-      (${day}, ${row.foodId}, ${row.grams}, ${row.mealId}, ${row.kcal},
-       ${row.protein_g}, ${row.carbs_g}, ${row.fat_g}, ${row.fiber_g},
-       ${row.note}, ${requestIdValue})`;
-}
+const MACROS = ["kcal", "protein_g", "carbs_g", "fat_g", "fiber_g"] as const;
 
 /** A food or meal named by id, name, or alias. */
 type Reference = string | number;
@@ -212,19 +171,11 @@ export async function logIntake(
         if (kcal < 0) {
           throw new ApiError(422, '"adhoc_kcal" must be zero or more.');
         }
-        await sql.begin((tx) =>
-          insertEntry(tx, day, b.request_id, {
-            foodId: null,
-            grams: null,
-            mealId: null,
-            kcal,
-            protein_g: b.adhoc_protein_g ?? null,
-            carbs_g: null,
-            fat_g: null,
-            fiber_g: null,
-            note,
-          })
-        );
+        await sql`
+          insert into intake_entries (day, kcal, protein_g, note, request_id)
+          values (${day}, ${kcal}, ${
+          b.adhoc_protein_g ?? null
+        }, ${note}, ${b.request_id})`;
         return await dayView(day);
       }
 
@@ -237,25 +188,16 @@ export async function logIntake(
           food.grams_per_unit === null ? null : Number(food.grams_per_unit),
           food.name,
         );
-        await sql.begin((tx) =>
-          insertEntry(tx, day, b.request_id, {
-            foodId,
-            grams,
-            mealId: null,
-            ...scaleFood(foodMacros(food), grams),
-            note,
-          })
-        );
+        await sql`
+          insert into intake_entries (day, food_id, grams, note, request_id)
+          values (${day}, ${foodId}, ${grams}, ${note}, ${b.request_id})`;
         return await dayView(day);
       }
 
       const mealId = await resolveMealId(b.meal);
       const items = await sql`
-    select mi.grams::float8, f.id as food_id, f.name,
-      f.kcal_100g::float8, f.protein_100g::float8, f.carbs_100g::float8,
-      f.fat_100g::float8, f.fiber_100g::float8
+    select mi.grams::float8, mi.food_id
     from meal_items mi
-    join foods f on f.id = mi.food_id
     where mi.meal_id = ${mealId}`;
       if (items.length === 0) {
         const [meal] = await sql`select name from meals where id = ${mealId}`;
@@ -265,23 +207,17 @@ export async function logIntake(
         );
       }
 
-      // The snapshot, taken here: every item's numbers are copied onto its row.
-      // One transaction — a half-logged meal would understate the day silently.
-      await sql.begin(async (tx) => {
-        for (const item of items) {
-          // Rounded to the tenth the column stores, then the macros are taken
-          // from that number rather than from the unrounded one — otherwise a
-          // row's macros describe grams it does not claim to hold.
-          const grams = Math.round(item.grams * (scale ?? 1) * 10) / 10;
-          await insertEntry(tx, day, b.request_id, {
-            foodId: item.food_id,
-            grams,
-            mealId,
-            ...scaleFood(foodMacros(item), grams),
-            note,
-          });
-        }
-      });
+      // Snapshot ingredients and rounded quantities, not label values.
+      // One INSERT is atomic: an invalid item leaves none of the meal logged.
+      const rows = items.map((item) => ({
+        day,
+        food_id: item.food_id,
+        grams: Math.round(item.grams * (scale ?? 1) * 10) / 10,
+        meal_id: mealId,
+        note,
+        request_id: b.request_id,
+      }));
+      await sql`insert into intake_entries ${sql(rows)}`;
       return await dayView(day);
     },
   });
@@ -302,15 +238,9 @@ export interface CorrectInput {
 /**
  * Corrects one logged entry, and answers with the day it now lives on.
  *
- * The snapshot is the default, not a prison: when a food's numbers turn out to
- * have been wrong, or the amount was misheard, the affected rows are fixed
- * explicitly. Explicitly is the point — nothing here happens as a side effect
- * of editing a food.
- *
- * Re-resolving from the food is the common case ("that yogurt was mislabelled,
- * fix this week"), so sending only new grams re-scales from the food's numbers
- * as they are *now*. Sending macros directly overrides them outright, which is
- * what an ad-hoc correction needs.
+ * New grams remove an explicit override and derive macros from the food.
+ * Direct macro corrections override the entry until the next food correction,
+ * preserving the former blanket retroactivity policy without rewriting intake.
  *
  * `movedFrom` names the day the entry left, when it left one.
  */
@@ -332,9 +262,8 @@ export async function correctEntry(
   // it again, which retypes every ad-hoc number by hand — and a typo made
   // while repairing looks exactly like a correct value.
   //
-  // Only the day moves. Macros are not recomputed: this is the same food on a
-  // different date, not a fresh log, and re-reading the food (or a meal's
-  // recipe) would quietly write numbers that were never eaten.
+  // Only the day moves. Ingredients, quantities and overrides stay untouched;
+  // no recipe is re-read and no override is replaced by derived values.
   const rawDay = b.day ?? null;
   const day = rawDay === null
     ? null
@@ -371,8 +300,9 @@ export async function correctEntry(
   if (day !== null) fields.day = day;
 
   if (grams !== null) {
-    const [food] = await sql`select * from foods where id = ${entry.food_id}`;
-    Object.assign(fields, { grams, ...scaleFood(foodMacros(food), grams) });
+    fields.grams = grams;
+    fields.food_macro_revision = null;
+    for (const macro of MACROS) fields[macro] = null;
   }
   if (kcal !== null) fields.kcal = kcal;
   for (const macro of ["protein_g", "carbs_g", "fat_g", "fiber_g"] as const) {
@@ -387,7 +317,32 @@ export async function correctEntry(
     );
   }
 
-  await sql`update intake_entries set ${sql(fields)} where id = ${id}`;
+  if (entry.food_id !== null && overridden.length > 0) {
+    // Read omitted values from the UPDATE's target row, not a self-join to
+    // intake_values. After waiting for another correction, Postgres evaluates
+    // these expressions against the latest target row. A stale joined copy
+    // would silently undo a concurrent override or use its old grams.
+    const per100g = {
+      kcal: "kcal_100g",
+      protein_g: "protein_100g",
+      carbs_g: "carbs_100g",
+      fat_g: "fat_100g",
+      fiber_g: "fiber_100g",
+    };
+    for (const macro of MACROS) {
+      if (!(macro in fields)) {
+        fields[macro] = sql`case
+          when i.food_macro_revision = f.macro_revision then i.${sql(macro)}
+          else round(f.${sql(per100g[macro])} * i.grams / 100, 1) end`;
+      }
+    }
+    fields.food_macro_revision = sql`f.macro_revision`;
+    await sql`
+      update intake_entries i set ${sql(fields)}
+      from foods f where i.food_id = f.id and i.id = ${id}`;
+  } else {
+    await sql`update intake_entries set ${sql(fields)} where id = ${id}`;
+  }
 
   // The day the entry now lives on, not the one it left. Returning the old day
   // would show a view the entry is no longer in, which reads as a failed write.
