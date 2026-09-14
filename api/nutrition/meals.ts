@@ -148,15 +148,32 @@ export async function saveMeal(b: {
         const [created] = await tx`
           insert into meals (name, request_id) values (${b.name}, ${b.request_id})
           returning id`;
-        for (const alias of aliases) {
+        if (aliases.length > 0) {
           await tx`
-            insert into meal_aliases (meal_id, alias)
-            values (${created.id}, ${alias})`;
+            insert into meal_aliases
+            ${
+            tx(
+              aliases.map((alias) => ({ meal_id: created.id, alias })),
+              "meal_id",
+              "alias",
+            )
+          }`;
         }
-        for (const { foodId, grams } of items) {
+        if (items.length > 0) {
           await tx`
-            insert into meal_items (meal_id, food_id, grams)
-            values (${created.id}, ${foodId}, ${grams})`;
+            insert into meal_items
+            ${
+            tx(
+              items.map(({ foodId, grams }) => ({
+                meal_id: created.id,
+                food_id: foodId,
+                grams,
+              })),
+              "meal_id",
+              "food_id",
+              "grams",
+            )
+          }`;
         }
         return created.id as number;
       });
@@ -205,15 +222,30 @@ export async function editMeal(ref: string, b: {
     if (name !== null) {
       await tx`update meals set name = ${name} where id = ${id}`;
     }
-    for (const alias of aliases) {
-      await tx`insert into meal_aliases (meal_id, alias) values (${id}, ${alias})`;
+    if (aliases.length > 0) {
+      await tx`
+        insert into meal_aliases
+        ${
+        tx(aliases.map((alias) => ({ meal_id: id, alias })), "meal_id", "alias")
+      }`;
     }
     if (hasItems) {
       await tx`delete from meal_items where meal_id = ${id}`;
-      for (const { foodId, grams } of items) {
+      if (items.length > 0) {
         await tx`
-          insert into meal_items (meal_id, food_id, grams)
-          values (${id}, ${foodId}, ${grams})`;
+          insert into meal_items
+          ${
+          tx(
+            items.map(({ foodId, grams }) => ({
+              meal_id: id,
+              food_id: foodId,
+              grams,
+            })),
+            "meal_id",
+            "food_id",
+            "grams",
+          )
+        }`;
       }
     }
   });

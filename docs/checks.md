@@ -1,5 +1,31 @@
 # Checks
 
+## Transaction and schema simplification
+
+Local verification on Deno 2.9.6: **232 tests / 555 steps passed** through the
+identity-verified disposable database harness. The pure and loopback-only stub
+suites also passed, as did formatting, lint, type checking and `git diff --check`.
+No production database, deployment, or commit was involved.
+
+Coverage includes historical food corrections without intake rewrites, original
+meal quantities, explicit overrides and their expiry, storage-rounded retries,
+overlapping intake corrections, derived goal switches and dismissal, dose-history
+integrity, registry cascades that preserve references, and GitHub reporting with
+database access denied. All-or-nothing meal and plan writes remain covered.
+
+Five new migrations implement ADRs 0011–0014 and owned registry cascades. These
+changes still run on PostgreSQL; they are not a Workers or D1 migration. Explicit
+API transaction sites fell from 22 to 13, and the target table lock and GitHub
+advisory lock were removed. A smaller transaction count is not proof of D1
+compatibility.
+
+Release caveats: use the matching API and schema together. Missing or conflicting
+dose history refuses migration rather than inventing a dose. Legacy nutrition
+events remain unchanged; they can overlap derived switches, and previously deleted
+switches may reappear because no dismissal record existed. Review the combined
+events after migration. GitHub reports have no replay guarantee; reconcile uncertain
+delivery before retrying.
+
 ## Static-token retirement (#61)
 
 Marco confirmed on 6 September 2026 that no clients/scripts use old static auth

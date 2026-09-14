@@ -48,16 +48,19 @@ export async function issueToken(
   const token = randomToken();
   const tokenHash = await hashToken(token);
   const expiresAt = new Date(Date.now() + TOKEN_LIFETIME_MS);
-  await sql.begin(async (tx) => {
-    // The sweep. Nothing else in this system runs on a schedule, and a table
-    // that grows by one row a day does not earn one; expired rows go the next
-    // time a token is minted.
-    await tx`delete from api_tokens where expires_at < now()`;
-    await tx`
-      insert into api_tokens (token_hash, subject, expires_at)
-      values (${tokenHash}, ${subject}, ${expiresAt})
-    `;
-  });
+  await sql`
+    insert into api_tokens (token_hash, subject, expires_at)
+    values (${tokenHash}, ${subject}, ${expiresAt})
+  `;
+  // Housekeeping is independent of minting: a failed sweep must not roll back
+  // a usable token. Expired rows remain invalid even when cleanup fails.
+  try {
+    await sql`delete from api_tokens where expires_at < now()`;
+  } catch {
+    // Database errors can contain query parameters. Never log token material
+    // or subjects; the next mint retries this best-effort sweep.
+    console.error("Expired API token cleanup failed.");
+  }
   return { token, expires_at: expiresAt.toISOString() };
 }
 

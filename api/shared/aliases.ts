@@ -17,9 +17,8 @@ import { requireRow } from "./errors.ts";
 /**
  * Adds every alias to one owner, or none of them.
  *
- * One transaction because the caller sends a list and a half-added list is a
- * worse answer than a refusal: the second name is the one that would be
- * missing, and nothing in the response would say so.
+ * One bulk statement makes the list atomic: an invalid alias refuses the
+ * whole list rather than leaving a half-added list behind.
  */
 export async function addAliases(
   table: string,
@@ -27,13 +26,16 @@ export async function addAliases(
   id: number,
   aliases: readonly string[],
 ): Promise<void> {
-  await sql.begin(async (tx) => {
-    for (const alias of aliases) {
-      await tx`
-      insert into ${sql(table)}
-      (${sql(foreignKey)}, alias) values (${id}, ${alias})`;
-    }
-  });
+  if (aliases.length === 0) return;
+  await sql`
+    insert into ${sql(table)}
+    ${
+    sql(
+      aliases.map((alias) => ({ [foreignKey]: id, alias })),
+      foreignKey,
+      "alias",
+    )
+  }`;
 }
 
 /**

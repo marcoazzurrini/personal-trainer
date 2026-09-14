@@ -117,6 +117,8 @@ async function insertMuscles(
   exerciseId: number,
   muscles: MuscleEntry[],
 ) {
+  if (muscles.length === 0) return;
+  const rows = [];
   for (const { muscle, volumeFactor } of muscles) {
     const [row] = await tx`
       select id from muscles where lower(name) = lower(${muscle})`;
@@ -129,10 +131,15 @@ async function insertMuscles(
         `Unknown muscle "${muscle}". Known muscles: ${names}. Add it first with POST /muscles.`,
       );
     }
-    await tx`
-      insert into exercise_muscles (exercise_id, muscle_id, volume_factor)
-      values (${exerciseId}, ${row.id}, ${volumeFactor})`;
+    rows.push({
+      exercise_id: exerciseId,
+      muscle_id: row.id as number,
+      volume_factor: volumeFactor,
+    });
   }
+  await tx`
+    insert into exercise_muscles
+    ${tx(rows, "exercise_id", "muscle_id", "volume_factor")}`;
 }
 
 /**
@@ -165,10 +172,16 @@ export async function addExercise(b: {
          ${b.notes ?? null})
       returning id`;
 
-    for (const alias of aliases) {
+    if (aliases.length > 0) {
       await tx`
-        insert into exercise_aliases (exercise_id, alias)
-        values (${exercise.id}, ${alias})`;
+        insert into exercise_aliases
+        ${
+        tx(
+          aliases.map((alias) => ({ exercise_id: exercise.id, alias })),
+          "exercise_id",
+          "alias",
+        )
+      }`;
     }
 
     await insertMuscles(tx, exercise.id, muscles);
@@ -368,13 +381,9 @@ export async function deleteExercise(ref: string): Promise<string> {
       } — so deleting it would orphan history. PATCH /exercises/:ref fixes what is fixable; a duplicate's aliases move to the exercise being kept.`,
     );
   }
-  return await sql.begin(async (tx) => {
-    await tx`delete from exercise_aliases where exercise_id = ${e.id}`;
-    await tx`delete from exercise_muscles where exercise_id = ${e.id}`;
-    const [row] = await tx`
-      delete from exercises where id = ${e.id} returning name`;
-    return row.name as string;
-  });
+  const [row] = await sql`
+    delete from exercises where id = ${e.id} returning name`;
+  return row.name as string;
 }
 
 /**

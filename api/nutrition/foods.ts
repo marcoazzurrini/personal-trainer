@@ -134,10 +134,10 @@ export async function saveFood(
              ${b.grams_per_unit ?? null}, ${b.source}, ${b.source_note ?? null},
              ${b.request_id})
           returning id`;
-        for (const alias of aliases) {
-          await tx`
-            insert into food_aliases (food_id, alias)
-            values (${created.id}, ${alias})`;
+        if (aliases.length) {
+          await tx`insert into food_aliases ${
+            tx(aliases.map((alias) => ({ food_id: created.id, alias })))
+          }`;
         }
         return created.id as number;
       });
@@ -282,7 +282,7 @@ export async function correctFood(
 }
 
 // Only a food with no current intake or meal-item references can be deleted.
-// A removed mis-log no longer blocks deletion; aliases are removed below.
+// A removed mis-log no longer blocks deletion; owned aliases cascade.
 // For a referenced food with wrong numbers, correction fixes its past too.
 export async function deleteFood(ref: string): Promise<string> {
   const id = await resolveFoodId(ref);
@@ -300,13 +300,8 @@ export async function deleteFood(ref: string): Promise<string> {
       } — so deleting it would orphan the record. If its numbers are wrong, PATCH /foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
     );
   }
-  // Aliases first, and in one transaction. food_aliases references foods and
-  // nothing here cascades — deleting the food first meant a food carrying any
-  // alias could not be deleted at all, and the caller got a bare foreign-key
-  // message about a table it never named.
-  return await sql.begin(async (tx) => {
-    await tx`delete from food_aliases where food_id = ${id}`;
-    const [row] = await tx`delete from foods where id = ${id} returning name`;
-    return row.name as string;
-  });
+  // Only aliases cascade. Intake and recipe references remain restrictive,
+  // including references created after the helpful preflight count above.
+  const [row] = await sql`delete from foods where id = ${id} returning name`;
+  return row.name as string;
 }
