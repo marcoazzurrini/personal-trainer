@@ -71,11 +71,15 @@ export async function recordBodyweight(input: {
     returning id, value_kg::float8, measured_at, source`;
   if (row) return { row: row as BodyweightRow, created: true };
 
-  const [existing] = await sql`
-    select id, value_kg::float8, measured_at, source
+  const [found] = await sql`
+    select id, value_kg::float8, measured_at, source,
+      value_kg = ${valueKg}::numeric(5, 2) as same_value
     from bodyweight
     where measured_at = ${measuredAt} and source = ${source}`;
-  if (existing.value_kg === valueKg) {
+  // Compare at the column's precision, including PostgreSQL's decimal ties.
+  // The internal comparison must not become a field in the public response.
+  const { same_value, ...existing } = found;
+  if (same_value) {
     return { row: existing as BodyweightRow, created: false };
   }
   throw new ApiError(

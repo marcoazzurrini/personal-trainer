@@ -2,7 +2,10 @@ import { assert, assertEquals } from "@std/assert";
 import fc from "fast-check";
 import {
   body,
+  date,
+  dayParam,
   idParam,
+  optionalDate,
   optionalNumber,
   optionalRequestId,
   optionalTimestamp,
@@ -76,7 +79,12 @@ Deno.test("a body refuses exactly the unknown keys", () => {
         );
         const schema = body(shape);
         const value = Object.fromEntries(
-          keys.map((k) => [k, k === "request_id" ? crypto.randomUUID() : 1]),
+          keys.map((
+            k,
+          ) => [
+            k,
+            k === "request_id" ? "11111111-2222-3333-4444-555555555555" : 1,
+          ]),
         );
         const unknown = keys.some(
           (k) => k !== "request_id" && !accepts.includes(k),
@@ -162,23 +170,80 @@ Deno.test("a valid timestamp round-trips to the same instant", () => {
   );
 });
 
-Deno.test("an accepted document name is a plain relative name", () => {
-  // The documents are files in the plugin now, and nothing on the server
-  // resolves a name to a path; what is left of the rule is what /issues
-  // accepts as the name of a document a report is about. For anything it
-  // accepts — and fc.string covers traversal attempts, URL tricks, and
-  // unicode — the name is lowercase words and slashes with no dot anywhere,
-  // so it could never spell a path that leaves a folder. What it rejects is
-  // someone else's problem; what it accepts must be safe.
-  fc.assert(fc.property(fc.string({ maxLength: 120 }), (name) => {
-    if (!isDocName(name)) return;
-    assert(name.length <= MAX_DOC_NAME);
-    assert(!name.includes("."), name);
-    assert(!name.startsWith("/") && !name.endsWith("/"), name);
-    assert(!name.includes("//"), name);
+Deno.test("document names accept constructed names and refuse unsafe mutations", () => {
+  const segment = fc.array(
+    fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789-"),
+    { minLength: 1, maxLength: 16 },
+  ).map((chars) => chars.join(""));
+  const name = fc.array(segment, { minLength: 1, maxLength: 4 })
+    .map((segments) => segments.join("/"));
+  // Every generated case exercises acceptance; no early return can make this
+  // property vacuous. Mutations exercise refusals with the same valid core.
+  fc.assert(fc.property(name, (value) => {
+    assertEquals(isDocName(value), true, value);
+    for (
+      const bad of [
+        `/${value}`,
+        `${value}/`,
+        `../${value}`,
+        `${value}/../x`,
+        `${value}//x`,
+        `${value}.md`,
+        `A${value}`,
+        `${value} `,
+        `${value}\n`,
+        `${value}/%2e%2e`,
+        `${value}\\x`,
+      ]
+    ) assertEquals(isDocName(bad), false, JSON.stringify(bad));
   }));
-  // The shapes an attack would actually take.
-  for (const evil of ["../secrets", "a/../../x", "a//b", ".", "..", "a/.b"]) {
-    assertEquals(isDocName(evil), false, evil);
-  }
+  assertEquals(isDocName("a".repeat(MAX_DOC_NAME)), true);
+  assertEquals(isDocName("a".repeat(MAX_DOC_NAME + 1)), false);
+  assertEquals(isDocName(""), false);
+});
+
+Deno.test("calendar schemas agree with Gregorian month lengths without normalization", () => {
+  const required = date();
+  const optional = optionalDate();
+  const parameter = dayParam();
+  const instant = optionalTimestamp();
+  fc.assert(
+    fc.property(
+      fc.integer({ min: 1900, max: 2100 }),
+      fc.integer({ min: 1, max: 12 }),
+      fc.integer({ min: 28, max: 32 }),
+      (year, month, day) => {
+        const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+        const lengths = [
+          31,
+          leap ? 29 : 28,
+          31,
+          30,
+          31,
+          30,
+          31,
+          31,
+          30,
+          31,
+          30,
+          31,
+        ];
+        const valid = day <= lengths[month - 1];
+        const value = `${year}-${String(month).padStart(2, "0")}-${
+          String(day).padStart(2, "0")
+        }`;
+        for (const schema of [required, optional, parameter]) {
+          assertEquals(schema.safeParse(value).success, valid, value);
+        }
+        for (const offset of ["Z", "+02:00", "-05:30"]) {
+          const timestamp = `${value}T00:30:00${offset}`;
+          assertEquals(instant.safeParse(timestamp).success, valid, timestamp);
+        }
+      },
+    ),
+    {
+      numRuns: 500,
+      examples: [[1900, 2, 29], [2000, 2, 29], [2026, 2, 30], [2026, 4, 31]],
+    },
+  );
 });

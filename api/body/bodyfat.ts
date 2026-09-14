@@ -82,11 +82,14 @@ export async function recordBodyfat(input: {
   // than about this call: an estimate for this day and method either exists or
   // it does not, whoever sent it. Asking the other way round would answer a
   // retry that arrived carrying a changed reading with the reading it replaced.
-  const [existing] = await sql<BodyfatRow[]>`
-    select ${estimateColumns()}
+  const [found] = await sql<(BodyfatRow & { same_value: boolean })[]>`
+    select ${estimateColumns()}, percent = ${input.percent}::numeric(4, 1) as same_value
     from bodyfat_estimates where day = ${day} and method = ${input.method}`;
-  if (existing !== undefined) {
-    if (existing.percent === input.percent) {
+  if (found !== undefined) {
+    // A retry carries the original number, which may have more decimal places
+    // than the column. Compare using the same precision as the original write.
+    const { same_value, ...existing } = found;
+    if (same_value) {
       return { row: existing, created: false }; // idempotent retry
     }
     throw new ApiError(

@@ -9,19 +9,10 @@ import {
   uuid,
 } from "./helpers.ts";
 
-// A refused write leaves nothing behind.
-//
-// Every case here is a call that creates a parent row and then its children in
-// the same transaction, where a child is what fails. The parent is already
-// inserted by then, so the only thing standing between a 409 and a half-built
-// row is the rollback — and a half-built row is worse than the error, because
-// it is indistinguishable from a real one afterwards. A meal with no items
-// silently logs nothing; an orphan mesocycle occupies the "one active" slot and
-// blocks the next create with a conflict about a plan that was never made.
-//
-// The failure has to come from the database rather than a validator, or the
-// test proves only that validation runs first. Colliding aliases and a CHECK
-// on a set both do that: they are unreachable until the insert is attempted.
+// Refused writes leave no record. Alias collisions and unknown exercises are
+// preflight refusals, not proof of rollback. The session CHECK reaches SQL;
+// nutrition_rollback_test.ts injects failures after successful parent/child
+// writes to prove actual transaction rollback.
 
 Deno.test("a food that cannot take its alias is not created", async () => {
   await resetNutrition();
@@ -36,7 +27,7 @@ Deno.test("a food that cannot take its alias is not created", async () => {
     request_id: uuid(),
   });
 
-  // The food row inserts, then the alias collides on the global unique index.
+  // Alias ownership is checked before creation; this proves refusal has no side effects.
   const { status, body } = await api.post("/foods", {
     name: "Icelandic Yoghurt",
     kcal_100g: 60,
@@ -50,9 +41,7 @@ Deno.test("a food that cannot take its alias is not created", async () => {
   assertEquals(status, 409);
   assert(body.error.includes("alias"), body.error);
 
-  // Without the rollback this is where a second yoghurt would be sitting,
-  // aliasless and invisible, splitting the food's history the moment either
-  // one gets logged.
+  // No second yoghurt should exist after the preflight refusal.
   assertEquals((await api.get("/foods/Icelandic Yoghurt")).status, 422);
   const all = await api.get("/foods");
   assertEquals(all.body.foods.length, 1);

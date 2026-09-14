@@ -250,18 +250,30 @@ function collectExtras(
   }
 }
 
-function assertMatchesDocument(
+export function assertMatchesDocument(
   method: string,
   path: string,
   status: number,
   body: unknown,
 ): void {
-  // Surfaces deliberately outside the document — the Withings webhook, the
-  // uptime probe, the document itself — match nothing here, and that is the
-  // exemption: the document is the contract, and what it does not describe is
-  // not checked against it.
+  // These public surfaces deliberately do not use the generated contract.
+  // A new undocumented success must fail rather than silently escaping checks.
+  const outsideDocument = new Set([
+    "GET /health",
+    "GET /openapi.json",
+    "GET /withings/callback",
+    "GET /withings/notify",
+    "HEAD /withings/notify",
+    "POST /withings/notify",
+  ]);
+  const pathname = path.split("?")[0];
+  if (outsideDocument.has(`${method} ${pathname}`)) return;
   const route = matchDeclared(method, path);
-  if (route === null) return;
+  if (route === null) {
+    throw new Error(
+      `${method} ${path} answered ${status} but has no declared route.`,
+    );
+  }
   const schema = route.schemaFor.get(String(status));
   if (schema === undefined) {
     throw new Error(
@@ -270,7 +282,11 @@ function assertMatchesDocument(
         `is generated from the routes, so the code and the description have split.`,
     );
   }
-  if (schema === null) return; // declared, but as prose alone — no route does today; the mechanism stays
+  if (schema === null) {
+    throw new Error(
+      `${method} ${path} answered ${status} without a response schema.`,
+    );
+  }
 
   let validate = route.compiledFor.get(String(status));
   if (validate === undefined) {
@@ -337,9 +353,9 @@ export async function mintToken(opts: {
   expiresInMs?: number;
 } = {}): Promise<string> {
   const token = opts.token ?? crypto.randomUUID();
-  const expiresAt = new Date(
-    Date.now() + (opts.expiresInMs ?? 60 * 60 * 1000),
-  );
+  // Expiry is checked in PostgreSQL. A host clock slightly ahead of Docker
+  // must not turn a deliberately expired test token into a live one.
+  const expiresInMs = opts.expiresInMs ?? 60 * 60 * 1000;
   const db = postgres(DB_URL);
   try {
     await db`
@@ -347,8 +363,8 @@ export async function mintToken(opts: {
       values (
         ${await sha256Hex(token)},
         ${opts.subject ?? "user_test"},
-        ${new Date(expiresAt.getTime() - 60 * 60 * 1000)},
-        ${expiresAt}
+        now() + ${expiresInMs} * interval '1 millisecond' - interval '1 hour',
+        now() + ${expiresInMs} * interval '1 millisecond'
       )
       on conflict (token_hash) do update
         set subject = excluded.subject,

@@ -34,6 +34,42 @@ export class GithubError extends Error {
   }
 }
 
+function object(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function nonempty(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function httpUrl(value: unknown): value is string {
+  if (!nonempty(value)) return false;
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function timestamp(value: unknown): value is string {
+  return nonempty(value) && Number.isFinite(Date.parse(value));
+}
+
+function issueNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function malformed(method: "GET" | "POST"): never {
+  throw new GithubError(
+    502,
+    `GitHub returned an unusable response. ${
+      method === "GET"
+        ? "Try the read again later."
+        : "The write may already exist at GitHub. Check existing issues or comments before retrying; do not blindly repeat the write."
+    }`,
+  );
+}
+
 async function gh(
   cfg: GithubConfig,
   method: string,
@@ -71,7 +107,9 @@ async function gh(
     );
   }
   if (!res.ok) {
-    const detail = (json as { message?: string }).message ?? "no detail";
+    const detail = object(json) && typeof json.message === "string"
+      ? json.message
+      : "no detail";
     throw new GithubError(
       res.status,
       `GitHub replied ${res.status} to ${method} ${path}: ${detail}`,
@@ -125,7 +163,12 @@ export async function openIssue(
     title: opts.title,
     body: opts.body,
     labels: [COACH_LABEL, opts.kind],
-  }) as { number: number; html_url: string };
+  });
+  if (
+    !object(issue) || !issueNumber(issue.number) || !httpUrl(issue.html_url)
+  ) {
+    malformed("POST");
+  }
   return { number: issue.number, url: issue.html_url };
 }
 
@@ -146,6 +189,15 @@ interface RawIssue {
   pull_request?: unknown;
 }
 
+function isIssue(value: unknown): value is RawIssue {
+  return object(value) && issueNumber(value.number) &&
+    typeof value.title === "string" && httpUrl(value.html_url) &&
+    timestamp(value.created_at) && Array.isArray(value.labels) &&
+    value.labels.every((label) =>
+      object(label) && typeof label.name === "string"
+    );
+}
+
 export async function listCoachIssues(
   cfg: GithubConfig,
 ): Promise<CoachIssue[]> {
@@ -153,7 +205,8 @@ export async function listCoachIssues(
     cfg,
     "GET",
     `/repos/${cfg.repo}/issues?state=open&labels=${COACH_LABEL}&per_page=100`,
-  ) as RawIssue[];
+  );
+  if (!Array.isArray(raw) || !raw.every(isIssue)) malformed("GET");
   return raw
     // GitHub's REST API counts every pull request as an issue, so this
     // endpoint returns both and the pull_request key is the only thing that
@@ -181,6 +234,7 @@ export async function commentOnIssue(
     "POST",
     `/repos/${cfg.repo}/issues/${issueNumber}/comments`,
     { body },
-  ) as { html_url: string };
+  );
+  if (!object(comment) || !httpUrl(comment.html_url)) malformed("POST");
   return { url: comment.html_url };
 }

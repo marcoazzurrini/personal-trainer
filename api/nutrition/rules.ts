@@ -30,13 +30,18 @@ export interface ScaledMacros {
 // food has none: unknown is not zero, and averaging zeros into a fiber total
 // would quietly understate it.
 export function scaleFood(food: FoodMacros, grams: number): ScaledMacros {
-  const factor = grams / 100;
+  // Both quantities are stored in tenths. Multiply their integer tenths
+  // before dividing, so a decimal tie (90 g/100 g at 1.5 g = 1.35 g) cannot
+  // become 1.3499999999999999 and round down instead of up.
+  const gramTenths = Math.round(grams * 10);
+  const scaled = (per100g: number) =>
+    Math.round(Math.round(per100g * 10) * gramTenths / 1000) / 10;
   return {
-    kcal: round1(food.kcal_100g * factor),
-    protein_g: round1(food.protein_100g * factor),
-    carbs_g: round1(food.carbs_100g * factor),
-    fat_g: round1(food.fat_100g * factor),
-    fiber_g: food.fiber_100g === null ? null : round1(food.fiber_100g * factor),
+    kcal: scaled(food.kcal_100g),
+    protein_g: scaled(food.protein_100g),
+    carbs_g: scaled(food.carbs_100g),
+    fat_g: scaled(food.fat_100g),
+    fiber_g: food.fiber_100g === null ? null : scaled(food.fiber_100g),
   };
 }
 
@@ -245,7 +250,8 @@ export function gramsEaten(
       'Send either "grams" or "units", not both — they are two ways of saying the same thing.',
     );
   }
-  if (grams !== null) return grams;
+  // Match the stored weight before deriving macros, just as units and meals do.
+  if (grams !== null) return round1(grams);
   if (units !== null) {
     if (gramsPerUnit === null) {
       throw new ApiError(

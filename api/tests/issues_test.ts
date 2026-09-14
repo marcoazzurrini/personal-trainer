@@ -290,6 +290,117 @@ Deno.test("github client", async (t) => {
     }
   });
 
+  await t.step(
+    "malformed successes never invent a receipt or repeat a write",
+    async () => {
+      let response = "";
+      let calls = 0;
+      const server = Deno.serve({ port: 0, onListen() {} }, async (req) => {
+        await req.text();
+        calls++;
+        return new Response(response, {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const cfg = {
+        apiBase: `http://127.0.0.1:${server.addr.port}`,
+        token: "local-token",
+        repo: "o/r",
+      };
+      try {
+        for (
+          response of [
+            "not json",
+            "null",
+            "{}",
+            "[]",
+            '{"html_url":""}',
+            '{"number":0,"html_url":"https://github.com/o/r/issues/7"}',
+            '{"number":7,"html_url":42}',
+            '{"number":7,"html_url":"garbage"}',
+            '{"number":7,"html_url":"/relative/path"}',
+            '{"number":7,"html_url":"javascript:alert(1)"}',
+          ]
+        ) {
+          const before = calls;
+          const error = await assertRejects(
+            () => openIssue(cfg, { title: "t", body: "b", kind: "bug" }),
+            GithubError,
+          );
+          assertEquals(error.status, 502);
+          assert(error.message.includes("before retrying"), error.message);
+          assertEquals(calls, before + 1);
+        }
+        for (
+          response of [
+            "not json",
+            "null",
+            "{}",
+            '{"html_url":""}',
+            '{"html_url":42}',
+            '{"html_url":"garbage"}',
+            '{"html_url":"/relative/path"}',
+            '{"html_url":"javascript:alert(1)"}',
+          ]
+        ) {
+          const before = calls;
+          const error = await assertRejects(
+            () => commentOnIssue(cfg, 7, "n"),
+            GithubError,
+          );
+          assertEquals(error.status, 502);
+          assert(error.message.includes("before retrying"), error.message);
+          assertEquals(calls, before + 1);
+        }
+        const validIssue = {
+          number: 7,
+          title: "A report",
+          html_url: "https://github.com/o/r/issues/7",
+          created_at: "2026-08-24T10:00:00Z",
+          labels: [{ name: COACH_LABEL }, { name: "bug" }],
+        };
+        for (
+          response of [
+            "not json",
+            "null",
+            "{}",
+            "[{}]",
+            ...[
+              { labels: null },
+              { labels: [null] },
+              { labels: [{ name: 7 }] },
+              { created_at: "not a timestamp" },
+              { html_url: "garbage" },
+              { html_url: "/relative/path" },
+              { html_url: "javascript:alert(1)" },
+            ].map((invalid) => JSON.stringify([{ ...validIssue, ...invalid }])),
+          ]
+        ) {
+          const before = calls;
+          const error = await assertRejects(
+            () => listCoachIssues(cfg),
+            GithubError,
+          );
+          assertEquals(error.status, 502);
+          assertEquals(calls, before + 1);
+        }
+        response = JSON.stringify([validIssue]);
+        assertEquals(await listCoachIssues(cfg), [{
+          number: 7,
+          title: validIssue.title,
+          url: validIssue.html_url,
+          kind: "bug",
+          created_at: validIssue.created_at,
+        }]);
+        response = "[]";
+        assertEquals(await listCoachIssues(cfg), []);
+      } finally {
+        await server.shutdown();
+      }
+    },
+  );
+
   // The route tells a wrong issue number from an unreachable GitHub by this
   // status; without it a typo answers 502 and blames the server.
   await t.step("an error surfaces its status and message", async () => {

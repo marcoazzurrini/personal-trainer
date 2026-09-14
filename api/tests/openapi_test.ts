@@ -1,5 +1,18 @@
-import { assert, assertEquals } from "@std/assert";
-import { BASE, TOKEN } from "./helpers.ts";
+import {
+  assert,
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from "@std/assert";
+import {
+  assertMatchesDocument,
+  BASE,
+  ensureCatalogue,
+  resetNutrition,
+  resetTraining,
+  seedPlan,
+  TOKEN,
+} from "./helpers.ts";
 
 // The document is generated, which makes it trustworthy only as far as the
 // generator sees. Two ways it can lie, and one test for each.
@@ -27,10 +40,79 @@ Deno.test("the document describes the surface it claims to", () => {
   }
 });
 
+Deno.test("contract checks reject undocumented successes and malformed responses", () => {
+  assertThrows(
+    () => assertMatchesDocument("GET", "/not-declared", 200, {}),
+    Error,
+    "no declared route",
+  );
+  assertThrows(
+    () => assertMatchesDocument("GET", "/foods", 200, {}),
+    Error,
+    "schema and the SQL have drifted",
+  );
+  assertThrows(
+    () => assertMatchesDocument("GET", "/foods", 299, []),
+    Error,
+    "does not declare",
+  );
+  assertMatchesDocument("GET", "/foods", 200, { foods: [] });
+});
+
+Deno.test("calendar constraints remain visible in generated requests", () => {
+  const pattern = String.raw`^\d{4}-\d{2}-\d{2}$`;
+  const fields =
+    spec.paths["/api/blocks"].post.requestBody.content["application/json"]
+      .schema.properties;
+  assertEquals(fields.started_on.pattern, pattern);
+  assert(
+    (fields.ended_on.anyOf ?? [fields.ended_on]).some((
+      node: { pattern?: string },
+    ) => node.pattern === pattern),
+  );
+  const day = spec.paths["/api/intake"].get.parameters.find((
+    p: { name: string; in: string },
+  ) => p.name === "day" && p.in === "query");
+  assert(day, "GET /intake must declare its day query");
+  assertEquals(day.schema.pattern, pattern);
+});
+
+Deno.test("every declared success describes its JSON body", () => {
+  for (const [path, methods] of Object.entries(spec.paths)) {
+    for (
+      const [method, operation] of Object.entries(
+        methods as Record<
+          string,
+          {
+            responses: Record<
+              string,
+              { content?: Record<string, { schema?: unknown }> }
+            >;
+          }
+        >,
+      )
+    ) {
+      const successes = Object.entries(operation.responses).filter(([status]) =>
+        /^2\d\d$/.test(status)
+      );
+      assert(successes.length > 0, `${method} ${path} declares no success`);
+      for (const [status, response] of successes) {
+        assert(
+          response.content?.["application/json"]?.schema,
+          `${method} ${path} ${status} has no JSON schema`,
+        );
+      }
+    }
+  }
+});
+
 Deno.test("every described GET actually routes", async (t) => {
-  // Only the parameterless ones: a path with {id} would need a real row, and
-  // a POST would write. This is enough to catch a renamed path — the failure
-  // it exists for — without the suite inventing data to prove it.
+  // Own the fixture: plan-scoped reads must not depend on a preceding test
+  // leaving an active plan behind. Parameterized routes have domain tests.
+  await resetTraining();
+  await resetNutrition();
+  await ensureCatalogue();
+  await seedPlan({ exercises: [{ exercise: "squat" }] });
   const paths = Object.entries(spec.paths)
     .filter(([p, methods]) =>
       !p.includes("{") && Object.hasOwn(methods as object, "get")
@@ -44,11 +126,16 @@ Deno.test("every described GET actually routes", async (t) => {
       const res = await fetch(`${BASE}${path}`, {
         headers: { Authorization: `Bearer ${TOKEN}` },
       });
-      await res.body?.cancel();
-      assert(
-        res.status !== 404,
-        `the document describes GET ${path}, which the router does not serve`,
-      );
+      // The disposable server deliberately has no GitHub credentials. Prove
+      // that exact configuration refusal, not an arbitrary server failure.
+      if (path === "/issues") {
+        const body = await res.json();
+        assertEquals(res.status, 500, `GET ${path}`);
+        assertStringIncludes(body.error, "GITHUB_TOKEN and GITHUB_REPO");
+      } else {
+        await res.body?.cancel();
+        assertEquals(res.status, 200, `GET ${path}`);
+      }
     });
   }
 });

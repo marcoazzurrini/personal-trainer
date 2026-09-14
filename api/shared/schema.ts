@@ -127,9 +127,20 @@ export function oneOf<T extends string>(choices: readonly [T, ...T[]]) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Date.parse normalizes February 30 instead of refusing it. Validate the
+// written calendar day before parsing an instant or sending a date to SQL.
+function isCalendarDate(value: string): boolean {
+  if (!DATE_RE.test(value) || value.startsWith("0000")) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) &&
+    new Date(parsed).toISOString().slice(0, 10) === value;
+}
+
 function calendarDate(error: (iss: Issue) => string) {
   return z.string({ error }).regex(DATE_RE, { error }).refine(
-    (v) => !Number.isNaN(Date.parse(v)),
+    // The regex reports malformed strings and remains visible in OpenAPI.
+    // This second check reports only impossible calendar days.
+    (value) => !DATE_RE.test(value) || isCalendarDate(value),
     { error },
   );
 }
@@ -154,7 +165,12 @@ const OFFSET_RE = /(?:Z|[+-]\d{2}:\d{2})$/i;
 
 function instant(error: (iss: Issue) => string) {
   return z.string({ error })
-    .refine((v) => OFFSET_RE.test(v) && !Number.isNaN(Date.parse(v)), { error })
+    .refine(
+      (v) =>
+        isCalendarDate(v.slice(0, 10)) && OFFSET_RE.test(v) &&
+        !Number.isNaN(Date.parse(v)),
+      { error },
+    )
     .transform((v) => new Date(v).toISOString());
 }
 
@@ -258,10 +274,7 @@ export function idParam(what: string) {
 export function dayParam() {
   const error = (iss: Issue) =>
     `"${iss.input}" is not a calendar date. Use YYYY-MM-DD, e.g. 2026-08-07.`;
-  return z.string({ error }).refine(
-    (v) => DATE_RE.test(v) && !Number.isNaN(Date.parse(v)),
-    { error },
-  );
+  return calendarDate(error);
 }
 
 // ------------------------------------------------------------------ bodies

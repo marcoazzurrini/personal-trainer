@@ -81,6 +81,43 @@ Deno.test("a future date is refused wherever a record is written", async (t) => 
   });
 });
 
+Deno.test("impossible calendar dates are refused before any write", async () => {
+  await resetNutrition();
+  for (const day of ["2023-02-29", "2024-02-30", "2024-04-31", "2024-13-01"]) {
+    const calls = [
+      api.post("/bodyfat", { day, percent: 20, method: "bia" }),
+      api.post("/intake", { day, adhoc_kcal: 100 }),
+      api.post(`/days/${day}/flags`, { flag: "incomplete" }),
+      api.post("/bodyweight", {
+        value_kg: 80,
+        measured_at: `${day}T08:00:00+02:00`,
+      }),
+    ];
+    for (const result of await Promise.all(calls)) {
+      assertEquals(
+        result.status,
+        422,
+        `${day}: ${JSON.stringify(result.body)}`,
+      );
+      assert(
+        /calendar date|ISO 8601 timestamp/.test(result.body.error),
+        result.body.error,
+      );
+    }
+  }
+  assertEquals((await api.get("/bodyweight")).body.bodyweight, []);
+  assertEquals((await api.get("/bodyfat")).body.bodyfat_estimates, []);
+  // The valid leap day remains usable after every refusal.
+  const input = {
+    day: "2024-02-29",
+    percent: 20,
+    method: "bia",
+    request_id: uuid(),
+  };
+  assertEquals((await api.post("/bodyfat", input)).status, 201);
+  assertEquals((await api.post("/bodyfat", input)).status, 200);
+});
+
 Deno.test("an implausible bodyweight is refused", async (t) => {
   await resetNutrition();
 

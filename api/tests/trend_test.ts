@@ -1,145 +1,85 @@
-import { assert, assertEquals } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { api, daysAgo, resetNutrition } from "./helpers.ts";
 
-// The daily_bodyweight view, through the API that reads it.
-//
-// bodyweight stores instants; everything downstream needs one value per Rome
-// calendar day. Two rules do that collapsing, both of them in SQL, both of
-// them silent when wrong: which instant wins when a day has several, and which
-// day an instant belongs to. The raw rows on the bodyweight endpoint don't
-// show the collapsing, so the rules are asserted through nutrition-state's
-// recent_days, which reads the view.
-//
-// A break in either rule reads as a real weight change: the trend moves, the
-// back-solve reads a slope that never happened, and the calorie target follows.
-
-Deno.test("one weight per Rome day", async (t) => {
+// Every test owns its fixture, so filtering or shuffling tests cannot change
+// the series. Deliberately disagree on sources, time of day, and UTC/Rome day.
+async function seedTrend() {
   await resetNutrition();
-
-  const day = daysAgo(4);
-  const weightOn = async (d: string) => {
-    const { body } = await api.get("/nutrition-state");
-    return body.recent_days.find((r: { day: string }) => r.day === d)
-      ?.weight_kg ?? null;
-  };
-
-  await t.step("the earliest weigh-in of a day wins", async () => {
-    // Not the latest, and not a mean. The morning weigh-in is the
-    // standardized measurement — fasted, before drinking — and an evening
-    // weight carries a day of food and water on top of it. Taking the later
-    // one would add a couple of kilos of noise to every day it exists, which
-    // is more than the signal the trend is trying to measure.
-    await api.post("/bodyweight", {
-      value_kg: 82.0,
-      measured_at: `${day}T05:00:00Z`,
-      source: "morning",
-    });
-    await api.post("/bodyweight", {
-      value_kg: 84.0,
-      measured_at: `${day}T19:00:00Z`,
-      source: "evening",
-    });
-
-    assertEquals(await weightOn(day), 82.0);
-
-    // Both rows survive — the view chooses, it does not discard.
-    const series = await api.get("/bodyweight");
-    assertEquals(series.body.bodyweight.length, 2);
-  });
-
-  await t.step(
-    "an instant belongs to its Rome day, not its UTC day",
-    async () => {
-      // 23:30 UTC is already 01:30 the next morning in Rome, so this is a
-      // weigh-in on the following day. Filing it under the UTC date would
-      // shift a weigh-in back a day and, on the days either side of a gap,
-      // change the slope the back-solve measures.
-      const utcDay = daysAgo(3);
-      const romeDay = daysAgo(2);
-      await api.post("/bodyweight", {
-        value_kg: 81.5,
-        measured_at: `${utcDay}T23:30:00Z`,
-        source: "late",
-      });
-
-      assertEquals(await weightOn(romeDay), 81.5);
-      assertEquals(await weightOn(utcDay), null);
+  const rows = [
+    { value_kg: 80, measured_at: `${daysAgo(6)}T05:45:00Z`, source: "manual" },
+    {
+      value_kg: 90,
+      measured_at: `${daysAgo(6)}T05:45:00Z`,
+      source: "withings",
     },
+    { value_kg: 82, measured_at: `${daysAgo(4)}T05:00:00Z`, source: "morning" },
+    { value_kg: 84, measured_at: `${daysAgo(4)}T19:00:00Z`, source: "evening" },
+    { value_kg: 81.5, measured_at: `${daysAgo(3)}T23:30:00Z`, source: "late" },
+  ];
+  const ids: number[] = [];
+  for (const row of rows) {
+    const result = await api.post("/bodyweight", row);
+    assertEquals(result.status, 201);
+    ids.push(result.body.bodyweight.id);
+  }
+  return ids;
+}
+
+// Independently calculated at alpha = 0.1; do not use trendSeries as its own
+// oracle. The internal EMA retains precision between output points.
+function expectedTrend() {
+  return [
+    { day: daysAgo(6), weight_kg: 80, trend_kg: 80, interpolated: false },
+    { day: daysAgo(5), weight_kg: 81, trend_kg: 80.1, interpolated: true },
+    { day: daysAgo(4), weight_kg: 82, trend_kg: 80.29, interpolated: false },
+    { day: daysAgo(3), weight_kg: 81.75, trend_kg: 80.44, interpolated: true },
+    { day: daysAgo(2), weight_kg: 81.5, trend_kg: 80.54, interpolated: false },
+  ];
+}
+
+Deno.test("one weight per Rome day feeds the exact collapsed trend", async () => {
+  await seedTrend();
+  const state = await api.get("/nutrition-state");
+  assertEquals(state.status, 200);
+  const weights = new Map(
+    state.body.recent_days.map((
+      r: { day: string; weight_kg: number | null },
+    ) => [r.day, r.weight_kg]),
   );
-
-  await t.step(
-    "two sources at the same instant: first recorded wins, every time",
-    async () => {
-      // The unique key is (measured_at, source), so the same instant from two
-      // sources is two legal rows — and until the view's tiebreak reached the
-      // id, which one seeded the day was the planner's whim. A nondeterministic
-      // value at the bottom of the trend is a calorie target that changes
-      // between reads of an unchanged record.
-      const day = daysAgo(6);
-      const instant = `${day}T05:45:00Z`;
-      await api.post("/bodyweight", {
-        value_kg: 80.0,
-        measured_at: instant,
-        source: "manual",
-      });
-      await api.post("/bodyweight", {
-        value_kg: 90.0,
-        measured_at: instant,
-        source: "withings",
-      });
-
-      assertEquals(await weightOn(day), 80.0);
-
-      // Both rows survive; the view chooses, deterministically.
-      const series = await api.get("/bodyweight");
-      const atInstant = series.body.bodyweight.filter(
-        (r: { measured_at: string }) =>
-          r.measured_at.startsWith(`${day}T05:45`),
-      );
-      assertEquals(atInstant.length, 2);
-    },
-  );
-
-  await t.step("the trend reads the collapsed series", async () => {
-    // The wiring assertion: loadTrend runs off daily_bodyweight, so the
-    // earliest-wins choice above has to be what the EMA actually sees. An
-    // 84.0 leaking through would show up here and nowhere else.
-    const { body } = await api.get("/nutrition-state");
-    assert(body.trend_weight !== null);
-    assert(
-      body.trend_weight.trend_kg < 83,
-      `the evening 84.0 leaked into the trend: ${body.trend_weight.trend_kg}`,
-    );
-  });
+  assertEquals(weights.get(daysAgo(6)), 80); // First source wins ties.
+  assertEquals(weights.get(daysAgo(4)), 82); // Earliest instant, not evening.
+  assertEquals(weights.get(daysAgo(3)), null); // UTC date is not Rome date.
+  assertEquals(weights.get(daysAgo(2)), 81.5);
+  assertEquals(state.body.trend_weight.day, daysAgo(2));
+  assertEquals(state.body.trend_weight.trend_kg, 80.54);
 });
 
-Deno.test("the bodyweight read serves the trend beside the raw rows", async () => {
-  // The chart rules say raw as faint points, trend as the line, and never
-  // smooth anything client-side — which was an instruction to draw a line no
-  // endpoint returned. The series computed for the estimate now rides along
-  // with the raw rows, one call for both.
-  const { body } = await api.get("/bodyweight");
-  assert(Array.isArray(body.trend), "the trend series must be served");
-  assert(body.trend.length >= 5, `${body.trend.length}`);
-  for (const p of body.trend) {
-    assertEquals(typeof p.day, "string");
-    assertEquals(typeof p.weight_kg, "number");
-    assertEquals(typeof p.trend_kg, "number");
-    assertEquals(typeof p.interpolated, "boolean");
-  }
-
-  // The single-day gaps left by the fixture above are bridged in the trend —
-  // days that have no raw row at all, which is why the trend could never
-  // have been a column on the raw series.
-  assert(
-    body.trend.some((p: { interpolated: boolean }) => p.interpolated),
-    "the fixture's one-day gaps must appear as interpolated trend days",
-  );
-
-  // The two reads must never disagree: nutrition-state's trend point is the
-  // last entry of this same series.
+Deno.test("the bodyweight read serves the exact trend beside all raw rows", async () => {
+  await seedTrend();
+  const series = await api.get("/bodyweight");
+  assertEquals(series.status, 200);
+  assertEquals(series.body.bodyweight.length, 5);
+  assertEquals(series.body.trend, expectedTrend());
   const state = await api.get("/nutrition-state");
-  const last = body.trend[body.trend.length - 1];
-  assertEquals(last.day, state.body.trend_weight.day);
-  assertEquals(last.trend_kg, state.body.trend_weight.trend_kg);
+  assertEquals(state.status, 200);
+  assertEquals(series.body.trend.at(-1).day, state.body.trend_weight.day);
+  assertEquals(
+    series.body.trend.at(-1).trend_kg,
+    state.body.trend_weight.trend_kg,
+  );
+});
+
+Deno.test("deleting the selected weigh-in promotes the next one on that day", async () => {
+  const ids = await seedTrend();
+  assertEquals((await api.delete(`/bodyweight/${ids[2]}`)).status, 200);
+  const series = await api.get("/bodyweight");
+  assertEquals(series.status, 200);
+  assertEquals(series.body.bodyweight.length, 4);
+  assertEquals(series.body.trend, [
+    { day: daysAgo(6), weight_kg: 80, trend_kg: 80, interpolated: false },
+    { day: daysAgo(5), weight_kg: 82, trend_kg: 80.2, interpolated: true },
+    { day: daysAgo(4), weight_kg: 84, trend_kg: 80.58, interpolated: false },
+    { day: daysAgo(3), weight_kg: 82.75, trend_kg: 80.8, interpolated: true },
+    { day: daysAgo(2), weight_kg: 81.5, trend_kg: 80.87, interpolated: false },
+  ]);
 });

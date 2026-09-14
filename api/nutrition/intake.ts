@@ -339,7 +339,7 @@ export async function correctEntry(
   const day = rawDay === null
     ? null
     : requireNotFuture(rawDay, await romeToday(), "day");
-  const grams = b.grams ?? null;
+  const grams = b.grams == null ? null : gramsEaten(b.grams, null, null, "");
   const kcal = b.kcal ?? null;
 
   // "grams" answers every macro question by re-scaling from the food; a

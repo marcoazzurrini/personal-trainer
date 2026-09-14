@@ -30,6 +30,35 @@ const food: fc.Arbitrary<FoodMacros> = fc.record({
 const grams = fc.double({ min: 0.1, max: 2000, noNaN: true })
   .map((v) => Math.round(v * 10) / 10);
 
+Deno.test("scaleFood decimal ties agree with an integer ledger", () => {
+  fc.assert(
+    fc.property(
+      fc.integer({ min: 0, max: 20_000 }),
+      fc.integer({ min: 0, max: 9_000 }),
+      (gramTenths, macroTenths) => {
+        const expected =
+          Number((BigInt(gramTenths) * BigInt(macroTenths) + 500n) / 1000n) /
+          10;
+        const value = macroTenths / 10;
+        const scaled = scaleFood({
+          kcal_100g: value,
+          protein_100g: value,
+          carbs_100g: value,
+          fat_100g: value,
+          fiber_100g: value,
+        }, gramTenths / 10);
+        for (const actual of Object.values(scaled)) {
+          assertEquals(
+            actual,
+            expected,
+          );
+        }
+      },
+    ),
+    { numRuns: 1000, examples: [[15, 900], [175, 900], [1005, 900], [0, 0]] },
+  );
+});
+
 Deno.test("scaleFood laws", async (t) => {
   await t.step("100 g of a food is the food", () => {
     fc.assert(fc.property(food, (f) => {
@@ -204,14 +233,19 @@ Deno.test("checkMacroMass law: 105 g per 100 g, exactly", () => {
 });
 
 Deno.test("gramsEaten is total, with exactly four outcomes", () => {
-  // Either grams passes through, units convert, or the refusal names what is
-  // missing — never a fifth behaviour, never an unhandled case.
-  const maybe = fc.option(grams, { nil: null });
+  // Grams round to storage precision, units convert, or the refusal names what
+  // is missing. Generate more precision than the stored columns, not just
+  // already-rounded values that would hide accidental pass-through.
+  const maybe = fc.option(
+    fc.integer({ min: 10, max: 200_000 }).map((n) => n / 100),
+    { nil: null },
+  );
   fc.assert(fc.property(maybe, maybe, maybe, (g, u, gpu) => {
     const run = () => gramsEaten(g, u, gpu, "Test Food");
     if (g !== null && u !== null) assert(throws422(run));
-    else if (g !== null) assertEquals(run(), g);
-    else if (u !== null && gpu !== null) {
+    else if (g !== null) {
+      assertEquals(run(), Math.floor((Math.round(g * 100) + 5) / 10) / 10);
+    } else if (u !== null && gpu !== null) {
       assertEquals(run(), Math.round(u * gpu * 10) / 10);
     } else assert(throws422(run));
   }));

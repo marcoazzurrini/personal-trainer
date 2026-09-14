@@ -142,11 +142,16 @@ Deno.test("auth and error envelope", async (t) => {
     assertEquals(status, 200);
   });
 
-  await t.step("a token past its expiry is refused", async () => {
-    const stale = await mintToken({ expiresInMs: -1000 });
-    const { status } = await api.get("/exercises", stale);
-    assertEquals(status, 401);
-  });
+  await t.step(
+    "tokens expired at insertion or earlier are refused",
+    async () => {
+      for (const expiresInMs of [0, -1000]) {
+        const stale = await mintToken({ expiresInMs });
+        const { status } = await api.get("/exercises", stale);
+        assertEquals(status, 401);
+      }
+    },
+  );
 
   await t.step("a token whose row is gone is refused", async () => {
     // Revocation is a delete; there is no state on the token itself.

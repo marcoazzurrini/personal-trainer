@@ -111,21 +111,58 @@ Deno.test("withings tokens", async (t) => {
     }
   });
 
-  await t.step("a partial token set is refused, not stored", async () => {
-    const { cfg, close } = stubWithings(() => ({
-      status: 0,
-      body: { access_token: "access-2", expires_in: 10800 }, // no refresh token
-    }));
-    try {
-      await assertRejects(
-        () => refreshTokens(cfg, "refresh-1"),
-        WithingsError,
-        "partial token set",
-      );
-    } finally {
-      await close();
-    }
-  });
+  await t.step(
+    "malformed or unusable token sets are refused, never returned",
+    async () => {
+      const valid = {
+        access_token: "access-2",
+        refresh_token: "refresh-2",
+        expires_in: 10800,
+      };
+      const malformed = [
+        null,
+        [],
+        "success",
+        {},
+        { access_token: "access-2", expires_in: 10800 },
+        ...["", " ", null, 42].flatMap((token) => [
+          { ...valid, access_token: token },
+          { ...valid, refresh_token: token },
+        ]),
+        ...[0, -1, 0.5, "10800", null, 1e20].map((expires_in) => ({
+          ...valid,
+          expires_in,
+        })),
+      ];
+      let body: unknown;
+      const { cfg, requests, close } = stubWithings(() => ({
+        status: 0,
+        body,
+      }));
+      try {
+        for (body of malformed) {
+          const before = requests.length;
+          await assertRejects(
+            () => refreshTokens(cfg, "refresh-1"),
+            WithingsError,
+            "token set",
+          );
+          assertEquals(
+            requests.length,
+            before + 1,
+            "never retry a possibly consumed refresh token",
+          );
+        }
+        body = valid;
+        assertEquals(
+          (await refreshTokens(cfg, "refresh-1")).accessToken,
+          "access-2",
+        );
+      } finally {
+        await close();
+      }
+    },
+  );
 });
 
 Deno.test("withings reads status, not the HTTP code", async (t) => {

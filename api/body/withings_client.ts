@@ -110,10 +110,16 @@ export async function refreshTokens(
     expires_in?: number;
   };
 
+  const expiresAt = typeof body.expires_in === "number"
+    ? new Date(Date.now() + body.expires_in * 1000)
+    : new Date(NaN);
   if (
-    typeof body.access_token !== "string" ||
+    typeof body.access_token !== "string" || body.access_token.trim() === "" ||
     typeof body.refresh_token !== "string" ||
-    typeof body.expires_in !== "number"
+    body.refresh_token.trim() === "" ||
+    typeof body.expires_in !== "number" || body.expires_in <= 0 ||
+    !Number.isSafeInteger(body.expires_in) ||
+    !Number.isFinite(expiresAt.getTime())
   ) {
     throw new WithingsError(
       "Withings accepted the refresh but did not return an access token, a refresh token and an expiry. Refusing to persist a partial token set.",
@@ -123,7 +129,7 @@ export async function refreshTokens(
   return {
     accessToken: body.access_token,
     refreshToken: body.refresh_token,
-    expiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString(),
+    expiresAt: expiresAt.toISOString(),
   };
 }
 
