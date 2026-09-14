@@ -141,7 +141,7 @@ export async function trainingState(): Promise<TrainingState> {
       Array<Omit<PlanExercise, "delivered_this_week">>
     >`
     select e.name as exercise, e.measure, me.role, me.priority, me.notes,
-      me.weekly_dose::float8 as dose, me.weekly_dose_unit as dose_unit,
+      dose.weekly_dose::float8 as dose, dose.weekly_dose_unit as dose_unit,
       coalesce(d.sets_done, 0)::int as sets_done,
       d.distance_m, d.duration_s,
       ((${romeDate()}) -
@@ -152,6 +152,15 @@ export async function trainingState(): Promise<TrainingState> {
       ) as days_since_trained
     from mesocycle_exercises me
     join exercises e on e.id = me.exercise_id
+    join lateral (
+      select weekly_dose, weekly_dose_unit
+      from mesocycle_exercise_doses dose
+      where dose.mesocycle_id = me.mesocycle_id
+        and dose.exercise_id = me.exercise_id
+        and dose.effective_from <= greatest(${romeDate()}, ${meso.started_on}::date)
+      order by dose.effective_from desc, dose.id desc
+      limit 1
+    ) dose on true
     left join lateral (
       select count(*)::int as sets_done,
         sum(t.distance_m)::float8 as distance_m,

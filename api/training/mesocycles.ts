@@ -129,8 +129,8 @@ async function parsePlanExercise(e: PlanEntry): Promise<PlanExercise> {
   };
 }
 
-// effectiveFrom is the first day the dose is in force: the plan's start when
-// the plan is being created, today when an exercise joins by decision.
+// effectiveFrom is the plan's start at creation, otherwise today (or the
+// plan's start if it is still in the future). Membership has no dose copy.
 async function insertPlanExercise(
   tx: Tx,
   mesocycleId: number,
@@ -139,18 +139,17 @@ async function insertPlanExercise(
 ) {
   await tx`
     insert into mesocycle_exercises
-      (mesocycle_id, exercise_id, role, priority, weekly_dose,
-       weekly_dose_unit, notes)
+      (mesocycle_id, exercise_id, role, priority, notes)
     values
-      (${mesocycleId}, ${p.exerciseId}, ${p.role}, ${p.priority},
-       ${p.weeklyDose}, ${p.weeklyDoseUnit}, ${p.notes})`;
+      (${mesocycleId}, ${p.exerciseId}, ${p.role}, ${p.priority}, ${p.notes})`;
   await tx`
     insert into mesocycle_exercise_doses
       (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit,
        effective_from)
     values
       (${mesocycleId}, ${p.exerciseId}, ${p.weeklyDose}, ${p.weeklyDoseUnit},
-       ${effectiveFrom ?? romeDate()})`;
+       greatest(${effectiveFrom ?? romeDate()},
+         (select started_on from mesocycles where id = ${mesocycleId})))`;
 }
 
 // The plan, exactly: the mesocycle row (intent included — it is the plan's
@@ -167,10 +166,19 @@ export async function mesocycleDetail(id: number): Promise<MesocycleDetail> {
     from mesocycles where id = ${id}`;
   const exercises = await sql<PlanExerciseRow[]>`
     select me.id, e.id as exercise_id, e.name as exercise, e.measure,
-      me.role, me.priority, me.weekly_dose::float8, me.weekly_dose_unit,
+      me.role, me.priority, d.weekly_dose::float8, d.weekly_dose_unit,
       me.notes
     from mesocycle_exercises me
     join exercises e on e.id = me.exercise_id
+    join lateral (
+      select weekly_dose, weekly_dose_unit
+      from mesocycle_exercise_doses d
+      where d.mesocycle_id = me.mesocycle_id
+        and d.exercise_id = me.exercise_id
+        and d.effective_from <= greatest(${romeDate()}, ${m.started_on}::date)
+      order by d.effective_from desc, d.id desc
+      limit 1
+    ) d on true
     where me.mesocycle_id = ${id}
     order by me.priority, e.name`;
   return {
@@ -385,10 +393,9 @@ export async function recordDecision(
         for (const p of addPlans) await insertPlanExercise(tx, m.id, p, null);
         for (const d of newDoses) {
           const [row] = await tx`
-        update mesocycle_exercises
-        set weekly_dose = ${d.dose}, weekly_dose_unit = ${d.unit}
+        select id from mesocycle_exercises
         where mesocycle_id = ${m.id} and exercise_id = ${d.exerciseId}
-        returning id`;
+        for update`;
           if (!row) {
             throw new ApiError(
               422,
@@ -398,14 +405,14 @@ export async function recordDecision(
               )}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /mesocycles/${m.id} to see the plan.`,
             );
           }
-          // The update above is the current truth; this row is why past weeks
-          // stay judged against the dose that was actually in force.
+          // Lock membership so a concurrent removal cannot pass the check
+          // and disappear before this append. The history is the only dose.
           await tx`
         insert into mesocycle_exercise_doses
           (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit,
            effective_from)
         values (${m.id}, ${d.exerciseId}, ${d.dose}, ${d.unit},
-          ${romeDate()})`;
+          greatest(${romeDate()}, ${m.started_on}::date))`;
         }
         if (newIntent !== null) {
           await tx`update mesocycles set intent = ${newIntent} where id = ${m.id}`;

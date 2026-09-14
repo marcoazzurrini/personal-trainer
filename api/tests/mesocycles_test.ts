@@ -240,6 +240,19 @@ Deno.test("mesocycle lifecycle", async (t) => {
     assertEquals(squat.weekly_dose, 12);
   });
 
+  await t.step(
+    "creation replay reads the dose history's current value",
+    async () => {
+      const { status, body } = await api.post(
+        "/mesocycles",
+        planBody(requestId, blockId),
+      );
+      assertEquals(status, 200);
+      assertEquals(body.mesocycle.id, mesoId);
+      assertEquals(body.mesocycle.exercises[0].weekly_dose, 12);
+    },
+  );
+
   await t.step("redosing an exercise outside the plan is refused", async () => {
     const { status, body } = await api.post("/mesocycles/current/decisions", {
       what_changed: "x",
