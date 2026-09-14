@@ -1,5 +1,4 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import postgres from "postgres";
 import {
   COACH_LABEL,
   commentOnIssue,
@@ -8,7 +7,6 @@ import {
   listCoachIssues,
   openIssue,
 } from "../surfaces/github.ts";
-import { verifiedDatabase } from "./disposable.ts";
 
 // --- The route's validation, through the running function ---------------
 // A valid report is never sent here: the local stack has no GITHUB_TOKEN,
@@ -138,7 +136,10 @@ Deno.test("issue body", async (t) => {
     assert(body.includes("Maybe the check constraint."));
     assert(body.includes("`reference/sessions`"));
     assert(body.includes("`tasks/logging`"));
-    assert(body.includes(requestId), "the request id is the retry's receipt");
+    assert(
+      body.includes(requestId),
+      "the request id correlates the report with its GitHub issue",
+    );
   });
 
   await t.step("omits the headings it has nothing for", () => {
@@ -425,39 +426,4 @@ Deno.test("github client", async (t) => {
       await server.shutdown();
     }
   });
-});
-
-// --- The retry guarantee's foundation ------------------------------------
-// The route's own retry path cannot run here for the same reason a valid
-// report cannot: no GITHUB_TOKEN, and configuring one would file real
-// issues. What is checkable locally is the thing the guarantee rests on —
-// that the ledger physically cannot hold one request_id twice. Without the
-// constraint the route's `on conflict do nothing` is a no-op and two racing
-// retries each record an issue.
-
-Deno.test("one request_id can only file one issue", async () => {
-  const disposable = await verifiedDatabase();
-  const db = postgres(disposable.databaseUrl);
-  const requestId = crypto.randomUUID();
-  try {
-    const insert = (url: string) =>
-      db`insert into coach_issues (request_id, issue_number, url, kind, title)
-         values (${requestId}, 7, ${url}, 'bug', 't')`;
-    await insert("https://github.com/o/r/issues/7");
-
-    let conflicted = false;
-    try {
-      await insert("https://github.com/o/r/issues/8");
-    } catch (err) {
-      conflicted = (err as { code?: string }).code === "23505";
-    }
-    assert(conflicted, "a second row on the same request_id must be refused");
-
-    const [row] = await db`
-      select url from coach_issues where request_id = ${requestId}`;
-    assertEquals(row.url, "https://github.com/o/r/issues/7");
-  } finally {
-    await db`delete from coach_issues where request_id = ${requestId}`;
-    await db.end();
-  }
 });

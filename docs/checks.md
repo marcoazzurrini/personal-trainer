@@ -5,7 +5,8 @@
 Marco confirmed on 6 September 2026 that no clients/scripts use old static auth
 and authorized removal. Before removing the API branch, the full suite passed
 without either static server variable: **162 tests / 517 steps**. Shared test
-credentials, issue workers and production-container checks now use minted rows.
+credentials and production-container checks use minted rows. The issue workers
+used them too before ADR-0014 retired the database-backed reporting path.
 
 After removal: **164 tests / 517 steps** passed; final focused auth/MCP rerun
 passed **8 tests / 33 steps**, alongside format, lint, type checks, production
@@ -132,7 +133,8 @@ exception dumps for privacy: reproduce unexpected errors on disposable state
 when the route/status record alone does not explain them.
 
 A diagnostic ID is not the stable write `request_id`. Failed responses do not
-prove rollback, especially across GitHub delivery and the local ledger.
+prove rollback. GitHub reporting has no database receipt or replay guarantee;
+an error can follow successful delivery. Reconcile with GitHub before retrying.
 
 ## Hosting wording inventory (#67)
 

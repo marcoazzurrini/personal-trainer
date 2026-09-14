@@ -147,11 +147,11 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
   cannot read; say what would help, not what to write.
 - **`docs`** names the documents involved, as `SKILL.md` lists them.
   Leave it out when none are.
-- **`request_id`** is a fresh UUID per issue operation, kept stable if that same
-  operation is later retried after reconciliation. Overlapping calls with the same
-  ID serialize across API instances and a recorded ledger result replays. A crash
-  can still happen after GitHub creates the issue but before the local ledger commits.
-  This is not exactly-once delivery. Comments have no request-ID deduplication at all.
+- **`request_id`** is a fresh UUID per issue operation, included in the GitHub
+  issue body as a correlation marker only. The API keeps no issue bookkeeping
+  in PostgreSQL: no locks, receipts or replay guarantee. Repeating the same
+  `request_id` may create duplicates, including overlapping calls. This is not
+  exactly-once delivery. Comments have no request-ID deduplication either.
 
 A successful response carries the issue URL and number. **Then tell Marco you filed it
 and give him the URL** — a report he never hears about is the same as no report.
@@ -165,10 +165,13 @@ this incident**. Do not open another issue about it, refresh/retry inside the
 reporting flow, or loop back to lookup. Tell Marco briefly which report could not
 be filed and why, with sanitized details. For a timeout, lost response or 5xx after
 an issue/comment write, say **delivery is unknown**, not that nothing was created.
-Do not blindly retry: GitHub may already have accepted it, even with the same issue
-UUID; comments can duplicate without any ledger. A later explicit reconciliation
-can inspect the destination and decide what is missing; an inconclusive list is
-not proof that an issue or comment was never created.
+Do not blindly retry: GitHub may already have accepted it, even with the same
+`request_id`. A later explicit reconciliation must inspect GitHub before another
+attempt: search for the correlation marker in issue bodies, including closed
+issues, and inspect the destination issue's comments. The API's open-issue list
+can be incomplete and does not include comments; an inconclusive list is not
+proof that an issue or comment was never created. If delivery remains uncertain,
+leave it unresolved rather than repeating the write.
 
 Continue the original task only if it remains safe and the record supports it;
 otherwise explain what is blocked. Never claim an unsaved log was saved, and never

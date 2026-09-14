@@ -43,8 +43,16 @@ Deno.test("reporting recovery distinguishes expected refusals and bounds reporti
       "stop reporting for this incident",
       "delivery is unknown",
       "not exactly-once delivery",
+      "correlation marker only",
+      "no locks, receipts or replay guarantee",
+      "`request_id` may create duplicates",
       "Comments have no request-ID deduplication",
       "same `request_id`",
+      "Do not blindly retry",
+      "inspect GitHub before another attempt",
+      "including closed issues",
+      "inspect the destination issue's comments",
+      "leave it unresolved rather than repeating the write",
       "urgent symptom guidance",
     ]
   ) assertStringIncludes(reporting, phrase);

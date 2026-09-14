@@ -66,11 +66,10 @@ export async function writeOnce<Found extends object, Replayed, Created>(
 ): Promise<Written<Replayed, Created>> {
   // Two retries racing each other are not settled here but in the database,
   // where every one of these tables refuses the second write. Most carry a
-  // plain unique request_id; two do not, and both still refuse. coach_issues
-  // keys on it outright, and intake_entries indexes (request_id, food_id)
-  // nulls not distinct, because one request logging a saved meal legitimately
-  // writes a row per item — there the loser collides item by item and
-  // sql.begin rolls the whole retry back. This lookup catches the ordinary
+  // plain unique request_id; intake_entries instead indexes (request_id,
+  // food_id) nulls not distinct, because one request logging a saved meal
+  // legitimately writes a row per item. There a collision aborts the entire
+  // bulk INSERT rather than leaving a partial meal. This lookup catches the ordinary
   // case instead: a lost response retried after the first call finished.
   //
   // limit 1 because one id can match several rows, for the meal reason above,

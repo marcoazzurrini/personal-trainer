@@ -65,7 +65,7 @@ issues.openapi(
     tags: ["Issues"],
     summary: "File a report",
     description:
-      "Files a public GitHub issue for unexplained failures, impossible results or failed correct recovery, not expected unknown references, expired authentication or actionable validation refusals. Delivery can be ambiguous if GitHub accepts before the local ledger is written; do not blindly retry a failed creation. Sanitize every text field: remove credentials and cookies, use synthetic personal details, and obtain consent for sensitive details that cannot be removed. `evidence` is required for a bug — the sanitized call, response, and when — because a bug that cannot be reproduced cannot be fixed. An improvement is allowed to start as an idea.",
+      "Files a public GitHub issue for unexplained failures, impossible results or failed correct recovery, not expected unknown references, expired authentication or actionable validation refusals. This is a stateless relay with no replay guarantee: request_id is only a correlation marker, and repeating it may create duplicates. Delivery can be unknown even after an error; do not blindly retry. Reconcile in GitHub, including closed issues and comments, before any later attempt; an incomplete list does not prove non-delivery. Sanitize every text field: remove credentials and cookies, use synthetic personal details, and obtain consent for sensitive details that cannot be removed. `evidence` is required for a bug — the sanitized call, response, and when — because a bug that cannot be reproduced cannot be fixed. An improvement is allowed to start as an idea.",
     request: {
       query: query({}),
       body: {
@@ -83,7 +83,10 @@ issues.openapi(
                 description:
                   'Document names as the skill writes them, like ["tasks/programming"].',
               }),
-              request_id: requestId(),
+              request_id: requestId().meta({
+                description:
+                  "A correlation UUID included in the GitHub issue body, not an idempotency key. Repeating it may create duplicates; reconcile uncertain delivery in GitHub before another attempt.",
+              }),
             }),
           },
         },
@@ -98,15 +101,6 @@ issues.openapi(
           },
         },
       },
-      200: {
-        description:
-          "The issue this request_id already opened. A retry, answered before anything reaches GitHub.",
-        content: {
-          "application/json": {
-            schema: z.object({ issue: OpenedIssue }),
-          },
-        },
-      },
       422: {
         description:
           "Unsanitized credential material, a bug without evidence, a field over its length, or an invalid document name.",
@@ -115,8 +109,8 @@ issues.openapi(
     },
   }),
   async (c) => {
-    const { issue, created } = await fileIssue(c.req.valid("json"));
-    return created ? c.json({ issue }, 201) : c.json({ issue }, 200);
+    const issue = await fileIssue(c.req.valid("json"));
+    return c.json({ issue }, 201);
   },
 );
 
@@ -127,7 +121,7 @@ issues.openapi(
     tags: ["Issues"],
     summary: "Add to a report already open",
     description:
-      "Comments have no request-ID deduplication; do not blindly retry a failed or ambiguous write. Comments are public: remove credentials and cookies, use synthetic personal details, and obtain consent for irreducible sensitive evidence. Hitting the same problem again belongs on the open issue: the value of a repeat is that it makes a pattern, and a pattern split across two issues reads as two anecdotes.",
+      "Comments have no request-ID deduplication; do not blindly retry a failed or ambiguous write. Reconcile in GitHub by inspecting the issue's comments before any later attempt. Comments are public: remove credentials and cookies, use synthetic personal details, and obtain consent for irreducible sensitive evidence. Hitting the same problem again belongs on the open issue: the value of a repeat is that it makes a pattern, and a pattern split across two issues reads as two anecdotes.",
     request: {
       query: query({}),
       params: z.object({ number: idParam("issue") }),
