@@ -127,7 +127,18 @@ Deno.test("CI gates a serialized Workers release on isolated API, D1, browser an
   assert(!workflow.includes("COOLIFY"));
   assert(!workflow.includes("test:container"));
   const d1 = job("d1");
-  assert(d1.includes("run: npm test --prefix db/d1"));
+  let installed = -1;
+  for (
+    const step of [
+      "run: npm ci\n",
+      "run: npm ci --ignore-scripts --prefix db/d1",
+      "run: npm test --prefix db/d1",
+    ]
+  ) {
+    const index = d1.indexOf(step);
+    assert(index > installed, `D1 tests require ${step} in order.`);
+    installed = index;
+  }
   assert(d1.includes("run: npm --prefix db/d1 run test:postgres"));
   assert(!d1.includes("--remote"));
   const web = job("web");

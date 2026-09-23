@@ -758,7 +758,9 @@
       "dependencies": [
         "npm:@hono/zod-openapi@1.6.3",
         "npm:@types/node@24.13.4",
+        "npm:ajv@8.20.0",
         "npm:esbuild@0.28.1",
+        "npm:fast-check@4.9.0",
         "npm:hono@4.13.7",
         "npm:miniflare@5.20260911.1-alpha",
         "npm:wrangler@4.131.2"

@@ -19,7 +19,9 @@ function assertDenoVersions(version: string, workflow: string): void {
   );
 }
 
-const { engines } = JSON.parse(await Deno.readTextFile("package.json"));
+const { engines, devDependencies } = JSON.parse(
+  await Deno.readTextFile("package.json"),
+);
 const workflow = await Deno.readTextFile(".github/workflows/ci.yml");
 
 Deno.test("CI pins the Deno test tool independently of the Worker runtime", () => {
@@ -33,6 +35,21 @@ Deno.test("CI pins the Deno test tool independently of the Worker runtime", () =
 Deno.test("Deno checks exclude generated copies of other worktrees", async () => {
   const config = JSON.parse(await Deno.readTextFile("deno.json"));
   assert(config.exclude.includes(".delta"));
+});
+
+Deno.test("npm ci installs the HTTP test imports at their Deno-locked versions", async () => {
+  const lock = JSON.parse(await Deno.readTextFile("deno.lock"));
+  for (const name of ["ajv", "fast-check"]) {
+    const locked = Object.entries(lock.specifiers).find(([specifier]) =>
+      specifier.startsWith(`npm:${name}@`)
+    )?.[1];
+    assert(locked, `Missing Deno lock entry for ${name}.`);
+    assertEquals(
+      devDependencies[name],
+      locked,
+      `${name} must be installed by npm ci, not an old local Deno cache.`,
+    );
+  }
 });
 
 Deno.test("a floating, missing or mismatched Deno test-tool pin fails", () => {

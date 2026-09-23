@@ -55,7 +55,10 @@ jobs:
         with:
           node-version: 24.20.0
           cache: npm
-          cache-dependency-path: db/d1/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            db/d1/package-lock.json
+      - run: npm ci
       - run: npm ci --ignore-scripts --prefix db/d1
       - run: npm test --prefix db/d1
       # Disposable PostgreSQL remains only as the one-time import reference.

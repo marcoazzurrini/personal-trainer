@@ -44,7 +44,11 @@ introduced.
 Use the Node version declared in `package.json`. The PostgreSQL comparison also
 requires Docker with a local Unix-socket context; remote contexts are refused.
 
+Install the root API dependencies too: persistence tests bundle its routes. Run
+these commands from the repository root.
+
 ```sh
+npm ci
 npm ci --ignore-scripts --prefix db/d1
 npm test --prefix db/d1
 npm --prefix db/d1 run test:postgres
