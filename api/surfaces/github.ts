@@ -86,6 +86,8 @@ async function gh(
       headers: {
         authorization: `Bearer ${cfg.token}`,
         accept: "application/vnd.github+json",
+        // GitHub requires this header; Workers does not supply Deno's default.
+        "user-agent": "personal-trainer",
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),

@@ -6,6 +6,13 @@ import { randomUUID } from "node:crypto";
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 import { migrationStatements } from "./local.mjs";
+import { scaledInteger } from "./codec.mjs";
+import storage from "./storage.json" with { type: "json" };
+
+const doseStorage =
+  storage.tables.mesocycle_exercise_doses.decimals.weekly_dose;
+const storedDose = (value) =>
+  scaledInteger(value, doseStorage.precision, doseStorage.scale);
 
 let script;
 let migrations;
@@ -273,15 +280,15 @@ test("D1 plans read the dose history, including future starts, redoses, removals
       }],
     }),
   ]);
-  assert.equal(changed.mesocycle.exercises[0].weekly_dose, 12.35);
+  assert.equal(changed.mesocycle.exercises[0].weekly_dose, 12.3);
   assert.equal(changed.mesocycle.intent, "Replaced intent");
   assert.deepEqual(
     (await f.db.prepare(
       "SELECT effective_from, weekly_dose FROM mesocycle_exercise_doses ORDER BY id",
     ).all()).results,
-    [{ effective_from: "2026-09-14", weekly_dose: 900 }, {
+    [{ effective_from: "2026-09-14", weekly_dose: storedDose(9) }, {
       effective_from: "2026-09-14",
-      weekly_dose: 1235,
+      weekly_dose: storedDose(12.345),
     }],
   );
   assert.equal(

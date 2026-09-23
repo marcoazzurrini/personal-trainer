@@ -38,7 +38,7 @@ before(async () => {
   )).join("\n"));
 });
 
-async function fixture(t) {
+async function fixture(t, { bindings = {}, onOutbound } = {}) {
   let outbound = 0;
   const mf = new Miniflare({
     ...convertV4MiniflareOptions({
@@ -50,9 +50,11 @@ async function fixture(t) {
         ALLOWED_SUBJECT: "synthetic-owner",
         PUBLIC_ORIGIN: "https://trainer.invalid",
         AUTH_ISSUER: "https://identity.invalid",
+        ...bindings,
       },
-      outboundService() {
+      outboundService(request) {
         outbound++;
+        if (onOutbound) return onOutbound(request);
         throw new Error("No external services in runtime tests.");
       },
     }),
@@ -143,6 +145,93 @@ test("the real Worker persists precise measurements and derived reads in its D1 
   assert.equal(read.status, 200, await read.clone().text());
   assert.equal(read.headers.get("cache-control"), "private, no-store");
   assert.equal(f.outbound(), 0);
+});
+
+test("the real Worker identifies every GitHub request and relays refusals without retrying", async (t) => {
+  let upstreamStatus = 200;
+  const calls = [];
+  const f = await fixture(t, {
+    bindings: {
+      GITHUB_TOKEN: "synthetic-github-token",
+      GITHUB_REPO: "o/r",
+      GITHUB_API_BASE: "https://github.invalid",
+    },
+    async onOutbound(request) {
+      const url = new URL(request.url);
+      assert.equal(url.origin, "https://github.invalid");
+      await request.text();
+      calls.push({
+        method: request.method,
+        path: url.pathname,
+        userAgent: request.headers.get("user-agent"),
+        authorization: request.headers.get("authorization"),
+      });
+      if (!request.headers.get("user-agent") || upstreamStatus === 403) {
+        return Response.json({ message: "Synthetic GitHub refusal" }, {
+          status: 403,
+        });
+      }
+      if (request.method === "GET") return Response.json([]);
+      return Response.json({
+        number: 7,
+        html_url: "https://github.com/o/r/issues/7",
+      }, { status: 201 });
+    },
+  });
+  const operations = [
+    { path: "/issues", options: {}, status: 200 },
+    {
+      path: "/issues",
+      options: {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "bug",
+          title: "Synthetic report",
+          problem: "Synthetic failure",
+          evidence: "Synthetic request returned an unexpected value.",
+          request_id: randomUUID(),
+        }),
+      },
+      status: 201,
+    },
+    {
+      path: "/issues/7/comments",
+      options: {
+        method: "POST",
+        body: JSON.stringify({ note: "Synthetic follow-up" }),
+      },
+      status: 201,
+    },
+  ];
+  for (const operation of operations) {
+    const before = calls.length;
+    const response = await f.api(operation.path, operation.options);
+    assert.equal(
+      response.status,
+      operation.status,
+      await response.clone().text(),
+    );
+    await response.text();
+    assert.equal(calls.length, before + 1);
+    assert.equal(calls.at(-1).userAgent, "personal-trainer");
+    assert.equal(calls.at(-1).authorization, "Bearer synthetic-github-token");
+  }
+  upstreamStatus = 403;
+  for (const operation of operations) {
+    const before = calls.length;
+    const response = await f.api(operation.path, operation.options);
+    assert.equal(response.status, 502);
+    assert.match(
+      (await response.json()).error,
+      /GitHub replied 403.*Synthetic GitHub refusal/,
+    );
+    assert.equal(
+      calls.length,
+      before + 1,
+      "A refused GitHub write must not retry.",
+    );
+  }
+  assert.equal(f.outbound(), 6);
 });
 
 test("token revocation takes effect without restarting the Worker", async (t) => {

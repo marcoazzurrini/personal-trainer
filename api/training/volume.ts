@@ -64,7 +64,7 @@ export function volumeStore(db: Database, clock: Clock = systemClock) {
          WHERE t.kind = 'working' AND (t.reps IS NOT NULL OR t.distance_m IS NOT NULL OR t.duration_s IS NOT NULL)
            AND s.date < ? AND t.mesocycle_id = ? GROUP BY 1, 2, 3
        ) SELECT v.week, e.name AS exercise, v.exercise_id, e.measure, v.sets_done, v.distance_m, v.duration_s,
-        d.weekly_dose / 100.0 AS dose, d.weekly_dose_unit AS dose_unit
+        d.weekly_dose / 10.0 AS dose, d.weekly_dose_unit AS dose_unit
        FROM finished v JOIN exercises e ON e.id = v.exercise_id
        JOIN mesocycles mc ON mc.id = v.mesocycle_id
        LEFT JOIN mesocycle_exercise_doses d ON d.id = (

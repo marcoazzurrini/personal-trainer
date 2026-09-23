@@ -1,4 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
+import { scaledInteger } from "../../db/d1/codec.mjs";
+import storage from "../../db/d1/storage.json" with { type: "json" };
 import d1 from "./d1.ts";
 import {
   api,
@@ -11,6 +13,128 @@ import {
   today,
   uuid,
 } from "./helpers.ts";
+
+const doseStorage =
+  storage.tables.mesocycle_exercise_doses.decimals.weekly_dose;
+const storedDose = (value: number) =>
+  scaledInteger(value, doseStorage.precision, doseStorage.scale);
+
+Deno.test("imported weekly doses keep their value across API views", async (t) => {
+  await resetTraining();
+  await ensureCatalogue();
+  const { mesocycleId } = await seedPlan({
+    exercises: [{ exercise: "squat", weekly_dose: 2 }],
+  });
+  const db = d1();
+  try {
+    // Seed the imported representation independently of the API writer. A
+    // matching mistake in the writer and reader must not pass this test.
+    await db`update mesocycle_exercise_doses set weekly_dose = ${storedDose(2)}
+      where mesocycle_id = ${mesocycleId}`;
+    assertEquals(
+      (await api.post("/sessions", {
+        date: lastMonday(),
+        rationale: "Synthetic delivery against an imported two-set dose.",
+        sets: [{ exercise: "squat", weight_kg: 60, reps: 8, effort: "hard" }],
+      })).status,
+      201,
+    );
+
+    await t.step("plan detail returns two sets, not 0.2", async () => {
+      const result = await api.get(`/mesocycles/${mesocycleId}`);
+      assertEquals(result.status, 200);
+      assertEquals(result.body.mesocycle.exercises[0].weekly_dose, 2);
+    });
+    await t.step("training state returns the imported dose", async () => {
+      const result = await api.get("/training-state");
+      assertEquals(result.status, 200);
+      const plan = result.body.mesocycles.find(
+        (m: { id: number }) => m.id === mesocycleId,
+      );
+      assertEquals(plan.exercises[0].dose, 2);
+    });
+    await t.step(
+      "completed weekly delivery returns the imported dose",
+      async () => {
+        const result = await api.get(
+          `/weekly-exercise-sets?mesocycle=${mesocycleId}`,
+        );
+        assertEquals(result.status, 200);
+        assertEquals(result.body.weekly_exercise_sets[0].dose, 2);
+      },
+    );
+  } finally {
+    await db.end();
+  }
+});
+
+Deno.test("dose writes use the importer's precision for creation, additions and redoses", async () => {
+  await resetTraining();
+  await ensureCatalogue();
+  const { mesocycleId } = await seedPlan({
+    exercises: [{ exercise: "squat", weekly_dose: 2 }],
+  });
+  const db = d1();
+  const history = () =>
+    db`select weekly_dose from mesocycle_exercise_doses
+      where mesocycle_id = ${mesocycleId} order by id`;
+  try {
+    assertEquals((await history()).map((r) => r.weekly_dose), [storedDose(2)]);
+    const changed = await api.post(`/mesocycles/${mesocycleId}/decisions`, {
+      what_changed: "Synthetic fractional doses.",
+      why: "Preserve the original numeric precision after migration.",
+      redose: [{
+        exercise: "squat",
+        weekly_dose: 1.25,
+        weekly_dose_unit: "sets",
+      }],
+      add: [{
+        exercise: "bench",
+        role: "accessory",
+        priority: 2,
+        weekly_dose: 2.05,
+        weekly_dose_unit: "sets",
+      }],
+    });
+    assertEquals(changed.status, 201);
+    assertEquals(
+      changed.body.mesocycle.exercises.map((e: { weekly_dose: number }) =>
+        e.weekly_dose
+      ),
+      [1.3, 2.1],
+    );
+    assertEquals((await history()).map((r) => r.weekly_dose), [
+      storedDose(2),
+      storedDose(2.05),
+      storedDose(1.25),
+    ]);
+    const maximum = await api.post(`/mesocycles/${mesocycleId}/decisions`, {
+      what_changed: "Synthetic maximum dose.",
+      why: "The imported numeric(6,1) range remains supported.",
+      redose: [{
+        exercise: "squat",
+        weekly_dose: 99999.9,
+        weekly_dose_unit: "sets",
+      }],
+    });
+    assertEquals(maximum.status, 201);
+    assertEquals(maximum.body.mesocycle.exercises[0].weekly_dose, 99999.9);
+    const before = await history();
+    const overflow = await api.post(`/mesocycles/${mesocycleId}/decisions`, {
+      what_changed: "Synthetic rounding overflow.",
+      why: "Reject overflow without appending a dose.",
+      redose: [{
+        exercise: "squat",
+        weekly_dose: 99999.95,
+        weekly_dose_unit: "sets",
+      }],
+    });
+    assertEquals(overflow.status, 422);
+    assertEquals(await history(), before);
+  } finally {
+    await db.end();
+  }
+});
 
 Deno.test("dose history owns current reads without owning membership", async (t) => {
   await resetTraining();
@@ -87,8 +211,8 @@ Deno.test("dose history owns current reads without owning membership", async (t)
         const after = await history();
         assertEquals(after.length, 2);
         assertEquals(after[0], before[0]);
-        // D1 stores hundredths; the public API still reports 12 sets.
-        assertEquals(Number(after[1].weekly_dose), 1200);
+        // The API uses the same tenths as the importer and storage contract.
+        assertEquals(Number(after[1].weekly_dose), storedDose(12));
         assertEquals(
           after[1].effective_from,
           today(),

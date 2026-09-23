@@ -60,7 +60,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       statement(
         db,
         `SELECT me.id, e.id AS exercise_id, e.name AS exercise, e.measure,
-          me.role, me.priority, d.weekly_dose / 100.0 AS weekly_dose,
+          me.role, me.priority, d.weekly_dose / 10.0 AS weekly_dose,
           d.weekly_dose_unit, me.notes
          FROM mesocycle_exercises me JOIN mesocycles m ON m.id = me.mesocycle_id
          JOIN exercises e ON e.id = me.exercise_id
@@ -134,7 +134,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
         exerciseId: exercise.id,
         role: entry.role,
         priority: entry.priority,
-        weeklyDose: decimal(entry.weekly_dose, 6, 2)!,
+        weeklyDose: decimal(entry.weekly_dose, 6, 1)!,
         weeklyDoseUnit: entry.weekly_dose_unit,
         notes: entry.notes ?? null,
       });
@@ -146,7 +146,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       redose.push({
         exerciseId: exercise.id,
         name: exercise.name,
-        dose: decimal(entry.weekly_dose, 6, 2)!,
+        dose: decimal(entry.weekly_dose, 6, 1)!,
         unit: entry.weekly_dose_unit,
       });
     }

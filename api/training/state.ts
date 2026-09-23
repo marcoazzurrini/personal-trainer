@@ -85,7 +85,7 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
       const exercises = await rows<Omit<PlanExercise, "delivered_this_week">>(
         db,
         `SELECT e.name AS exercise, e.measure, me.role, me.priority, me.notes,
-          dose.weekly_dose / 100.0 AS dose, dose.weekly_dose_unit AS dose_unit,
+          dose.weekly_dose / 10.0 AS dose, dose.weekly_dose_unit AS dose_unit,
           coalesce(d.sets_done, 0) AS sets_done, d.distance_m, d.duration_s,
           CAST(julianday(?) - julianday((SELECT max(s.date) FROM sets t JOIN sessions s ON s.id = t.session_id
             WHERE t.exercise_id = me.exercise_id AND ${performed})) AS INTEGER) AS days_since_trained

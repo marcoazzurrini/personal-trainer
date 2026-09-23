@@ -6,6 +6,13 @@ import { randomUUID } from "node:crypto";
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 import { migrationStatements } from "./local.mjs";
+import { scaledInteger } from "./codec.mjs";
+import storage from "./storage.json" with { type: "json" };
+
+const doseStorage =
+  storage.tables.mesocycle_exercise_doses.decimals.weekly_dose;
+const storedDose = (value) =>
+  scaledInteger(value, doseStorage.precision, doseStorage.scale);
 
 let script;
 let migrations;
@@ -352,8 +359,9 @@ test("correction freezes identity at any set and deletion retains all referenced
   await plans(f);
   const retained = await f.exercise({ name: "Retained" });
   await f.sql(
-    "INSERT INTO mesocycle_exercise_doses (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit, effective_from) VALUES (1, ?, 900, 'sets', '2026-08-03')",
+    "INSERT INTO mesocycle_exercise_doses (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit, effective_from) VALUES (1, ?, ?, 'sets', '2026-08-03')",
     retained.id,
+    storedDose(9),
   );
   const refusal = await f.call("exercises", "deleteExercise", [
     String(retained.id),
@@ -527,8 +535,9 @@ async function summaryFixture(t) {
   );
   await f.sql(
     `INSERT INTO mesocycle_exercise_doses (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit, effective_from) VALUES
-    (1, 1, 900, 'sets', '2026-08-03'), (1, 1, 1100, 'sets', '2026-08-06'), (1, 1, 1200, 'sets', '2026-08-06'),
-    (2, 2, 125, 'km', '2026-08-03'), (2, 2, 1000, 'minutes', '2026-08-10')`,
+    (1, 1, ?, 'sets', '2026-08-03'), (1, 1, ?, 'sets', '2026-08-06'), (1, 1, ?, 'sets', '2026-08-06'),
+    (2, 2, ?, 'km', '2026-08-03'), (2, 2, ?, 'minutes', '2026-08-10')`,
+    ...[9, 11, 12, 1.25, 10].map(storedDose),
   );
   await session(f, "2026-08-04", [
     { mesocycle_id: 1, weight_kg: 8235, reps: 5 },
@@ -594,7 +603,7 @@ test("weekly delivery uses historical Sunday dose and retains removed membership
       r.delivered,
     ]),
     [
-      [1, 1.25, "km", 1.2345],
+      [1, 1.3, "km", 1.2345],
       [2, 10, "minutes", 2],
     ],
   );
@@ -656,7 +665,9 @@ test("future plans preview start-day dose and pre-start performed sets keep hist
   );
   await f.sql(
     `INSERT INTO mesocycle_exercise_doses (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit, effective_from) VALUES
-    (1, 1, 900, 'sets', '2026-08-31'), (1, 1, 1200, 'sets', '2026-08-31')`,
+    (1, 1, ?, 'sets', '2026-08-31'), (1, 1, ?, 'sets', '2026-08-31')`,
+    storedDose(9),
+    storedDose(12),
   );
   const state = await f.ok("state", "trainingState", [], {
     now: "2026-08-23T12:00:00Z",

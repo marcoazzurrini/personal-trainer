@@ -175,6 +175,7 @@ interface Recorded {
   method: string;
   path: string;
   search: string;
+  userAgent: string | null;
   // deno-lint-ignore no-explicit-any
   body: any;
 }
@@ -191,6 +192,7 @@ function stubGithub() {
         method: req.method,
         path: url.pathname,
         search: url.search,
+        userAgent: req.headers.get("user-agent"),
         body,
       });
 
@@ -252,6 +254,9 @@ Deno.test("github client", async (t) => {
 
       const post = requests.find((r) => r.method === "POST")!;
       assertEquals(post.path, "/repos/o/r/issues");
+      // GitHub rejects missing User-Agent. Require our explicit header rather
+      // than a default supplied by Deno but absent in Cloudflare Workers.
+      assertEquals(post.userAgent, "personal-trainer");
       assertEquals(post.body.title, "POST /sets 500s");
       // Both labels: one says who filed it, one says what it is.
       assertEquals(post.body.labels, [COACH_LABEL, "bug"]);
@@ -274,6 +279,7 @@ Deno.test("github client", async (t) => {
       }]);
 
       const get = requests.find((r) => r.method === "GET")!;
+      assertEquals(get.userAgent, "personal-trainer");
       assert(get.search.includes("state=open"));
       assert(get.search.includes(`labels=${COACH_LABEL}`));
     } finally {
@@ -288,6 +294,7 @@ Deno.test("github client", async (t) => {
       assert(url.includes("issuecomment"));
       const post = requests.find((r) => r.path.endsWith("/comments"))!;
       assertEquals(post.path, "/repos/o/r/issues/7/comments");
+      assertEquals(post.userAgent, "personal-trainer");
       assertEquals(post.body.body, "Happened again.");
     } finally {
       await close();
