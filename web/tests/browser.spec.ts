@@ -1,7 +1,8 @@
 import { type BrowserContext, expect, test } from "@playwright/test";
 import { sessionEncryption } from "@workos/authkit-session";
 import { createServer, type Server } from "node:http";
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
+import { stopWorker, workerFixture } from "./worker-fixture.mts";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 
 const password = "synthetic-browser-test-cookie-secret-not-a-real-credential";
@@ -33,6 +34,7 @@ let empty = false;
 let missingTrend = false;
 let output = "";
 const functions: Array<{ id: string; name: string }> = [];
+const fixtures: Awaited<ReturnType<typeof workerFixture>>[] = [];
 const weight = {
   bodyweight: [
     {
@@ -114,25 +116,19 @@ async function startApp(origin?: string) {
   const reservation = createServer();
   const url = await listen(reservation);
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
-  const child = spawn(process.execPath, [".output/server/index.mjs"], {
-    env: {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      NODE_ENV: "production",
-      HOST: "127.0.0.1",
-      PORT: new URL(url).port,
-      WORKOS_CLIENT_ID: "client_test",
-      WORKOS_API_KEY: "sk_test_synthetic",
-      WORKOS_API_HOSTNAME: "127.0.0.1",
-      WORKOS_API_PORT: new URL(providerUrl).port,
-      WORKOS_API_HTTPS: "false",
-      WORKOS_REDIRECT_URI: `${origin ?? url}/auth/callback`,
-      WORKOS_COOKIE_PASSWORD: password,
-      ALLOWED_SUBJECT: user.id,
-      TRAINER_API_ORIGIN: providerUrl,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
+  const fixture = await workerFixture({
+    WORKOS_CLIENT_ID: "client_test",
+    WORKOS_API_KEY: "sk_test_synthetic",
+    WORKOS_API_HOSTNAME: "127.0.0.1",
+    WORKOS_API_PORT: new URL(providerUrl).port,
+    WORKOS_API_HTTPS: "false",
+    WORKOS_REDIRECT_URI: `${origin ?? url}/auth/callback`,
+    WORKOS_COOKIE_PASSWORD: password,
+    ALLOWED_SUBJECT: user.id,
+    TRAINER_API_ORIGIN: providerUrl,
   });
+  fixtures.push(fixture);
+  const child = fixture.serve(new URL(url).port);
   child.stdout?.on("data", (chunk) => {
     output += chunk;
   });
@@ -251,13 +247,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await writeFile("/tmp/trainer-browser-server.log", output);
-  for (const child of [app, proxyApp]) {
-    if (child && child.exitCode === null) {
-      const exited = new Promise((resolve) => child.once("exit", resolve));
-      child.kill("SIGTERM");
-      await exited;
-    }
-  }
+  for (const child of [app, proxyApp]) await stopWorker(child);
+  for (const fixture of fixtures) await fixture.dispose();
   if (upstream) {
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
@@ -270,13 +261,21 @@ test.beforeEach(() => {
 });
 
 test("public health reports uncached build metadata without a session or API read", async ({ request }) => {
+  const build = JSON.parse(await readFile(".output/build.json", "utf8"));
+  expect(build.digest).toMatch(/^[a-f0-9]{64}$/);
+  const expectedRevision = process.env.BUILD_REVISION ?? process.env.GITHUB_SHA;
+  if (expectedRevision) expect(build.revision).toBe(expectedRevision);
   const before = reads;
   for (const url of [appUrl, proxyAppUrl]) {
     const response = await request.get(`${url}/api/health`);
     expect(response.status()).toBe(200);
-    expect(response.headers()["cache-control"]).toBe("no-store");
+    expect(response.headers()["cache-control"]).toBe("private, no-store");
     expect(response.headers()["set-cookie"]).toBeUndefined();
-    expect(await response.json()).toEqual({ status: "ok", revision: null });
+    expect(await response.json()).toEqual({
+      status: "ok",
+      revision: build.revision,
+      build: build.digest,
+    });
     const refused = await request.post(`${url}/api/health`);
     expect(refused.status()).toBe(405);
   }

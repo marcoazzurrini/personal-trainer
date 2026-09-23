@@ -1,13 +1,13 @@
 import { assert, assertEquals } from "@std/assert";
 
 // The two rules about reaching the database, held against the source that has
-// to obey them: the pure arithmetic may not ask Postgres anything, and neither
+// to obey them: the pure arithmetic may not ask D1 anything, and neither
 // may a file that declares HTTP routes.
 //
 // The pure modules hold the laws the database cannot express: the Forbes
 // energy math, the measure/dose/effort relationships, the macro checks, the
-// day arithmetic. None of it asks Postgres anything, which is what makes all
-// of it testable without a stack. One `import { sql }` would end that quietly
+// day arithmetic. None of it asks D1 anything, which is what makes all
+// of it testable without a database. Importing a persistence helper would end that quietly
 // — the file would still pass every test it has and the suite would still be
 // green, and nothing would say so.
 //
@@ -16,23 +16,23 @@ import { assert, assertEquals } from "@std/assert";
 // client, and the code that knows why a call is wrong is the code that
 // should write the sentence. ADR-0003 records that choice.
 //
-// shared/ is not checked as a whole, and must not be. calendar.ts and
-// idempotency.ts belong to no topic and reach the database on purpose, so a
+// shared/ is not checked as a whole, and must not be. d1.ts and
+// aliases.ts belong to no topic and reach the database on purpose, so a
 // rule over that folder would be a rule the repository does not keep.
 // dates.ts is pure and is in the list below by name for exactly that reason.
-// errors.ts and schema.ts never ask Postgres anything either, and are left
+// errors.ts and schema.ts never ask D1 anything either, and are left
 // out deliberately: this list means "holds a law the database cannot
 // express", and the envelope and the request shapes are a different thing.
 //
-// The walk is transitive, because a direct `import { sql }` is not how this
-// rule realistically breaks — that one is conspicuous in review. It breaks by
-// a pure file reaching for a helper in its topic, which asks Postgres a
+// The walk is transitive, because a direct persistence import is
+// conspicuous in review. It breaks by
+// a pure file reaching for a helper in its topic, which asks D1 a
 // hop further down, where nobody reading the arithmetic can see it. So the
 // failure names the whole chain: the entry point alone would say a rule was
 // broken without saying which import to take back.
 
 const API_DIR = "api";
-const DB = `${API_DIR}/db.ts`;
+const DB = `${API_DIR}/shared/d1.ts`;
 
 // The pure modules, named one by one.
 //
@@ -123,6 +123,26 @@ async function chainToDatabase(
   return null;
 }
 
+Deno.test("application runtime has no PostgreSQL driver or Deno process globals", async () => {
+  const offenders: string[] = [];
+  for (const file of await filesUnder(API_DIR)) {
+    const source = await Deno.readTextFile(file);
+    if (
+      /\bDeno\./.test(source) ||
+      /(?:from\s*|import\s*\(?\s*)["'][^"']*(?:postgres|\/db\.ts)["']/.test(
+        source,
+      )
+    ) {
+      offenders.push(file);
+    }
+  }
+  assertEquals(
+    offenders,
+    [],
+    "Workers use request bindings, not PostgreSQL or Deno process state.",
+  );
+});
+
 Deno.test("nothing pure reaches the database", async () => {
   const offenders: string[] = [];
   for (const file of PURE) {
@@ -160,7 +180,7 @@ Deno.test("nothing pure reaches the database", async () => {
 // arithmetic has no legitimate route to the database at all, so any chain is a
 // break and the failure has to name the whole chain. A route file is the
 // opposite: reaching the database *through one named function in its topic*
-// is the entire design, so every route file has a chain to db.ts by
+// is the entire design, so every route file has a chain to persistence by
 // construction, and a transitive check here would fail the shape it exists to
 // enforce. What is forbidden is the route building the query itself.
 Deno.test("no file declaring HTTP routes imports the database", async () => {
@@ -173,6 +193,13 @@ Deno.test("no file declaring HTTP routes imports the database", async () => {
   for (const file of files) {
     const lines = (await Deno.readTextFile(file)).split("\n");
     lines.forEach((line, i) => {
+      // The binding itself must not become a way around the module boundary.
+      if (
+        !line.trimStart().startsWith("//") &&
+        /\.DB\b|\.prepare\s*\(|\.batch\s*\(/.test(line)
+      ) {
+        offenders.push(`${file}:${i + 1}`);
+      }
       for (const [, specifier] of line.matchAll(SPECIFIER)) {
         if (target(file, specifier) === DB) offenders.push(`${file}:${i + 1}`);
       }
@@ -186,6 +213,6 @@ Deno.test("no file declaring HTTP routes imports the database", async () => {
       `one named function, and shapes the answer:\n  ${
         offenders.join("\n  ")
       }\nMove the query into the topic module beside it, and let that module ` +
-      `open its own transaction.`,
+      `own its database operations.`,
   );
 });

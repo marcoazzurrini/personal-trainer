@@ -1,10 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  listBodyweight,
-  loadTrend,
-  recordBodyweight,
-  removeBodyweight,
-} from "./bodyweight.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import {
   body,
   idParam,
@@ -14,7 +9,7 @@ import {
   query,
 } from "../shared/schema.ts";
 
-export const bodyweight = new OpenAPIHono();
+export const bodyweight = new OpenAPIHono<AppEnv>();
 
 const Measurement = z.object({
   id: z.int(),
@@ -66,8 +61,8 @@ bodyweight.openapi(
     // yields both series the bodyweight chart needs; the chart rules forbid
     // computing a trend client-side, and for a long while nothing served one.
     return c.json({
-      bodyweight: await listBodyweight(),
-      trend: await loadTrend(),
+      bodyweight: await services(c).bodyweight.listBodyweight(),
+      trend: await services(c).bodyweight.loadTrend(),
     });
   },
 );
@@ -117,10 +112,10 @@ bodyweight.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const { row, created } = await recordBodyweight({
+    const { row, created } = await services(c).bodyweight.recordBodyweight({
       valueKg: b.value_kg,
       source: b.source ?? "manual",
-      measuredAt: b.measured_at ?? new Date().toISOString(),
+      measuredAt: b.measured_at ?? services(c).clock().toISOString(),
     });
     return created
       ? c.json({ bodyweight: row }, 201)
@@ -152,6 +147,8 @@ bodyweight.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    return c.json({ deleted: await removeBodyweight(id) });
+    return c.json({
+      deleted: await services(c).bodyweight.removeBodyweight(id),
+    });
   },
 );

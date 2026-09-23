@@ -6,9 +6,10 @@ import {
   type Identity,
   JwtError,
   readHeader,
+  timingSafeEqual,
   verifyJwt,
 } from "./jwt.ts";
-import { issueToken } from "./tokens.ts";
+import type { McpDeps } from "./mcp.ts";
 import {
   challengeHeader,
   handleMcp,
@@ -25,23 +26,22 @@ import {
 // another protocol under another credential, and its one credential-free
 // route — the discovery document — must answer without any. So it is named
 // in the auth matrix beside the Withings webhook instead, with what guards it.
-export const mcp = new Hono();
-
-interface Config {
-  issuer: string;
-  jwksUrl: string | null;
-  allowedSubject: string;
-  publicOrigin: string | null;
+export interface McpConfig {
+  issuer?: string;
+  jwksUrl?: string | null;
+  allowedSubject?: string;
+  publicOrigin?: string | null;
 }
+
+type Config = Required<McpConfig> & { issuer: string; allowedSubject: string };
 
 // Read per request, like the GitHub client's: the rest of the API works
 // without a sign-in configured, and the error should say what is missing.
 // The key set's address is normally learned from the issuer's own metadata;
 // AUTH_JWKS_URL overrides that, for an issuer whose metadata omits it or
 // whose keys this container reaches at another address.
-function config(): Config {
-  const issuer = Deno.env.get("AUTH_ISSUER");
-  const allowedSubject = Deno.env.get("ALLOWED_SUBJECT");
+function config(input: McpConfig): Config {
+  const { issuer, allowedSubject } = input;
   if (!issuer || !allowedSubject) {
     throw new ApiError(
       500,
@@ -51,9 +51,9 @@ function config(): Config {
   const trimmed = issuer.replace(/\/$/, "");
   return {
     issuer: trimmed,
-    jwksUrl: Deno.env.get("AUTH_JWKS_URL") || null,
+    jwksUrl: input.jwksUrl || null,
     allowedSubject,
-    publicOrigin: Deno.env.get("PUBLIC_ORIGIN") || null,
+    publicOrigin: input.publicOrigin || null,
   };
 }
 
@@ -63,108 +63,124 @@ function config(): Config {
 // PUBLIC_ORIGIN overrides the origin for the case the rule does not fit.
 function publicUrl(c: Context, cfg: Config, path: string): string {
   const url = new URL(c.req.url);
-  const origin = cfg.publicOrigin ?? publicOrigin({
-    protocol: url.protocol,
-    hostname: url.hostname,
-    host: url.host,
-    forwardedProto: c.req.header("x-forwarded-proto") ?? null,
-  });
+  const origin = cfg.publicOrigin ??
+    publicOrigin({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      host: url.host,
+      forwardedProto: c.req.header("x-forwarded-proto") ?? null,
+    });
   return `${origin}${path}`;
 }
 
 const NO_STREAM =
   "This endpoint speaks MCP over POST only; it offers no event stream and no session to end.";
 
-mcp.get("/oauth-protected-resource", (c) => {
-  const cfg = config();
-  const resource = publicUrl(
-    c,
-    cfg,
-    c.req.path.replace(/\/oauth-protected-resource$/, ""),
-  );
-  return c.json(protectedResourceMetadata(resource, cfg.issuer));
-});
-
-mcp.delete("/", (c) => c.json({ error: NO_STREAM }, 405));
-
-// Codex discovers OAuth with GET; Claude encounters it on POST. Both must
-// receive the same challenge before GET is refused for having no stream.
-mcp.on(["GET", "POST"], "/", async (c) => {
-  const cfg = config();
-  const resource = publicUrl(c, cfg, c.req.path);
-  const metadataUrl = `${resource}/oauth-protected-resource`;
-
-  const sent = c.req.header("authorization") ?? "";
-  const bearer = sent.startsWith("Bearer ") ? sent.slice("Bearer ".length) : "";
-  if (bearer === "") {
-    return c.json(
-      {
-        error:
-          `Sign in first. This endpoint takes the token the authorization server issues after a sign-in; where to sign in is described at ${metadataUrl}.`,
-      },
-      401,
-      { "WWW-Authenticate": challengeHeader(metadataUrl, false) },
+/** Build per request with its token store; the composition root mounts /api/mcp. */
+export function createMcpRoutes(
+  input: McpConfig,
+  deps: { issueToken: McpDeps["issue"] },
+) {
+  const mcp = new Hono();
+  mcp.get("/oauth-protected-resource", (c) => {
+    const cfg = config(input);
+    const resource = publicUrl(
+      c,
+      cfg,
+      c.req.path.replace(/\/oauth-protected-resource$/, ""),
     );
-  }
-
-  let identity: Identity;
-  try {
-    identity = await verify(bearer, cfg, resource);
-  } catch (err) {
-    if (err instanceof JwtError) {
-      return c.json({ error: err.message }, 401, {
-        "WWW-Authenticate": challengeHeader(metadataUrl, true),
-      });
-    }
-    // Not a refusal: the keys could not be read. No challenge, because
-    // sending the client back to sign in would not help, and 503 because
-    // the next attempt may well succeed.
-    return c.json(
-      {
-        error:
-          "The authorization server could not be reached to check the token. Try again in a moment.",
-      },
-      503,
-    );
-  }
-
-  // One person. A valid sign-in by anyone else is refused without a
-  // challenge, so the client does not loop back into a sign-in that will
-  // only end here again.
-  if (identity.sub !== cfg.allowedSubject) {
-    return c.json(
-      {
-        error:
-          `This coach belongs to one person, and ${identity.sub} is not them.`,
-      },
-      403,
-    );
-  }
-
-  if (c.req.method === "GET") return c.json({ error: NO_STREAM }, 405);
-
-  let message: unknown;
-  try {
-    message = await c.req.json();
-  } catch {
-    return c.json(
-      {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32700, message: "The body is not JSON." },
-      },
-      400,
-    );
-  }
-
-  const outcome = await handleMcp(message, { subject: identity.sub }, {
-    issue: issueToken,
-    baseUrl: publicUrl(c, cfg, c.req.path.replace(/\/mcp$/, "")),
-    version: "1",
+    return c.json(protectedResourceMetadata(resource, cfg.issuer));
   });
-  if (outcome.status === 202) return c.body(null, 202);
-  return c.json(outcome.body, outcome.status);
-});
+
+  mcp.delete("/", (c) => c.json({ error: NO_STREAM }, 405));
+
+  // Codex discovers OAuth with GET; Claude encounters it on POST. Both must
+  // receive the same challenge before GET is refused for having no stream.
+  mcp.on(["GET", "POST"], "/", async (c) => {
+    const cfg = config(input);
+    const resource = publicUrl(c, cfg, c.req.path);
+    const metadataUrl = `${resource}/oauth-protected-resource`;
+
+    const sent = c.req.header("authorization") ?? "";
+    const bearer = sent.startsWith("Bearer ")
+      ? sent.slice("Bearer ".length)
+      : "";
+    if (bearer === "") {
+      return c.json(
+        {
+          error:
+            `Sign in first. This endpoint takes the token the authorization server issues after a sign-in; where to sign in is described at ${metadataUrl}.`,
+        },
+        401,
+        { "WWW-Authenticate": challengeHeader(metadataUrl, false) },
+      );
+    }
+
+    let identity: Identity;
+    try {
+      identity = await verify(bearer, cfg, resource);
+    } catch (err) {
+      if (err instanceof JwtError) {
+        return c.json({ error: err.message }, 401, {
+          "WWW-Authenticate": challengeHeader(metadataUrl, true),
+        });
+      }
+      // Not a refusal: the keys could not be read. No challenge, because
+      // sending the client back to sign in would not help, and 503 because
+      // the next attempt may well succeed.
+      return c.json(
+        {
+          error:
+            "The authorization server could not be reached to check the token. Try again in a moment.",
+        },
+        503,
+      );
+    }
+
+    // One person. A valid sign-in by anyone else is refused without a
+    // challenge, so the client does not loop back into a sign-in that will
+    // only end here again.
+    if (!(await timingSafeEqual(identity.sub, cfg.allowedSubject))) {
+      return c.json(
+        {
+          error:
+            `This coach belongs to one person, and ${identity.sub} is not them.`,
+        },
+        403,
+      );
+    }
+
+    if (c.req.method === "GET") return c.json({ error: NO_STREAM }, 405);
+
+    let message: unknown;
+    try {
+      message = await c.req.json();
+    } catch {
+      return c.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32700, message: "The body is not JSON." },
+        },
+        400,
+      );
+    }
+
+    const outcome = await handleMcp(
+      message,
+      { subject: identity.sub },
+      {
+        issue: deps.issueToken,
+        baseUrl: publicUrl(c, cfg, c.req.path.replace(/\/mcp$/, "")),
+        version: "1",
+      },
+    );
+    if (outcome.status === 202) return c.body(null, 202);
+    return c.json(outcome.body, outcome.status);
+  });
+
+  return mcp;
+}
 
 // The header is read before anything is fetched, so a token that is not even
 // the right shape is refused without a round trip. Then the issuer's
@@ -178,7 +194,7 @@ async function verify(
   audience: string,
 ): Promise<Identity> {
   const { kid } = readHeader(token);
-  const jwksUrl = cfg.jwksUrl ?? await discoverJwksUrl(cfg.issuer);
+  const jwksUrl = cfg.jwksUrl ?? (await discoverJwksUrl(cfg.issuer));
   let jwks = await fetchJwks(jwksUrl);
   if (kid !== null && !jwks.keys.some((key) => key.kid === kid)) {
     jwks = await fetchJwks(jwksUrl, { unknownKid: kid });

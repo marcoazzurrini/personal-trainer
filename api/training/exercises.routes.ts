@@ -1,17 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  addExercise,
-  addMuscle,
-  correctExercise,
-  deleteExercise,
-  exerciseById,
-  exerciseHistory,
-  listExercises,
-  listMuscles,
-  reclassifyMuscles,
-  SYSTEMIC_FATIGUE_LEVELS,
-} from "./exercises.ts";
-import { assertExerciseAliasesFree, resolveExercise } from "./resolve.ts";
+import type { Context } from "@hono/hono";
+import { type AppEnv, services } from "../shared/services.ts";
+import { SYSTEMIC_FATIGUE_LEVELS } from "./constants.ts";
 import { MEASURES, STIMULUS_TYPES } from "./rules.ts";
 import {
   aliasList,
@@ -23,7 +13,7 @@ import {
 } from "../shared/schema.ts";
 import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 
-export const exercises = new OpenAPIHono();
+export const exercises = new OpenAPIHono<AppEnv>();
 
 const ref = () =>
   z.string().min(1).meta({
@@ -97,7 +87,8 @@ exercises.openapi(
       },
     },
   }),
-  async (c) => c.json({ exercises: await listExercises() }),
+  async (c) =>
+    c.json({ exercises: await services(c).exercises.listExercises() }),
 );
 
 exercises.openapi(
@@ -145,7 +136,9 @@ exercises.openapi(
     },
   }),
   async (c) =>
-    c.json({ exercise: await addExercise(c.req.valid("json")) }, 201),
+    c.json({
+      exercise: await services(c).exercises.addExercise(c.req.valid("json")),
+    }, 201),
 );
 
 const HistorySet = z.object({
@@ -199,7 +192,7 @@ exercises.openapi(
   }),
   async (c) =>
     c.json(
-      await exerciseHistory(
+      await services(c).exercises.exerciseHistory(
         c.req.valid("param").ref,
         c.req.valid("query").limit,
       ),
@@ -260,7 +253,7 @@ exercises.openapi(
   }),
   async (c) =>
     c.json({
-      exercise: await correctExercise(
+      exercise: await services(c).exercises.correctExercise(
         c.req.valid("param").ref,
         c.req.valid("json"),
       ),
@@ -271,17 +264,20 @@ exercises.openapi(
 // history in two. Same rule and same surface as foods.
 const aliasSurface = {
   tag: "Exercises",
-  aliasTable: "exercise_aliases",
-  foreignKey: "exercise_id",
+  kind: "exercise" as const,
   ref,
-  resolve: resolveExercise,
-  respond: async (id: number) => ({ exercise: await exerciseById(id) }),
+  resolve: (c: Context<AppEnv>, reference: string) =>
+    services(c).trainingResolver.resolveExercise(reference),
+  respond: async (c: Context<AppEnv>, id: number) => ({
+    exercise: await services(c).exercises.exerciseById(id),
+  }),
   responseSchema: z.object({ exercise: Exercise }),
 };
 
 addAliasRoute(exercises, {
   ...aliasSurface,
-  assertFree: assertExerciseAliasesFree,
+  assertFree: (c, aliases) =>
+    services(c).aliases.exercise.assertAliasesFree(aliases),
   created: "The exercise, with the alias now among its names.",
   neither:
     'Send "alias" (a string) or "aliases" (an array of non-empty strings).',
@@ -317,7 +313,11 @@ exercises.openapi(
     },
   }),
   async (c) =>
-    c.json({ deleted: await deleteExercise(c.req.valid("param").ref) }),
+    c.json({
+      deleted: await services(c).exercises.deleteExercise(
+        c.req.valid("param").ref,
+      ),
+    }),
 );
 
 exercises.openapi(
@@ -363,14 +363,14 @@ exercises.openapi(
   }),
   async (c) =>
     c.json(
-      await reclassifyMuscles(
+      await services(c).exercises.reclassifyMuscles(
         c.req.valid("param").ref,
         c.req.valid("json").muscles,
       ),
     ),
 );
 
-export const muscles = new OpenAPIHono();
+export const muscles = new OpenAPIHono<AppEnv>();
 
 const Muscle = z.object({ id: z.int(), name: z.string() });
 
@@ -392,7 +392,7 @@ muscles.openapi(
       },
     },
   }),
-  async (c) => c.json({ muscles: await listMuscles() }),
+  async (c) => c.json({ muscles: await services(c).exercises.listMuscles() }),
 );
 
 muscles.openapi(
@@ -418,5 +418,7 @@ muscles.openapi(
     },
   }),
   async (c) =>
-    c.json({ muscle: await addMuscle(c.req.valid("json").name) }, 201),
+    c.json({
+      muscle: await services(c).exercises.addMuscle(c.req.valid("json").name),
+    }, 201),
 );

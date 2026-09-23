@@ -1,13 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  correctEntry,
-  flagDay,
-  FLAGS,
-  logIntake,
-  removeEntry,
-  unflagDay,
-  viewDay,
-} from "./intake.ts";
+import { type AppEnv, services } from "../shared/services.ts";
+import { FLAGS } from "./constants.ts";
 import {
   body,
   dayParam,
@@ -21,7 +14,7 @@ import {
   requestId,
 } from "../shared/schema.ts";
 
-export const intake = new OpenAPIHono();
+export const intake = new OpenAPIHono<AppEnv>();
 
 // Exported: nutrition-state answers with the same rows, and used to declare
 // its own copy of this minus `day` over its own copy of the query.
@@ -73,7 +66,8 @@ intake.openapi(
       },
     },
   }),
-  async (c) => c.json(await viewDay(c.req.valid("query").day)),
+  async (c) =>
+    c.json(await services(c).intake.viewDay(c.req.valid("query").day)),
 );
 
 intake.openapi(
@@ -122,7 +116,9 @@ intake.openapi(
     },
   }),
   async (c) => {
-    const { view, created } = await logIntake(c.req.valid("json"));
+    const { view, created } = await services(c).intake.logIntake(
+      c.req.valid("json"),
+    );
     return created ? c.json(view, 201) : c.json(view, 200);
   },
 );
@@ -173,7 +169,7 @@ intake.openapi(
     },
   }),
   async (c) => {
-    const { view, movedFrom } = await correctEntry(
+    const { view, movedFrom } = await services(c).intake.correctEntry(
       c.req.valid("param").id,
       c.req.valid("json"),
     );
@@ -201,14 +197,15 @@ intake.openapi(
       404: { description: "No entry carries that id." },
     },
   }),
-  async (c) => c.json(await removeEntry(c.req.valid("param").id)),
+  async (c) =>
+    c.json(await services(c).intake.removeEntry(c.req.valid("param").id)),
 );
 
 // ---------------------------------------------------------------------------
 // Day flags
 // ---------------------------------------------------------------------------
 
-export const days = new OpenAPIHono();
+export const days = new OpenAPIHono<AppEnv>();
 
 days.openapi(
   createRoute({
@@ -237,7 +234,10 @@ days.openapi(
   }),
   async (c) =>
     c.json(
-      await flagDay(c.req.valid("param").day, c.req.valid("json").flag),
+      await services(c).intake.flagDay(
+        c.req.valid("param").day,
+        c.req.valid("json").flag,
+      ),
       201,
     ),
 );
@@ -262,6 +262,6 @@ days.openapi(
   }),
   async (c) => {
     const { day, flag } = c.req.valid("param");
-    return c.json(await unflagDay(day, flag));
+    return c.json(await services(c).intake.unflagDay(day, flag));
   },
 );

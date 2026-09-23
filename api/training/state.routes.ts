@@ -1,11 +1,11 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { trainingState as readState } from "./state.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { Entry as ContextEntry } from "./user_context.routes.ts";
 import { clock, query } from "../shared/schema.ts";
 
 // The declaration only; state.ts holds what it answers with.
 
-export const trainingState = new OpenAPIHono();
+export const trainingState = new OpenAPIHono<AppEnv>();
 
 const WeekSchedule = z.object({
   week_start: z.string(),
@@ -121,5 +121,5 @@ trainingState.openapi(
       },
     },
   }),
-  async (c) => c.json(await readState()),
+  async (c) => c.json(await services(c).trainingState.trainingState()),
 );

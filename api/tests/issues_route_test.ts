@@ -1,27 +1,23 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
 // Mount only the issue routes with production's error handler. Authentication
-// remains covered by the running API tests. Denying DATABASE_URL access makes
-// importing db.ts fail, and network access is restricted to local GitHub stubs.
+// remains covered by the running API tests. No database binding is supplied,
+// environment access is denied, and network access allows only loopback stubs.
 // No disposable database or resource-sanitizer exception is needed.
 
 Deno.test(
   "the issues routes relay GitHub's answers without database access",
   {
     permissions: {
-      env: ["GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_API_BASE"],
-      net: ["127.0.0.1", "0.0.0.0"],
+      env: false,
+      net: ["127.0.0.1"],
     },
   },
   async (t) => {
-    const previous = new Map(
-      ["GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_API_BASE"].map((key) => [
-        key,
-        Deno.env.get(key),
-      ]),
-    );
-    Deno.env.set("GITHUB_TOKEN", "test-token");
-    Deno.env.set("GITHUB_REPO", "marco/test-repo");
+    const env: import("../surfaces/issues.ts").IssueBindings = {
+      GITHUB_TOKEN: "test-token",
+      GITHUB_REPO: "marco/test-repo",
+    };
 
     const calls: {
       method: string;
@@ -30,20 +26,20 @@ Deno.test(
       authorization: string | null;
     }[] = [];
     let reply: { status: number; body: unknown } = { status: 200, body: {} };
-    const stub = Deno.serve({ port: 0, onListen() {} }, async (req) => {
-      const url = new URL(req.url);
-      calls.push({
-        method: req.method,
-        path: url.pathname + url.search,
-        body: req.body === null ? null : await req.json().catch(() => null),
-        authorization: req.headers.get("authorization"),
-      });
-      return Response.json(reply.body, { status: reply.status });
-    });
-    Deno.env.set(
-      "GITHUB_API_BASE",
-      `http://127.0.0.1:${(stub.addr as Deno.NetAddr).port}`,
+    const stub = Deno.serve(
+      { hostname: "127.0.0.1", port: 0, onListen() {} },
+      async (req) => {
+        const url = new URL(req.url);
+        calls.push({
+          method: req.method,
+          path: url.pathname + url.search,
+          body: req.body === null ? null : await req.json().catch(() => null),
+          authorization: req.headers.get("authorization"),
+        });
+        return Response.json(reply.body, { status: reply.status });
+      },
     );
+    env.GITHUB_API_BASE = `http://127.0.0.1:${stub.addr.port}`;
 
     try {
       const { issues } = await import(
@@ -63,7 +59,7 @@ Deno.test(
           method,
           headers: { "content-type": "application/json" },
           body: body === undefined ? undefined : JSON.stringify(body),
-        });
+        }, env);
         const parsed = await res.json();
         if (res.status >= 400) {
           // The envelope contract, checked here because these requests never
@@ -101,9 +97,9 @@ Deno.test(
       await t.step(
         "missing GitHub configuration fails before any outbound call",
         async () => {
-          for (const key of ["GITHUB_TOKEN", "GITHUB_REPO"]) {
-            const value = Deno.env.get(key)!;
-            Deno.env.delete(key);
+          for (const key of ["GITHUB_TOKEN", "GITHUB_REPO"] as const) {
+            const value = env[key]!;
+            delete env[key];
             try {
               const before = calls.length;
               for (
@@ -127,7 +123,7 @@ Deno.test(
               }
               assertEquals(calls.length, before);
             } finally {
-              Deno.env.set(key, value);
+              env[key] = value;
             }
           }
         },
@@ -500,10 +496,6 @@ Deno.test(
       });
     } finally {
       await stub.shutdown();
-      for (const [key, value] of previous) {
-        if (value === undefined) Deno.env.delete(key);
-        else Deno.env.set(key, value);
-      }
     }
   },
 );

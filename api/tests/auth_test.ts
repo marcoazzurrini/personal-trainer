@@ -14,35 +14,30 @@ Deno.test("catalogue loading requires a credential before reads or requests", as
 
 Deno.test("legacy environment tokens cannot bypass expiry or revocation", async () => {
   const { handleRequest } = await import("../index.ts");
-  const { sql } = await import("../db.ts");
-  try {
-    for (const key of ["API_TOKEN", "API_TOKEN_PREVIOUS"]) {
-      const previous = Deno.env.get(key);
-      const token = await mintToken({ expiresInMs: -1000 });
-      Deno.env.set(key, token);
-      const status = async () => {
-        const response = await handleRequest(
-          new Request("http://localhost/api/exercises", {
-            headers: { authorization: `Bearer ${token}` },
-          }),
-        );
-        await response.body?.cancel();
-        return response.status;
-      };
-      try {
-        assertEquals(await status(), 401); // expired, even if configured
-        await mintToken({ token });
-        assertEquals(await status(), 200); // a live row is the only authority
-        await revokeToken(token);
-        assertEquals(await status(), 401); // revoked, even if configured
-      } finally {
-        await revokeToken(token);
-        if (previous === undefined) Deno.env.delete(key);
-        else Deno.env.set(key, previous);
-      }
+  const { database } = await import("./d1.ts");
+  for (const key of ["API_TOKEN", "API_TOKEN_PREVIOUS"]) {
+    const token = await mintToken({ expiresInMs: -1000 });
+    const env = { DB: database, [key]: token };
+    const status = async () => {
+      const response = await handleRequest(
+        new Request("http://localhost/api/exercises", {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+        env,
+        { waitUntil() {}, passThroughOnException() {} },
+      );
+      await response.body?.cancel();
+      return response.status;
+    };
+    try {
+      assertEquals(await status(), 401); // expired, even if configured
+      await mintToken({ token });
+      assertEquals(await status(), 200); // a live row is the only authority
+      await revokeToken(token);
+      assertEquals(await status(), 401); // revoked, even if configured
+    } finally {
+      await revokeToken(token);
     }
-  } finally {
-    await sql.end();
   }
 });
 

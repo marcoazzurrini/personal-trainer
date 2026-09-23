@@ -1,177 +1,277 @@
-import { sql, type Tx } from "../db.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
-import { TRACKS } from "./rules.ts";
 import {
-  assertAliasesFree,
-  type Namespace,
-  resolveNamed,
-} from "../shared/resolve.ts";
+  batch,
+  caseKey,
+  type Database,
+  jsonChunks,
+  rows,
+  statement,
+} from "../shared/d1.ts";
+import { TRACKS } from "./rules.ts";
 
-// How an exercise, a plan, or the plan a set serves is named — and what is
-// said when the name is unknown or ambiguous.
-//
-// The ranked-union law behind the first of those is shared/resolve.ts's; the
-// namespace and its refusals are declared here, beside the tables they are
-// about.
-
-const EXERCISES: Namespace = {
-  table: "exercises",
-  aliasTable: "exercise_aliases",
-  foreignKey: "exercise_id",
-  noSuchId: (ref) =>
-    `No exercise with id ${ref}. GET /exercises lists the catalogue.`,
-  unknownName: (name) =>
-    `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`,
-  missingRef:
-    '"exercise" is required: an exercise id, canonical name, or alias.',
-  what: "exercise",
-  route: "/exercises",
-};
-
-export const assertExerciseAliasesFree = (aliases: readonly string[]) =>
-  assertAliasesFree(EXERCISES, aliases);
-
-/**
- * What an exercise is called, for a refusal that has to name it.
- *
- * Three sites raise "that exercise is not in this plan" or "it is in two
- * plans" and each needs the name to say which, so each ran its own lookup.
- * Not a getExerciseById in disguise: nothing reads a row through it, and its
- * only callers are the sentences.
- *
- * Takes the handle because two of those refusals are raised inside the
- * transaction they are about to roll back, where a separate connection would
- * not see the rows being written.
- */
-export async function exerciseName(
-  on: Tx | typeof sql,
-  id: number,
-): Promise<string> {
-  const [row] = await on`select name from exercises where id = ${id}`;
-  return row.name as string;
+interface Exercise {
+  id: number;
+  name: string;
+  measure: string;
+  stimulus_type: string;
+}
+interface Plan {
+  id: number;
+  track: string;
 }
 
-export function resolveExerciseId(ref: unknown): Promise<number> {
-  return resolveNamed(EXERCISES, ref);
+export interface SetResolver {
+  resolveExercise(ref: unknown): Promise<Exercise>;
+  resolveSetMesocycleId(
+    exerciseId: number,
+    ref: unknown,
+  ): Promise<number | null>;
 }
 
-// The whole exercise row, for the callers that need its name or its measure
-// to validate what is being written about it — and to say the name back in
-// the error when they reject it.
-export async function resolveExercise(
-  ref: unknown,
-): Promise<
-  { id: number; name: string; measure: string; stimulus_type: string }
-> {
-  const id = await resolveExerciseId(ref);
-  const [row] = await sql`
-    select id, name, measure, stimulus_type from exercises where id = ${id}`;
-  return row as {
-    id: number;
-    name: string;
-    measure: string;
-    stimulus_type: string;
-  };
-}
+/** Same id/name/alias and active-plan rules as the PostgreSQL reference. */
+export function trainingResolver(db: Database) {
+  async function resolveExercise(ref: unknown): Promise<Exercise> {
+    if (typeof ref === "number" && Number.isSafeInteger(ref)) {
+      const [row] = await rows<Exercise>(
+        db,
+        "SELECT id, name, measure, stimulus_type FROM exercises WHERE id = ?",
+        ref,
+      );
+      if (row) return row;
+      throw new ApiError(
+        422,
+        `No exercise with id ${ref}. GET /exercises lists the catalogue.`,
+      );
+    }
+    if (typeof ref === "string" && ref.trim() !== "") {
+      const name = ref.trim();
+      const [row] = await rows<Exercise>(
+        db,
+        `SELECT e.id, e.name, e.measure, e.stimulus_type FROM exercises e
+        WHERE e.id = (
+          SELECT id FROM (
+            SELECT id, 1 AS rank FROM exercises WHERE name_key = ?
+            UNION ALL
+            SELECT exercise_id AS id, 2 AS rank FROM exercise_aliases WHERE alias_key = ?
+          ) ORDER BY rank LIMIT 1
+        )`,
+        caseKey(name),
+        caseKey(name),
+      );
+      if (row) return row;
+      if (/^\d+$/.test(name)) return await resolveExercise(Number(name));
+      throw new ApiError(
+        422,
+        `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`,
+      );
+    }
+    throw new ApiError(
+      422,
+      '"exercise" is required: an exercise id, canonical name, or alias.',
+    );
+  }
 
-// A mesocycle reference: a numeric id, "current", or "current:<track>".
-//
-// "current" was unambiguous while only one plan could be active. Now that a
-// hypertrophy plan and a speed plan run side by side, a bare "current" that
-// silently picked one would write today's sprints into the lifting plan and
-// no reader downstream could tell. So it resolves only while exactly one plan
-// is active — true for most of this system's life — and otherwise says which
-// tracks are running and how to name one.
-// deno-lint-ignore no-explicit-any
-export async function resolveMesocycle(idParam: string): Promise<any> {
-  if (idParam === "current" || idParam.startsWith("current:")) {
-    const active = await sql`
-      select * from mesocycles where ended_on is null order by track`;
-    const tracks = active.map((m) => m.track).join(", ");
-
-    if (idParam === "current") {
-      if (active.length === 1) return active[0];
-      if (active.length === 0) {
+  async function resolveMesocycle(ref: string): Promise<Plan> {
+    if (ref === "current" || ref.startsWith("current:")) {
+      const active = await rows<Plan>(
+        db,
+        "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track",
+      );
+      const tracks = active.map((m) => m.track).join(", ");
+      if (ref === "current") {
+        if (active.length === 1) return active[0];
+        if (active.length === 0) {
+          throw new ApiError(
+            404,
+            "No active mesocycle. Create one with POST /mesocycles, or pass an explicit id.",
+          );
+        }
         throw new ApiError(
-          404,
-          "No active mesocycle. Create one with POST /mesocycles, or pass an explicit id.",
+          422,
+          `"current" is ambiguous: ${active.length} plans are active (${tracks}). Name the one this call is about as "current:<track>" — e.g. "current:${
+            active[0].track
+          }".`,
+        );
+      }
+      const track = ref.slice("current:".length);
+      const row = active.find((m) => m.track === track);
+      if (row) return row;
+      if (!TRACKS.includes(track as typeof TRACKS[number])) {
+        throw new ApiError(
+          422,
+          `"${track}" is not a track. Tracks are: ${TRACKS.join(", ")}.`,
         );
       }
       throw new ApiError(
-        422,
-        `"current" is ambiguous: ${active.length} plans are active (${tracks}). Name the one this call is about as "current:<track>" — e.g. "current:${
-          active[0].track
-        }".`,
+        404,
+        `No active ${track} mesocycle. ${
+          active.length === 0
+            ? "No plan is active at all."
+            : `Active tracks: ${tracks}.`
+        }`,
       );
     }
-
-    const track = idParam.slice("current:".length);
-    const row = active.find((m) => m.track === track);
-    if (row) return row;
-    if (!TRACKS.includes(track as typeof TRACKS[number])) {
+    if (!/^\d+$/.test(ref) || !Number.isSafeInteger(Number(ref))) {
       throw new ApiError(
         422,
-        `"${track}" is not a track. Tracks are: ${TRACKS.join(", ")}.`,
+        `"${ref}" is not a mesocycle reference. Use a numeric id, "current" while one plan is active, or "current:<track>" — tracks are ${
+          TRACKS.join(", ")
+        }.`,
       );
     }
-    throw new ApiError(
-      404,
-      `No active ${track} mesocycle. ${
-        active.length === 0
-          ? "No plan is active at all."
-          : `Active tracks: ${tracks}.`
-      }`,
+    return requireRow(
+      await rows<Plan>(
+        db,
+        "SELECT id, track FROM mesocycles WHERE id = ?",
+        Number(ref),
+      ),
+      `No mesocycle with id ${ref}.`,
     );
   }
 
-  if (!/^\d+$/.test(idParam)) {
+  async function resolveSetMesocycleId(
+    exerciseId: number,
+    ref: unknown,
+  ): Promise<number | null> {
+    if (ref !== undefined && ref !== null) {
+      return (await resolveMesocycle(String(ref))).id;
+    }
+    const plans = await rows<Plan>(
+      db,
+      `SELECT m.id, m.track FROM mesocycles m
+      JOIN mesocycle_exercises me ON me.mesocycle_id = m.id
+      WHERE m.ended_on IS NULL AND me.exercise_id = ? ORDER BY m.track`,
+      exerciseId,
+    );
+    if (plans.length === 0) return null;
+    if (plans.length === 1) return plans[0].id;
+    const exercise = await resolveExercise(exerciseId);
     throw new ApiError(
       422,
-      `"${idParam}" is not a mesocycle reference. Use a numeric id, "current" while one plan is active, or "current:<track>" — tracks are ${
-        TRACKS.join(", ")
-      }.`,
+      `"${exercise.name}" is in more than one active plan (${
+        plans.map((p) => p.track).join(", ")
+      }), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`,
     );
   }
-  return requireRow(
-    await sql`
-    select * from mesocycles where id = ${Number(idParam)}`,
-    `No mesocycle with id ${idParam}.`,
-  );
-}
 
-// Which plan a set serves. Resolved server-side on every write, so the log
-// page never has to know that plans exist and the coach only has to say
-// anything in the one case where the answer is genuinely unclear.
-//
-// The exercise decides it: a lift that appears in exactly one active plan's
-// exercise list belongs to that plan. An exercise in no active plan is
-// off-plan — a hike, a five-a-side game — recorded as fact and measured
-// against no dose. An exercise in two active plans is the only ambiguous
-// case, and the caller is asked rather than guessed at.
-export async function resolveSetMesocycleId(
-  exerciseId: number,
-  ref: unknown,
-): Promise<number | null> {
-  if (ref !== undefined && ref !== null) {
-    const m = await resolveMesocycle(
-      typeof ref === "number" ? String(ref) : String(ref),
+  // One bounded read per JSON chunk, not one query per distinct exercise or
+  // plan. The returned cache belongs to this attempt, not to the store lifetime.
+  async function forSets(
+    entries: readonly { exercise?: unknown; mesocycle?: unknown }[],
+  ): Promise<SetResolver> {
+    const refs = [...new Set(entries.map((entry) => entry.exercise))];
+    const inputs = refs.map((ref) => {
+      const name = typeof ref === "string" ? ref.trim() : null;
+      const candidate = name !== null && /^\d+$/.test(name)
+        ? Number(name)
+        : ref;
+      return {
+        key: name === null || name === "" ? null : caseKey(name),
+        id: typeof candidate === "number" && Number.isSafeInteger(candidate)
+          ? candidate
+          : null,
+      };
+    });
+    const chunks = jsonChunks(inputs);
+    const found = await batch(
+      db,
+      chunks.map((chunk) =>
+        statement(
+          db,
+          `SELECT CAST(v.key AS INTEGER) + ? AS item, e.id, e.name, e.measure, e.stimulus_type
+       FROM json_each(?) v JOIN exercises e ON e.id = COALESCE(
+         (SELECT id FROM exercises WHERE name_key = json_extract(v.value, '$.key')),
+         (SELECT exercise_id FROM exercise_aliases WHERE alias_key = json_extract(v.value, '$.key')),
+         (SELECT id FROM exercises WHERE id = json_extract(v.value, '$.id'))
+       )`,
+          chunk.offset,
+          chunk.json,
+        )
+      ),
     );
-    return m.id as number;
+    const exercises = new Map<unknown, Exercise>();
+    const byId = new Map<number, Exercise>();
+    for (const result of found) {
+      for (const value of result.results) {
+        const { item, ...row } = value as unknown as Exercise & {
+          item: number;
+        };
+        exercises.set(refs[item], row);
+        byId.set(row.id, row);
+      }
+    }
+    const explicit = [
+      ...new Set(entries.flatMap(({ mesocycle }) => {
+        const ref = mesocycle == null ? "" : String(mesocycle);
+        return /^\d+$/.test(ref) && Number.isSafeInteger(Number(ref))
+          ? [Number(ref)]
+          : [];
+      })),
+    ];
+    const active = await rows<Plan>(
+      db,
+      "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track",
+    );
+    const plansById = new Map(active.map((plan) => [plan.id, plan]));
+    if (explicit.length) {
+      for (const chunk of jsonChunks(explicit)) {
+        for (
+          const plan of await rows<Plan>(
+            db,
+            "SELECT id, track FROM mesocycles WHERE id IN (SELECT value FROM json_each(?))",
+            chunk.json,
+          )
+        ) {
+          plansById.set(plan.id, plan);
+        }
+      }
+    }
+    const membership = new Map<number, Plan[]>();
+    for (const chunk of jsonChunks([...byId.keys()])) {
+      const plans = await rows<Plan & { exercise_id: number }>(
+        db,
+        `SELECT me.exercise_id, m.id, m.track FROM mesocycle_exercises me
+         JOIN mesocycles m ON m.id = me.mesocycle_id
+         WHERE m.ended_on IS NULL AND me.exercise_id IN (SELECT value FROM json_each(?))
+         ORDER BY m.track`,
+        chunk.json,
+      );
+      for (const plan of plans) {
+        const list = membership.get(plan.exercise_id) ?? [];
+        list.push(plan);
+        membership.set(plan.exercise_id, list);
+      }
+    }
+    return {
+      resolveExercise: (ref) =>
+        exercises.has(ref)
+          ? Promise.resolve(exercises.get(ref)!)
+          : resolveExercise(ref),
+      async resolveSetMesocycleId(exerciseId, ref) {
+        if (ref !== undefined && ref !== null) {
+          const name = String(ref);
+          const selected = name === "current" && active.length === 1
+            ? active[0]
+            : name.startsWith("current:")
+            ? active.find((plan) => plan.track === name.slice(8))
+            : /^\d+$/.test(name)
+            ? plansById.get(Number(name))
+            : undefined;
+          // Keep the existing exact refusals for invalid or ambiguous refs.
+          return selected?.id ?? (await resolveMesocycle(name)).id;
+        }
+        const plans = membership.get(exerciseId) ?? [];
+        if (plans.length === 0) return null;
+        if (plans.length === 1) return plans[0].id;
+        throw new ApiError(
+          422,
+          `"${byId.get(exerciseId)!.name}" is in more than one active plan (${
+            plans.map((p) => p.track).join(", ")
+          }), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`,
+        );
+      },
+    };
   }
-  const rows = await sql`
-    select m.id, m.track from mesocycles m
-    join mesocycle_exercises me on me.mesocycle_id = m.id
-    where m.ended_on is null and me.exercise_id = ${exerciseId}
-    order by m.track`;
-  if (rows.length === 0) return null;
-  if (rows.length === 1) return rows[0].id as number;
-  throw new ApiError(
-    422,
-    `"${await exerciseName(
-      sql,
-      exerciseId,
-    )}" is in more than one active plan (${
-      rows.map((r) => r.track).join(", ")
-    }), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`,
-  );
+
+  return { resolveExercise, resolveMesocycle, resolveSetMesocycleId, forSets };
 }

@@ -1,14 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  correctFood,
-  deleteFood,
-  foodById,
-  foodByRef,
-  saveFood,
-  searchFoods,
-  SOURCES,
-} from "./foods.ts";
-import { assertFoodAliasesFree, resolveFoodId } from "./resolve.ts";
+import type { Context } from "@hono/hono";
+import { type AppEnv, services } from "../shared/services.ts";
+import { SOURCES } from "./constants.ts";
 import {
   aliasList,
   body,
@@ -22,7 +15,7 @@ import {
 } from "../shared/schema.ts";
 import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 
-export const foods = new OpenAPIHono();
+export const foods = new OpenAPIHono<AppEnv>();
 
 const Food = z.object({
   id: z.int(),
@@ -90,7 +83,7 @@ foods.openapi(
   }),
   async (c) => {
     const q = c.req.valid("query").q?.trim();
-    const found = await searchFoods(q);
+    const found = await services(c).foods.searchFoods(q);
     // `query` is absent rather than empty when the whole registry was asked
     // for: it echoes a search, and there was none.
     return c.json(q ? { query: q, foods: found } : { foods: found });
@@ -150,7 +143,9 @@ foods.openapi(
     },
   }),
   async (c) => {
-    const { row, created } = await saveFood(c.req.valid("json"));
+    const { row, created } = await services(c).foods.saveFood(
+      c.req.valid("json"),
+    );
     return created ? c.json({ food: row }, 201) : c.json({ food: row }, 200);
   },
 );
@@ -170,7 +165,10 @@ foods.openapi(
       404: { description: "Nothing resolves to that reference." },
     },
   }),
-  async (c) => c.json({ food: await foodByRef(c.req.valid("param").ref) }),
+  async (c) =>
+    c.json({
+      food: await services(c).foods.foodByRef(c.req.valid("param").ref),
+    }),
 );
 
 foods.openapi(
@@ -234,24 +232,33 @@ foods.openapi(
     },
   }),
   async (c) =>
-    c.json(await correctFood(c.req.valid("param").ref, c.req.valid("json"))),
+    c.json(
+      await services(c).foods.correctFood(
+        c.req.valid("param").ref,
+        c.req.valid("json"),
+      ),
+    ),
 );
 
 // A synonym never becomes a second food row — that splits the food's history
 // exactly the way a duplicate exercise splits a lift's.
 const aliasSurface = {
   tag: "Nutrition",
-  aliasTable: "food_aliases",
-  foreignKey: "food_id",
+  kind: "food" as const,
   ref,
-  resolve: async (r: string) => ({ id: await resolveFoodId(r) }),
-  respond: async (id: number) => ({ food: await foodById(id) }),
+  resolve: async (c: Context<AppEnv>, reference: string) => ({
+    id: await services(c).nutritionResolver.resolveFoodId(reference),
+  }),
+  respond: async (c: Context<AppEnv>, id: number) => ({
+    food: await services(c).foods.foodById(id),
+  }),
   responseSchema: z.object({ food: Food }),
 };
 
 addAliasRoute(foods, {
   ...aliasSurface,
-  assertFree: assertFoodAliasesFree,
+  assertFree: (c, aliases) =>
+    services(c).aliases.food.assertAliasesFree(aliases),
   created: "The food, with the alias now among its names.",
   neither: 'Send "alias" (a string) or "aliases" (an array of strings).',
 });
@@ -286,5 +293,8 @@ foods.openapi(
       404: { description: "Nothing resolves to that reference." },
     },
   }),
-  async (c) => c.json({ deleted: await deleteFood(c.req.valid("param").ref) }),
+  async (c) =>
+    c.json({
+      deleted: await services(c).foods.deleteFood(c.req.valid("param").ref),
+    }),
 );

@@ -1,9 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
+import d1, { batch } from "./d1.ts";
 import {
   api,
   daysBefore,
-  DB_URL,
   lastFinishedSunday,
   resetNutrition,
   seedWeighIns,
@@ -33,16 +32,13 @@ Deno.test("target retries and concurrent saves derive switches without event wri
     decision: "Derived switch",
     request_id: uuid(),
   };
-  // DB_URL passed the disposable DB/API identity checks in helpers. An event
-  // writer that fails must no longer stop a target being saved.
-  const db = postgres(DB_URL);
+  // A native trigger makes any accidental write of a derived event fail.
+  const db = d1();
   try {
-    await db`create function test_target_event_failure() returns trigger language plpgsql as $$
-      begin
-        raise exception 'target writes must not insert nutrition_events' using errcode = '23514', constraint = 'test_target_event_failure';
-      end $$`;
     await db`create trigger test_target_event_failure before insert on nutrition_events
-      for each row execute function test_target_event_failure()`;
+      for each row begin
+        select raise(abort, 'CHECK constraint failed: test_target_event_failure');
+      end`;
 
     const saved = await api.post("/nutrition-targets", switchInput);
     assertEquals(saved.status, 201, saved.body.error);
@@ -87,8 +83,7 @@ Deno.test("target retries and concurrent saves derive switches without event wri
     assertEquals(finalEvents[0].note, "cut -> maintain");
     assertEquals((await db`select id from nutrition_events`).length, 0);
   } finally {
-    await db`drop trigger if exists test_target_event_failure on nutrition_events`;
-    await db`drop function if exists test_target_event_failure()`;
+    await db`drop trigger if exists test_target_event_failure`;
     await db.end();
   }
 });
@@ -114,28 +109,51 @@ Deno.test("a failed switch response read rolls back the target and permits retry
     effective_from: day,
     request_id: uuid(),
   };
-  const db = postgres(DB_URL);
-  const [original] = await db<{ definition: string }[]>`
-    select pg_get_viewdef('nutrition_goal_switches'::regclass) as definition`;
+  const db = d1();
+  const [original] = await db`
+    select sql from sqlite_schema where type = 'view' and name = 'nutrition_goal_switches'`;
+  assert(typeof original?.sql === "string");
+  const definition = original.sql.replace(
+    /^create\s+view\s+nutrition_goal_switches\s+as\s+/i,
+    "",
+  ).replace(/;\s*$/, "");
+  assert(
+    definition !== original.sql,
+    "Expected the native goal-switch view definition.",
+  );
+  const restore = () =>
+    batch([
+      { sql: "drop view nutrition_goal_switches", params: [] },
+      { sql: original.sql, params: [] },
+    ]);
   try {
-    await db`create function test_target_response_failure() returns boolean language plpgsql as $$
-      begin
-        raise exception 'injected failure reading the inserted target switch' using errcode = '23514', constraint = 'test_target_response_failure';
-      end $$`;
-    // The predicate can run only for a derived switch. The baseline has none;
-    // the newly inserted maintain target must be visible before this fails.
-    await db.unsafe(`create or replace view nutrition_goal_switches as
-      select * from (${original.definition.replace(/;\s*$/, "")}) switches
-      where test_target_response_failure()`);
+    // SQLite RAISE is only legal in triggers. A row-dependent malformed JSON
+    // read instead fails the actual response SELECT, not the target INSERT.
+    // The baseline has no switch; only the inserted target makes it fail.
+    await batch([
+      { sql: "drop view nutrition_goal_switches", params: [] },
+      {
+        sql: `create view nutrition_goal_switches as
+          select * from (${definition}) switches
+          where json_extract(case when id < 0 then 'test_target_response_failure' else 'true' end, '$')`,
+        params: [],
+      },
+    ]);
+    assertEquals(await db`select * from nutrition_goal_switches`, []);
     const failed = await api.post("/nutrition-targets", input);
-    assertEquals(failed.status, 422);
-    assert(failed.body.error.includes("test_target_response_failure"));
+    // A broken response query is an internal error, not invalid caller input.
+    assertEquals(failed.status, 500);
+    assert(failed.body.error.includes("Internal error"), failed.body.error);
+    assertEquals(
+      (await db`select count(*) as n from nutrition_targets where request_id = ${input.request_id}`)[
+        0
+      ].n,
+      0,
+    );
+    await restore();
     assertEquals((await api.get("/nutrition-targets")).body.targets, [
       baseline.body.target,
     ]);
-    await db.unsafe(
-      `create or replace view nutrition_goal_switches as ${original.definition}`,
-    );
     assertEquals((await api.get("/nutrition-events")).body.events, []);
     const retry = await api.post("/nutrition-targets", input);
     assertEquals(retry.status, 201);
@@ -146,10 +164,7 @@ Deno.test("a failed switch response read rolls back the target and permits retry
     assertEquals(replay.status, 200);
     assertEquals(replay.body, { target: retry.body.target });
   } finally {
-    await db.unsafe(
-      `create or replace view nutrition_goal_switches as ${original.definition}`,
-    );
-    await db`drop function if exists test_target_response_failure()`;
+    await restore();
     await db.end();
   }
 });

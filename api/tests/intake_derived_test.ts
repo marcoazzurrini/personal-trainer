@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
-import { api, daysAgo, DB_URL, resetNutrition, today } from "./helpers.ts";
+import d1 from "./d1.ts";
+import { api, daysAgo, resetNutrition, today } from "./helpers.ts";
 
 async function seed() {
   await resetNutrition();
@@ -25,7 +25,7 @@ async function seed() {
 
 Deno.test("derived intake preserves the eaten recipe while correcting all daily readers", async () => {
   const id = await seed();
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
     const [stored] = await db`select * from intake_entries where id = ${id}`;
     assertEquals(stored.kcal, null);
@@ -101,7 +101,7 @@ Deno.test("food corrections expire overrides without reviving them in later part
   const rescaled = await api.patch(path, { grams: 100 });
   assertEquals(rescaled.body.entries[0].protein_g, 8);
   assertEquals(rescaled.body.entries[0].kcal, 80);
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
     const [stored] = await db`select * from intake_entries where id = ${id}`;
     assertEquals(stored.food_macro_revision, null);
@@ -134,30 +134,14 @@ Deno.test("storage-rounded food retries keep overrides until a stored macro actu
 });
 
 Deno.test("overlapping intake corrections preserve omitted macros and use the latest grams", async () => {
-  const db = postgres(DB_URL);
+  const db = d1();
   const pending: Array<ReturnType<typeof api.patch>> = [];
-  async function waitForBlocked(count: number) {
-    for (let attempt = 0; attempt < 200; attempt++) {
-      const [row] = await db`
-        select count(*)::int as count from pg_stat_activity
-        where datname = current_database() and wait_event_type = 'Lock'
-          and query like '%update intake_entries%'`;
-      if (row.count >= count) return;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error(
-      `Expected ${count} overlapping intake updates to wait on the held row.`,
-    );
-  }
   async function overlap(id: number, first: object, second: object) {
     pending.length = 0;
-    await db.begin(async (tx) => {
-      await tx`select id from intake_entries where id = ${id} for update`;
-      pending.push(api.patch(`/intake/${id}`, first));
-      await waitForBlocked(1);
-      pending.push(api.patch(`/intake/${id}`, second));
-      await waitForBlocked(2);
-    });
+    pending.push(
+      api.patch(`/intake/${id}`, first),
+      api.patch(`/intake/${id}`, second),
+    );
     for (const result of await Promise.all(pending)) {
       assertEquals(result.status, 200);
     }
@@ -199,7 +183,7 @@ Deno.test("ad-hoc estimates and unknown protein are independent of food correcti
   );
   const day = (await api.get("/intake")).body;
   assertEquals(day.totals.kcal, 660);
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
     const [daily] = await db`select * from daily_intake where day = ${today()}`;
     assertEquals(daily.entries, 2);

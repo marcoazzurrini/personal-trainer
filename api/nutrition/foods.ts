@@ -1,118 +1,143 @@
-// The registry the coach fills as it goes. A food is sourced once — from a
-// label, CREA, USDA or Open Food Facts — and saved, so it is never searched
-// twice and the numbers stop depending on who remembered what.
-
-import { sql } from "../db.ts";
-import { ApiError } from "../shared/errors.ts";
+import {
+  batch,
+  caseKey,
+  type Clock,
+  type Database,
+  databaseError,
+  decimal,
+  instant,
+  jsonChunks,
+  type Parameter,
+  requestId,
+  type Result,
+  rows,
+  statement,
+  systemClock,
+} from "../shared/d1.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 import { checkEnergy, checkMacroMass } from "./rules.ts";
-import { writeOnce } from "../shared/idempotency.ts";
-import { assertFoodAliasesFree, resolveFoodId } from "./resolve.ts";
+import {
+  beginNutritionWrite,
+  finishNutritionWrite,
+  nutritionResolver,
+  nutritionRows,
+} from "./resolve.ts";
+import type {
+  CorrectedFood,
+  CorrectFoodInput,
+  FoodRow,
+  SaveFoodInput,
+} from "./foods.types.ts";
 
-export const SOURCES = ["label", "crea", "usda", "off", "estimate"] as const;
-export type Source = (typeof SOURCES)[number];
+const macros = [
+  "kcal_100g",
+  "protein_100g",
+  "carbs_100g",
+  "fat_100g",
+  "fiber_100g",
+] as const;
+const fields = [
+  ...macros,
+  "grams_per_unit",
+  "name",
+  "brand",
+  "source",
+  "source_note",
+] as const;
+const columns = `f.id, f.name, f.brand, ${
+  macros.map((k) => `f.${k} / 10.0 AS ${k}`).join(", ")
+},
+ f.grams_per_unit / 10.0 AS grams_per_unit, f.source, f.source_note,
+ substr(f.created_at, 1, 23) || 'Z' AS created_at,
+ (SELECT json_group_array(alias) FROM (SELECT alias FROM food_aliases WHERE food_id = f.id ORDER BY alias)) AS aliases`;
+type StoredFood = Omit<FoodRow, "aliases"> & { aliases: string };
+const decode = (r: StoredFood): FoodRow => ({
+  ...r,
+  aliases: JSON.parse(r.aliases),
+});
 
-export interface FoodRow {
-  id: number;
-  name: string;
-  brand: string | null;
-  kcal_100g: number;
-  protein_100g: number;
-  carbs_100g: number;
-  fat_100g: number;
-  fiber_100g: number | null;
-  grams_per_unit: number | null;
-  source: Source;
-  source_note: string | null;
-  created_at: string;
-  aliases: string[];
-}
-
-// One shape for every food read; the caller supplies only the filter.
-// deno-lint-ignore no-explicit-any
-function selectFoods(where: any = sql``) {
-  return sql<FoodRow[]>`
-    select
-      f.id, f.name, f.brand, f.kcal_100g::float8, f.protein_100g::float8,
-      f.carbs_100g::float8, f.fat_100g::float8, f.fiber_100g::float8,
-      f.grams_per_unit::float8, f.source, f.source_note, f.created_at,
-      coalesce(
-        (select array_agg(a.alias order by a.alias)
-         from food_aliases a where a.food_id = f.id),
-        '{}'
-      ) as aliases
-    from foods f
-    ${where}
-    order by f.name`;
-}
-
-export async function foodById(id: number): Promise<FoodRow> {
-  const [row] = await selectFoods(sql`where f.id = ${id}`);
-  return row;
-}
-
-export async function foodByRef(ref: string): Promise<FoodRow> {
-  return await foodById(await resolveFoodId(ref));
-}
-
-/**
- * Substring search rather than the whole registry: the list grows without
- * bound, and the question being asked is always "do I already have this?"
- * An empty query means the whole registry, which is what the caller asked for.
- */
-export async function searchFoods(q?: string): Promise<FoodRow[]> {
-  const term = q?.trim();
-  if (!term) return await selectFoods();
-  const like = `%${term}%`;
-  return await selectFoods(sql`
-    where f.name ilike ${like}
-      or f.brand ilike ${like}
-      or exists (
-        select 1 from food_aliases a
-        where a.food_id = f.id and a.alias ilike ${like}
-      )`);
-}
-
-export interface SaveFoodInput {
-  name: string;
-  brand?: string | null;
-  kcal_100g: number;
-  protein_100g: number;
-  carbs_100g: number;
-  fat_100g: number;
-  fiber_100g?: number | null;
-  grams_per_unit?: number | null;
-  source: Source;
-  source_note?: string | null;
-  energy_check?: "override";
-  aliases?: string[] | null;
-  request_id: string;
-}
-
-/**
- * Saves a food, or answers a retry with the one this request_id already saved.
- *
- * Refuses 422 when the macros do not weigh what they claim or the energy they
- * imply is not the energy stated, and 409 when the name or one of the aliases
- * is taken — naming which, and by what.
- */
-export async function saveFood(
-  b: SaveFoodInput,
-): Promise<{ row: FoodRow; created: boolean }> {
-  const { body: row, status } = await writeOnce<
-    { id: number },
-    FoodRow,
-    FoodRow
-  >({
-    table: "foods",
-    requestId: b.request_id,
-    select: sql`id`,
-    replay: (seen) => foodById(seen.id),
-    write: async () => {
-      const aliases = b.aliases ?? [];
-      // Before the insert, not after: the constraint underneath can only say
-      // that one of these was taken, and this says which and by what.
-      await assertFoodAliasesFree(aliases);
-
+export function foodStore(db: Database, clock: Clock = systemClock) {
+  const resolver = nutritionResolver(db);
+  const select = (where = "", ...values: Parameter[]) =>
+    statement(
+      db,
+      `SELECT ${columns} FROM foods f ${where} ORDER BY f.name`,
+      ...values,
+    );
+  const readResult = (result: Result): FoodRow =>
+    decode(
+      requireRow(
+        result.results as unknown as StoredFood[],
+        "The food could not be read after saving.",
+      ),
+    );
+  async function foodById(id: number): Promise<FoodRow> {
+    return decode(
+      requireRow(
+        (await select("WHERE f.id = ?", id).all<StoredFood>()).results,
+        `No food with id ${id}. GET /foods?q=<search> lists them.`,
+      ),
+    );
+  }
+  async function foodByRef(ref: string) {
+    return await foodById(await resolver.resolveFoodId(ref));
+  }
+  async function searchFoods(q?: string): Promise<FoodRow[]> {
+    const term = q?.trim();
+    // SQLite LIKE cannot fold Unicode. Names and aliases already carry Unicode keys;
+    // brand matching is done in JS so its casing follows the same contract.
+    const all = (await select().all<StoredFood>()).results.map(decode);
+    if (!term) return all;
+    const pattern = new RegExp(
+      caseKey(term)
+        .split("")
+        .map((c) =>
+          c === "%"
+            ? ".*"
+            : c === "_"
+            ? "."
+            : c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        )
+        .join(""),
+      "su",
+    );
+    return all.filter((f) =>
+      [f.name, f.brand, ...f.aliases].some(
+        (v) => v !== null && pattern.test(caseKey(v)),
+      )
+    );
+  }
+  function aliases(key: Parameter, values: string[], byRequest = false) {
+    return jsonChunks(
+      values.map((alias) => ({ alias, key: caseKey(alias) })),
+    ).flatMap((chunk) => [
+      statement(
+        db,
+        `INSERT INTO food_aliases (food_id, alias, alias_key)
+       SELECT f.id, json_extract(v.value, '$.alias'), json_extract(v.value, '$.key')
+       FROM json_each(?) v CROSS JOIN foods f WHERE f.${
+          byRequest ? "request_id" : "id"
+        } = ? ORDER BY CAST(v.key AS INTEGER)`,
+        chunk.json,
+        key,
+      ),
+      nutritionRows(db, chunk.count),
+    ]);
+  }
+  async function seen(uuid: string) {
+    const found = (
+      await select("WHERE f.request_id = ?", uuid).all<StoredFood>()
+    ).results;
+    return found[0] ? decode(found[0]) : undefined;
+  }
+  async function saveFood(
+    b: SaveFoodInput,
+  ): Promise<{ row: FoodRow; created: boolean }> {
+    const uuid = requestId(b.request_id);
+    const replay = await seen(uuid);
+    if (replay) return { row: replay, created: false };
+    try {
+      await resolver.assertFoodAliasesFree(b.aliases ?? []);
       checkMacroMass(b.protein_100g, b.carbs_100g, b.fat_100g);
       checkEnergy(
         b.kcal_100g,
@@ -122,186 +147,177 @@ export async function saveFood(
         b.energy_check === "override",
         b.source_note ?? null,
       );
-
-      const id = await sql.begin(async (tx) => {
-        const [created] = await tx`
-          insert into foods
-            (name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g,
-             fiber_100g, grams_per_unit, source, source_note, request_id)
-          values
-            (${b.name}, ${b.brand ?? null}, ${b.kcal_100g}, ${b.protein_100g},
-             ${b.carbs_100g}, ${b.fat_100g}, ${b.fiber_100g ?? null},
-             ${b.grams_per_unit ?? null}, ${b.source}, ${b.source_note ?? null},
-             ${b.request_id})
-          returning id`;
-        if (aliases.length) {
-          await tx`insert into food_aliases ${
-            tx(aliases.map((alias) => ({ food_id: created.id, alias })))
-          }`;
-        }
-        return created.id as number;
-      });
-
-      return await foodById(id);
-    },
-  });
-  return { row, created: status === 201 };
-}
-
-export interface CorrectFoodInput {
-  name?: string;
-  brand?: string | null;
-  kcal_100g?: number | null;
-  protein_100g?: number | null;
-  carbs_100g?: number | null;
-  fat_100g?: number | null;
-  fiber_100g?: number | null;
-  grams_per_unit?: number | null;
-  source?: Source;
-  source_note?: string | null;
-  energy_check?: "override";
-}
-
-export interface CorrectedFood {
-  food: FoodRow;
-  corrected_entries: { count: number; from: string | null; to: string | null };
-  note: string;
-}
-
-// Correcting a food, retroactively.
-//
-// A food's numbers are a fact about the world, not a choice that evolves. If
-// white rice was recorded at 130 kcal and it is 350, every entry ever logged
-// against it was wrong at the moment it was written — that is an error, not
-// history, and fixing it fixes the past too. This is the opposite of a meal,
-// where a changed recipe means Marco genuinely started eating differently and
-// the old entries must stand.
-//
-// So: **editing a food only ever means fixing a mistake.** A different product
-// — another brand, a reformulated recipe — is a new food, never an edit. That
-// rule is what makes blanket retroactivity safe, and it is stated in the
-// reference and logging docs because the coach is the one who will be tempted
-// to "just update the yogurt".
-//
-// Nothing happens silently: the answer says how many entries now use corrected
-// values and over what dates. Their ingredients and quantities never change.
-export async function correctFood(
-  ref: string,
-  b: CorrectFoodInput,
-): Promise<CorrectedFood> {
-  const id = await resolveFoodId(ref);
-  const [before] = await sql`select * from foods where id = ${id}`;
-
-  const fields: Record<string, unknown> = {};
-  for (
-    const key of [
-      "kcal_100g",
-      "protein_100g",
-      "carbs_100g",
-      "fat_100g",
-      "fiber_100g",
-      "grams_per_unit",
-      "name",
-      "brand",
-      "source",
-      "source_note",
-    ] as const
-  ) {
-    if (b[key] !== undefined) fields[key] = b[key];
+      const result = await batch(db, [
+        beginNutritionWrite(db),
+        statement(
+          db,
+          `INSERT INTO foods (name, name_key, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note, request_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          b.name,
+          caseKey(b.name),
+          b.brand ?? null,
+          decimal(b.kcal_100g, 6, 1),
+          decimal(b.protein_100g, 5, 1),
+          decimal(b.carbs_100g, 5, 1),
+          decimal(b.fat_100g, 5, 1),
+          decimal(b.fiber_100g ?? null, 5, 1),
+          decimal(b.grams_per_unit ?? null, 6, 1),
+          b.source,
+          b.source_note ?? null,
+          uuid,
+          instant(clock().toISOString()),
+        ),
+        nutritionRows(db, 1),
+        ...aliases(uuid, b.aliases ?? [], true),
+        select("WHERE f.request_id = ?", uuid),
+        finishNutritionWrite(db),
+      ]);
+      return { row: readResult(result.at(-2)!), created: true };
+    } catch (error) {
+      const replay = await seen(uuid);
+      if (replay) return { row: replay, created: false };
+      throw databaseError(error);
+    }
   }
-
-  if (Object.keys(fields).length === 0) {
-    throw new ApiError(
-      422,
-      "Send at least one of: name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note. A different product is not an edit — save it as a new food with POST /foods.",
+  async function correctFood(
+    ref: string,
+    b: CorrectFoodInput,
+  ): Promise<CorrectedFood> {
+    const id = await resolver.resolveFoodId(ref);
+    const before = requireRow(
+      await rows<FoodRow & { macro_revision: number }>(
+        db,
+        `SELECT ${columns}, f.macro_revision FROM foods f WHERE f.id = ?`,
+        id,
+      ),
+      `No food with id ${id}.`,
     );
-  }
-
-  const merged = { ...before, ...fields };
-  checkMacroMass(
-    Number(merged.protein_100g),
-    Number(merged.carbs_100g),
-    Number(merged.fat_100g),
-  );
-  checkEnergy(
-    Number(merged.kcal_100g),
-    Number(merged.protein_100g),
-    Number(merged.carbs_100g),
-    Number(merged.fat_100g),
-    b.energy_check === "override",
-    merged.source_note as string | null,
-  );
-
-  // Compare the numeric values Postgres will actually store, at its one-
-  // decimal precision. A resend of 100.01 to a stored 100.0 is not a label
-  // correction and must not expire an override. SQL rounding also avoids
-  // JavaScript's binary floating-point differences at decimal half steps.
-  const MACRO_COLUMNS = [
-    "kcal_100g",
-    "protein_100g",
-    "carbs_100g",
-    "fat_100g",
-    "fiber_100g",
-  ] as const;
-  const macroChange = MACRO_COLUMNS.filter((k) => k in fields)
-    .map((k) =>
-      sql`${sql(k)} is distinct from round(${b[k] ?? null}::numeric, 1)`
-    )
-    .reduce((a, b) => sql`(${a} or ${b})`, sql`false`);
-
-  // One row changes. Readers derive the historical totals; the revision also
-  // invalidates old explicit overrides, as the former blanket rewrite did.
-  // Refuse a concurrent macro correction rather than validate against a stale
-  // label or claim an identical retry changed the record.
-  const updated = await sql<{ macros_changed: boolean }[]>`
-    update foods set ${sql(fields)},
-      macro_revision = macro_revision + case when ${macroChange} then 1 else 0 end
-    where id = ${id} and macro_revision = ${before.macro_revision}
-    returning macro_revision <> ${before.macro_revision} as macros_changed`;
-  if (!updated.length) {
-    throw new ApiError(
-      409,
-      "That food changed while this correction was being checked. Read GET /foods/:ref again, then resend the correction against its current values.",
+    const keys = fields.filter((k) => b[k] !== undefined);
+    if (!keys.length) {
+      throw new ApiError(
+        422,
+        "Send at least one of: name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note. A different product is not an edit — save it as a new food with POST /foods.",
+      );
+    }
+    const merged = {
+      ...before,
+      ...Object.fromEntries(keys.map((k) => [k, b[k]])),
+    };
+    checkMacroMass(
+      Number(merged.protein_100g),
+      Number(merged.carbs_100g),
+      Number(merged.fat_100g),
     );
+    checkEnergy(
+      Number(merged.kcal_100g),
+      Number(merged.protein_100g),
+      Number(merged.carbs_100g),
+      Number(merged.fat_100g),
+      b.energy_check === "override",
+      merged.source_note,
+    );
+    const encoded = (k: (typeof fields)[number]): Parameter => {
+      const v = b[k]!;
+      return macros.includes(k as (typeof macros)[number]) ||
+          k === "grams_per_unit"
+        ? decimal(
+          v as number | null,
+          k === "kcal_100g" || k === "grams_per_unit" ? 6 : 5,
+          1,
+        )
+        : v;
+    };
+    const changed = keys.filter((k) =>
+      macros.includes(k as (typeof macros)[number])
+    );
+    const changeSQL = changed.map((k) => `${k} IS NOT ?`).join(" OR ") || "0";
+    const result = await batch(db, [
+      beginNutritionWrite(db),
+      statement(
+        db,
+        `UPDATE foods SET ${keys.map((k) => `${k} = ?`).join(", ")}${
+          b.name !== undefined ? ", name_key = ?" : ""
+        },
+       macro_revision = macro_revision + CASE WHEN ${changeSQL} THEN 1 ELSE 0 END
+       WHERE id = ? AND macro_revision = ? RETURNING macro_revision`,
+        ...keys.map(encoded),
+        ...(b.name !== undefined ? [caseKey(b.name)] : []),
+        ...changed.map(encoded),
+        id,
+        before.macro_revision,
+      ),
+      nutritionRows(db, 1),
+      select("WHERE f.id = ?", id),
+      statement(
+        db,
+        `SELECT count(*) AS count, min(day) AS "from", max(day) AS "to" FROM intake_entries WHERE food_id = ? AND EXISTS (SELECT 1 FROM foods WHERE id = ? AND macro_revision <> ?)`,
+        id,
+        id,
+        before.macro_revision,
+      ),
+      finishNutritionWrite(db),
+    ]).catch((error) => {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.message.includes("record changed")
+      ) {
+        throw new ApiError(
+          409,
+          "That food changed while this correction was being checked. Read GET /foods/:ref again, then resend the correction against its current values.",
+        );
+      }
+      throw error;
+    });
+    const macrosChanged =
+      (result[1].results[0].macro_revision as number) !== before.macro_revision;
+    const affected = result.at(-2)!
+      .results[0] as unknown as CorrectedFood["corrected_entries"];
+    return {
+      food: readResult(result.at(-3)!),
+      corrected_entries: affected,
+      note: macrosChanged
+        ? `Corrected ${affected.count} logged ${
+          affected.count === 1 ? "entry" : "entries"
+        }: their totals now use the corrected food values, without changing what was eaten. Meals containing this food update on their own — their totals are computed, never stored.`
+        : "No macros changed, so nothing logged was affected.",
+    };
   }
-  const macrosChanged = updated[0].macros_changed;
-  const [affected] = macrosChanged
-    ? await sql<{ count: number; from: string | null; to: string | null }[]>`
-      select count(*)::int as count, min(day) as "from", max(day) as "to"
-      from intake_entries where food_id = ${id}`
-    : [{ count: 0, from: null, to: null }];
+  async function deleteFood(ref: string): Promise<string> {
+    const id = await resolver.resolveFoodId(ref);
+    const [{ entries, items }] = await rows<{ entries: number; items: number }>(
+      db,
+      `SELECT
+      (SELECT count(*) FROM intake_entries WHERE food_id = ?) AS entries,
+      (SELECT count(*) FROM meal_items WHERE food_id = ?) AS items`,
+      id,
+      id,
+    );
+    if (entries || items) {
+      throw new ApiError(
+        409,
+        `That food is in use — ${entries} logged ${
+          entries === 1 ? "entry" : "entries"
+        } and ${items} meal ${
+          items === 1 ? "item" : "items"
+        } — so deleting it would orphan the record. If its numbers are wrong, PATCH /foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
+      );
+    }
+    return requireRow(
+      await rows<{ name: string }>(
+        db,
+        "DELETE FROM foods WHERE id = ? RETURNING name",
+        id,
+      ),
+      `No food with id ${id}.`,
+    ).name;
+  }
   return {
-    food: await foodById(id),
-    corrected_entries: affected,
-    note: macrosChanged
-      ? `Corrected ${affected.count} logged ${
-        affected.count === 1 ? "entry" : "entries"
-      }: their totals now use the corrected food values, without changing what was eaten. Meals containing this food update on their own — their totals are computed, never stored.`
-      : "No macros changed, so nothing logged was affected.",
+    foodById,
+    foodByRef,
+    searchFoods,
+    saveFood,
+    correctFood,
+    deleteFood,
   };
-}
-
-// Only a food with no current intake or meal-item references can be deleted.
-// A removed mis-log no longer blocks deletion; owned aliases cascade.
-// For a referenced food with wrong numbers, correction fixes its past too.
-export async function deleteFood(ref: string): Promise<string> {
-  const id = await resolveFoodId(ref);
-  const [{ entries, items }] = await sql`
-    select
-      (select count(*)::int from intake_entries where food_id = ${id}) as entries,
-      (select count(*)::int from meal_items where food_id = ${id}) as items`;
-  if (entries > 0 || items > 0) {
-    throw new ApiError(
-      409,
-      `That food is in use — ${entries} logged ${
-        entries === 1 ? "entry" : "entries"
-      } and ${items} meal ${
-        items === 1 ? "item" : "items"
-      } — so deleting it would orphan the record. If its numbers are wrong, PATCH /foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
-    );
-  }
-  // Only aliases cascade. Intake and recipe references remain restrictive,
-  // including references created after the helpful preflight count above.
-  const [row] = await sql`delete from foods where id = ${id} returning name`;
-  return row.name as string;
 }

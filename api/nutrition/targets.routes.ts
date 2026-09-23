@@ -1,12 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { GOALS } from "./expenditure.ts";
-import { romeToday } from "../shared/calendar.ts";
-import {
-  activeTarget,
-  CLIP_REASONS,
-  listTargets,
-  setTarget,
-} from "./targets.ts";
+import { type AppEnv, services } from "../shared/services.ts";
+import { CLIP_REASONS } from "./constants.ts";
 import {
   body,
   number,
@@ -23,7 +18,7 @@ import {
 // effective_from is active and the history is the record of the phase
 // structure. A target is never edited — a changed mind is a new row saying why.
 
-export const nutritionTargets = new OpenAPIHono();
+export const nutritionTargets = new OpenAPIHono<AppEnv>();
 
 // Exported because nutrition-state answers with the same row, and used to
 // declare it a second time and more weakly — goal and clipped_reasons as bare
@@ -90,8 +85,8 @@ nutritionTargets.openapi(
   }),
   async (c) =>
     c.json({
-      targets: await listTargets(),
-      active: await activeTarget(await romeToday()),
+      targets: await services(c).targets.listTargets(),
+      active: await services(c).targets.activeTarget(services(c).today()),
     }),
 );
 
@@ -152,7 +147,7 @@ nutritionTargets.openapi(
     },
   }),
   async (c) => {
-    const result = await setTarget(c.req.valid("json"));
+    const result = await services(c).targets.setTarget(c.req.valid("json"));
     return result.created ? c.json(result.body, 201) : c.json(result.body, 200);
   },
 );

@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import postgres from "postgres";
+import d1 from "./d1.ts";
 import { constraintMessages } from "../shared/errors.ts";
-import { api, DB_URL, uuid } from "./helpers.ts";
+import { api, uuid } from "./helpers.ts";
 
 // The error map, held against the database it describes.
 //
@@ -13,18 +13,17 @@ import { api, DB_URL, uuid } from "./helpers.ts";
 // a failure names the orphaned entry.
 
 Deno.test("every named constraint exists in the database", async () => {
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
-    // Unique/check/foreign-key constraints live in pg_constraint; a partial
-    // unique *index* (mesocycles_one_active_per_track) only in pg_indexes.
-    const rows = await db`
-      select conname as name from pg_constraint
-      union
-      select indexname from pg_indexes where schemaname = 'public'`;
-    const live = new Set(rows.map((r) => r.name as string));
+    const rows =
+      await db`select name, sql from sqlite_schema where sql is not null`;
+    const schema = rows.map((r) => `${r.name} ${r.sql}`).join("\n");
+    // SQLite reports UNIQUE failures by column; the D1 adapter maps those
+    // physical constraints to the same public names as the original API.
+    const adapter = await Deno.readTextFile("api/shared/d1.ts");
     for (const name of Object.keys(constraintMessages)) {
       assert(
-        live.has(name),
+        schema.includes(name) || adapter.includes(`"${name}"`),
         `errors.ts writes a message for "${name}", but no constraint or ` +
           "index with that name exists — renamed in a migration? The " +
           "message now never fires and callers get the generic fallback.",

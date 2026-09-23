@@ -3,10 +3,10 @@ import { forgetJwks } from "../access/jwt.ts";
 import { webSigner } from "./web_signer.ts";
 
 Deno.test("the API enforces the dashboard's one read across the whole documented surface", async () => {
-  // The helper verifies disposable cluster identity before index.ts reaches SQL.
+  // The helper verifies the disposable Worker/D1 identity before fixture reads.
   const { TOKEN } = await import("./helpers.ts");
   const { handleRequest } = await import("../index.ts");
-  const { sql } = await import("../db.ts");
+  const { database } = await import("./d1.ts");
   const signer = await webSigner();
   const values = {
     WEB_AUTH_ISSUER: "https://web.example.test",
@@ -14,9 +14,7 @@ Deno.test("the API enforces the dashboard's one read across the whole documented
     WEB_AUTH_JWKS_URL: "https://web.example.test/jwks",
     ALLOWED_SUBJECT: "owner",
   };
-  const previous = new Map(
-    Object.keys(values).map((key) => [key, Deno.env.get(key)]),
-  );
+  const env: import("../environment.ts").Bindings = { DB: database, ...values };
   const originalFetch = globalThis.fetch;
   let keyReads = 0;
   const good = {
@@ -35,12 +33,13 @@ Deno.test("the API enforces the dashboard's one read across the whole documented
           ? { body: "{}" }
           : {}),
       }),
+      env,
+      { waitUntil() {}, passThroughOnException() {} },
     );
     const text = await response.text();
     return { response, text };
   };
   try {
-    for (const [key, value] of Object.entries(values)) Deno.env.set(key, value);
     forgetJwks();
     globalThis.fetch = (input, init) => {
       if (String(input) === values.WEB_AUTH_JWKS_URL) {
@@ -102,15 +101,19 @@ Deno.test("the API enforces the dashboard's one read across the whole documented
     }
     const readsBefore = keyReads;
     for (const key of Object.keys(values)) {
-      Deno.env.delete(key);
+      delete env[key as keyof typeof values];
       assertEquals((await call("/api/bodyweight", token)).response.status, 401);
-      Deno.env.set(key, values[key as keyof typeof values]);
+      env[key as keyof typeof values] = values[key as keyof typeof values];
     }
     assertEquals(keyReads, readsBefore);
     // A provider outage is not an invalid login, and never falls back to coach auth.
     forgetJwks();
-    globalThis.fetch = () =>
-      Promise.reject(new Error("synthetic provider outage"));
+    globalThis.fetch = (input, init) => {
+      if (String(input) === values.WEB_AUTH_JWKS_URL) {
+        return Promise.reject(new Error("synthetic provider outage"));
+      }
+      return originalFetch(input, init);
+    };
     assertEquals((await call("/api/bodyweight", token)).response.status, 503);
     assertEquals((await call("/api/exercises", TOKEN)).response.status, 200);
     assertEquals(
@@ -120,10 +123,5 @@ Deno.test("the API enforces the dashboard's one read across the whole documented
   } finally {
     globalThis.fetch = originalFetch;
     forgetJwks();
-    for (const [key, value] of previous) {
-      if (value === undefined) Deno.env.delete(key);
-      else Deno.env.set(key, value);
-    }
-    await sql.end();
   }
 });

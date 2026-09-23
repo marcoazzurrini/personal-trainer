@@ -1,4 +1,4 @@
-import { WeightData } from "./weight";
+import { WeightData } from "./weight.ts";
 
 export type Dashboard =
   | { status: "signed-out" }
@@ -53,7 +53,9 @@ export async function readDashboard(
         Accept: "application/json",
       },
       cache: "no-store",
-      redirect: "error",
+      // Workers supports manual redirects, not redirect: "error". Refuse every
+      // non-2xx response below rather than forwarding the token to another URL.
+      redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {

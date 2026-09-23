@@ -1,108 +1,123 @@
-// The register of things that make bodyweight move for reasons that are not
-// fat or muscle. Registering one tells the expenditure back-solve to damp its
-// updates while the water settles, instead of reading it as metabolism.
-
-import { sql } from "../db.ts";
+import {
+  batch,
+  type Clock,
+  type Database,
+  databaseError,
+  date,
+  instant,
+  requestId,
+  romeDate,
+  rows,
+  statement,
+  systemClock,
+} from "../shared/d1.ts";
 import { requireRow } from "../shared/errors.ts";
-import { writeOnce } from "../shared/idempotency.ts";
-import { romeToday } from "../shared/calendar.ts";
 import { addDays } from "../shared/dates.ts";
+import type { ActiveTransient, EventRow, Kind } from "./events.types.ts";
 
-export const KINDS = [
-  "creatine_start",
-  "phase_switch",
-  "program_change",
-  "logging_change",
-  "other",
-] as const;
-export type Kind = (typeof KINDS)[number];
-
-export interface EventRow {
-  id: number;
-  day: string;
-  kind: Kind;
-  note: string | null;
-  created_at: string;
-}
-
-/** The same rows the back-solve damps on, without the bookkeeping column. */
-export type ActiveTransient = Omit<EventRow, "created_at">;
-
-// How long after a registered transient its damping applies. Glycogen and
-// water settle over one to two weeks; two is the honest outer bound.
-const TRANSIENT_WINDOW_DAYS = 14;
-
-function eventColumns() {
-  return sql`id, day, kind, note, created_at`;
-}
-
-/** Recorded events and unsuppressed effective goal changes, newest first. */
-export async function listEvents(): Promise<EventRow[]> {
-  return await sql<EventRow[]>`
-    select ${eventColumns()}
-    from nutrition_effective_events order by day desc, id desc`;
-}
-
-/** Those still inside the damping window on the given day. */
-export async function activeTransients(
-  asOf: string,
-): Promise<ActiveTransient[]> {
-  return await sql<ActiveTransient[]>`
-    select id, day, kind, note from nutrition_effective_events
-    where day >= ${addDays(asOf, -TRANSIENT_WINDOW_DAYS)} and day <= ${asOf}
-    order by day desc, id desc`;
-}
-
-export async function registerEvent(b: {
-  day?: string | null;
-  kind: Kind;
-  note?: string | null;
-  request_id: string;
-}): Promise<{ row: EventRow; created: boolean }> {
-  const { body: row, status } = await writeOnce<EventRow, EventRow, EventRow>({
-    table: "nutrition_events",
-    requestId: b.request_id,
-    select: eventColumns(),
-    replay: (existing) => existing,
-    write: async () => {
-      const day = b.day ?? await romeToday();
-      const [written] = await sql<EventRow[]>`
-        insert into nutrition_events (day, kind, note, request_id)
-        values (${day}, ${b.kind}, ${b.note ?? null}, ${b.request_id})
-        returning ${eventColumns()}`;
-      return written;
-    },
-  });
-  return { row, created: status === 201 };
-}
-
-// An event registered on the wrong day, or that turned out not to have
-// happened, actively distorts the estimate: it damps updates for two weeks
-// around a transient that never occurred. Registering one is a claim, and a
-// claim can be wrong.
-export async function withdrawEvent(
-  id: number,
-): Promise<Pick<EventRow, "day" | "kind" | "note">> {
-  const missing =
-    `No nutrition event with id ${id}. Read GET /nutrition-events and use an id from the current events list.`;
-  if (id < 0) {
-    // A single statement both verifies that the event still exists and saves
-    // its dismissal. Concurrent/repeated deletes cannot quietly succeed twice.
-    // The target remains the record of what Marco was told to eat.
+const columns =
+  "id, day, kind, note, substr(created_at, 1, 23) || 'Z' AS created_at";
+export function eventStore(db: Database, clock: Clock = systemClock) {
+  async function listEvents(): Promise<EventRow[]> {
+    return await rows<EventRow>(
+      db,
+      `SELECT ${columns} FROM nutrition_effective_events ORDER BY day DESC, id DESC`,
+    );
+  }
+  async function activeTransients(asOf: string): Promise<ActiveTransient[]> {
+    const day = date(asOf);
+    return await rows<ActiveTransient>(
+      db,
+      "SELECT id, day, kind, note FROM nutrition_effective_events WHERE day >= ? AND day <= ? ORDER BY day DESC, id DESC",
+      addDays(day, -14),
+      day,
+    );
+  }
+  async function registerEvent(b: {
+    day?: string | null;
+    kind: Kind;
+    note?: string | null;
+    request_id: string;
+  }): Promise<{ row: EventRow; created: boolean }> {
+    const uuid = requestId(b.request_id);
+    const seen = async () =>
+      (
+        await rows<EventRow>(
+          db,
+          `SELECT ${columns} FROM nutrition_events WHERE request_id = ?`,
+          uuid,
+        )
+      )[0];
+    const replay = await seen();
+    if (replay) return { row: replay, created: false };
+    try {
+      const now = instant(clock().toISOString());
+      const result = await batch(db, [
+        statement(
+          db,
+          `INSERT INTO nutrition_events (day, kind, note, request_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (request_id) DO NOTHING RETURNING ${columns}`,
+          date(b.day ?? romeDate(now)),
+          b.kind,
+          b.note ?? null,
+          uuid,
+          now,
+        ),
+        statement(
+          db,
+          `SELECT ${columns} FROM nutrition_events WHERE request_id = ?`,
+          uuid,
+        ),
+      ]);
+      return {
+        row: requireRow(
+          result[1].results as unknown as EventRow[],
+          "The nutrition event could not be read after saving.",
+        ),
+        created: result[0].results.length > 0,
+      };
+    } catch (error) {
+      const replay = await seen();
+      if (replay) return { row: replay, created: false };
+      throw databaseError(error);
+    }
+  }
+  async function withdrawEvent(
+    id: number,
+  ): Promise<Pick<EventRow, "day" | "kind" | "note">> {
+    const missing =
+      `No nutrition event with id ${id}. Read GET /nutrition-events and use an id from the current events list.`;
+    if (id < 0) {
+      const result = await batch(db, [
+        statement(
+          db,
+          "SELECT day, kind, note FROM nutrition_goal_switches WHERE id = ?",
+          id,
+        ),
+        statement(
+          db,
+          `UPDATE nutrition_targets SET phase_switch_suppressed = 1 WHERE id = ? AND phase_switch_suppressed = 0
+          AND EXISTS (SELECT 1 FROM nutrition_goal_switches WHERE id = ?) RETURNING id`,
+          -id,
+          id,
+        ),
+      ]);
+      requireRow(result[1].results, missing);
+      return requireRow(
+        result[0].results as unknown as Pick<
+          EventRow,
+          "day" | "kind" | "note"
+        >[],
+        missing,
+      );
+    }
     return requireRow(
-      await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
-        update nutrition_targets t set phase_switch_suppressed = true
-        from nutrition_goal_switches e
-        where t.id = ${-id} and e.id = ${id}
-          and not t.phase_switch_suppressed
-        returning e.day, e.kind, e.note`,
+      await rows<Pick<EventRow, "day" | "kind" | "note">>(
+        db,
+        "DELETE FROM nutrition_events WHERE id = ? RETURNING day, kind, note",
+        id,
+      ),
       missing,
     );
   }
-  return requireRow(
-    await sql<Array<Pick<EventRow, "day" | "kind" | "note">>>`
-      delete from nutrition_events where id = ${id}
-      returning day, kind, note`,
-    missing,
-  );
+  return { listEvents, activeTransients, registerEvent, withdrawEvent };
 }

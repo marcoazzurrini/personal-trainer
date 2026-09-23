@@ -1,10 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
 import {
   api,
-  type ApiResponse,
   daysAgo,
-  DB_URL,
   ensureCatalogue,
   lastMonday,
   resetNutrition,
@@ -106,58 +103,30 @@ Deno.test("a session retry racing its original writes one session", async () => 
       notes: `Raced set ${i + 1}`,
     })),
   };
-  const db = postgres(DB_URL);
-  const gate = await db.reserve();
-  let pending: Promise<ApiResponse>[] = [];
-  try {
-    // Both requests must pass the replay lookup and reach INSERT before either
-    // can commit. Promise.all alone could accidentally test a sequential retry.
-    await db`create function test_session_create_gate() returns trigger language plpgsql as $$
-      begin
-        perform pg_advisory_xact_lock(91658);
-        return new;
-      end $$`;
-    await db`create trigger test_session_create_gate before insert on sessions
-      for each row execute function test_session_create_gate()`;
-    await gate`select pg_advisory_lock(91658)`;
-    pending = [api.post("/sessions", body), api.post("/sessions", body)];
-    const deadline = Date.now() + 5000;
-    while (true) {
-      const [{ blocked }] =
-        await db`select count(*)::int as blocked from pg_locks
-        where locktype = 'advisory' and classid = 0 and objid = 91658 and not granted`;
-      if (blocked === 2) break;
-      assert(
-        Date.now() < deadline,
-        "Both session creates must overlap at INSERT.",
-      );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    await gate`select pg_advisory_unlock(91658)`;
-    const [a, b] = await Promise.all(pending);
-    assertEquals([a, b].filter((r) => r.status === 201).length, 1);
-    assert([a, b].every((r) => [200, 201, 409].includes(r.status)));
-    const winner = a.status === 201 ? a : b;
-    const replay = await api.post("/sessions", body);
-    assertEquals(replay.status, 200);
-    assertEquals(replay.body, winner.body);
-    assertEquals(replay.body.session.sets.length, body.sets.length);
-    assertEquals(
-      replay.body.session.sets.map((
-        s: { position: number; notes: string },
-      ) => [s.position, s.notes]),
-      body.sets.map((s, i) => [i + 1, s.notes]),
-    );
-    const { body: list } = await api.get("/sessions?limit=100");
-    assertEquals(list.sessions.length, 1);
-  } finally {
-    await gate`select pg_advisory_unlock_all()`;
-    await Promise.allSettled(pending);
-    gate.release();
-    await db`drop trigger if exists test_session_create_gate on sessions`;
-    await db`drop function if exists test_session_create_gate()`;
-    await db.end();
+  // These are concurrent HTTP calls to the Worker. D1 serializes batches;
+  // either a replay or a conflict is valid, but a partial session is not.
+  const [a, b] = await Promise.all([
+    api.post("/sessions", body),
+    api.post("/sessions", body),
+  ]);
+  assertEquals([a, b].filter((r) => r.status === 201).length, 1);
+  assert([a, b].every((r) => [200, 201, 409].includes(r.status)));
+  const winner = a.status === 201 ? a : b;
+  for (const response of [a, b]) {
+    if (response.status === 200) assertEquals(response.body, winner.body);
   }
+  const replay = await api.post("/sessions", body);
+  assertEquals(replay.status, 200);
+  assertEquals(replay.body, winner.body);
+  assertEquals(replay.body.session.sets.length, body.sets.length);
+  assertEquals(
+    replay.body.session.sets.map((
+      s: { position: number; notes: string },
+    ) => [s.position, s.notes]),
+    body.sets.map((s, i) => [i + 1, s.notes]),
+  );
+  const { body: list } = await api.get("/sessions?limit=100");
+  assertEquals(list.sessions.length, 1);
 });
 
 Deno.test("one weigh-in arriving twice at once is one row", async (t) => {

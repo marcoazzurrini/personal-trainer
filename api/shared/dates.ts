@@ -1,14 +1,10 @@
 // The calendar arithmetic, defined once.
 //
 // Every day in this system is a Rome calendar date carried as a bare
-// "YYYY-MM-DD" string; which day "today" is gets decided by Postgres
-// (`now() at time zone 'Europe/Rome'`, asked in calendar.ts and
-// nowhere else), never here. What this module does is
-// walk from one such day to another, and that walking is UTC-anchored on
-// purpose: anchored to local time it would gain or lose a day in the DST
-// weeks depending on the machine's zone data. api/tests/dates_test.ts holds
-// mondayOf to the same answer as Postgres's date_trunc('week', …) so the two
-// implementations of the week cannot drift apart.
+// "YYYY-MM-DD" string. Persistence converts its injected clock to Europe/Rome;
+// this module never reads a clock. It walks from one day to another using UTC
+// anchors so DST cannot add or remove a day. api/tests/dates_test.ts holds the
+// Monday boundary across calendar and timezone changes.
 //
 // The future checks live here too: whether a day has happened yet is a
 // question about the calendar, not about a field.
@@ -70,8 +66,9 @@ const CLOCK_SKEW_MS = 5 * 60_000;
 export function requireNotFutureInstant(
   iso: string,
   field: string,
+  now: number = Date.now(),
 ): string {
-  if (Date.parse(iso) > Date.now() + CLOCK_SKEW_MS) {
+  if (Date.parse(iso) > now + CLOCK_SKEW_MS) {
     throw new ApiError(
       422,
       `"${field}" is ${iso}, which is in the future. A measurement records something that has already been taken. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`,

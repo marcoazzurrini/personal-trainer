@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { listBlocks, openBlock } from "./blocks.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import {
   body,
   date,
@@ -9,7 +9,7 @@ import {
   text,
 } from "../shared/schema.ts";
 
-export const blocks = new OpenAPIHono();
+export const blocks = new OpenAPIHono<AppEnv>();
 
 const Block = z.object({
   id: z.int(),
@@ -37,7 +37,7 @@ blocks.openapi(
       },
     },
   }),
-  async (c) => c.json({ blocks: await listBlocks() }),
+  async (c) => c.json({ blocks: await services(c).blocks.listBlocks() }),
 );
 
 blocks.openapi(
@@ -79,7 +79,9 @@ blocks.openapi(
     },
   }),
   async (c) => {
-    const { row, created } = await openBlock(c.req.valid("json"));
+    const { row, created } = await services(c).blocks.openBlock(
+      c.req.valid("json"),
+    );
     return created ? c.json({ block: row }, 201) : c.json({ block: row }, 200);
   },
 );

@@ -1,9 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { GOALS } from "./expenditure.ts";
-import { finishedWeeks } from "./weekly.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { query } from "../shared/schema.ts";
 
-export const nutritionWeekly = new OpenAPIHono();
+export const nutritionWeekly = new OpenAPIHono<AppEnv>();
 
 const WeekEvent = z.object({
   day: z.string(),
@@ -105,5 +105,10 @@ nutritionWeekly.openapi(
       422: { description: "?weeks was not a whole number between 1 and 104." },
     },
   }),
-  async (c) => c.json(await finishedWeeks(c.req.valid("query").weeks)),
+  async (c) =>
+    c.json(
+      await services(c).nutritionWeekly.finishedWeeks(
+        c.req.valid("query").weeks,
+      ),
+    ),
 );

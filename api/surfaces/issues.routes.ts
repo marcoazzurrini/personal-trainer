@@ -1,5 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { commentOnReport, fileIssue, listIssues } from "./issues.ts";
+import {
+  commentOnReport,
+  fileIssue,
+  type IssueBindings,
+  listIssues,
+} from "./issues.ts";
 import { ISSUE_KINDS } from "./github.ts";
 import {
   body,
@@ -19,7 +24,7 @@ const kindError = () =>
 const docsError = () =>
   '"docs" must be an array of document names, like ["tasks/programming"]. Leave it out if no document is involved.';
 
-export const issues = new OpenAPIHono();
+export const issues = new OpenAPIHono<{ Bindings: IssueBindings }>();
 
 const Issue = z.object({
   number: z.int(),
@@ -55,7 +60,7 @@ issues.openapi(
       502: { description: "GitHub could not be reached." },
     },
   }),
-  async (c) => c.json({ issues: await listIssues() }),
+  async (c) => c.json({ issues: await listIssues(c.env) }),
 );
 
 issues.openapi(
@@ -109,7 +114,7 @@ issues.openapi(
     },
   }),
   async (c) => {
-    const issue = await fileIssue(c.req.valid("json"));
+    const issue = await fileIssue(c.req.valid("json"), c.env);
     return c.json({ issue }, 201);
   },
 );
@@ -150,6 +155,7 @@ issues.openapi(
       comment: await commentOnReport(
         c.req.valid("param").number,
         c.req.valid("json").note,
+        c.env,
       ),
     }, 201),
 );

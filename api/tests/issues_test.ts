@@ -182,49 +182,52 @@ interface Recorded {
 // Plays GitHub: records every request, answers each shape happily.
 function stubGithub() {
   const requests: Recorded[] = [];
-  const server = Deno.serve({ port: 0, onListen() {} }, async (req) => {
-    const url = new URL(req.url);
-    const body = req.body ? await req.json() : undefined;
-    requests.push({
-      method: req.method,
-      path: url.pathname,
-      search: url.search,
-      body,
-    });
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen() {} },
+    async (req) => {
+      const url = new URL(req.url);
+      const body = req.body ? await req.json() : undefined;
+      requests.push({
+        method: req.method,
+        path: url.pathname,
+        search: url.search,
+        body,
+      });
 
-    if (url.pathname.endsWith("/comments") && req.method === "POST") {
-      return Response.json({
-        html_url: "https://github.com/o/r/issues/7#issuecomment-1",
-      }, { status: 201 });
-    }
-    if (url.pathname.endsWith("/issues") && req.method === "POST") {
-      return Response.json(
-        { number: 7, html_url: "https://github.com/o/r/issues/7" },
-        { status: 201 },
-      );
-    }
-    if (url.pathname.endsWith("/issues") && req.method === "GET") {
-      return Response.json([
-        {
-          number: 7,
-          title: "POST /sets 500s",
-          html_url: "https://github.com/o/r/issues/7",
-          created_at: "2026-08-24T10:00:00Z",
-          labels: [{ name: COACH_LABEL }, { name: "bug" }],
-        },
-        // A pull request. GitHub returns these from the issues endpoint too.
-        {
-          number: 8,
-          title: "Fix the 500",
-          html_url: "https://github.com/o/r/pull/8",
-          created_at: "2026-08-25T10:00:00Z",
-          labels: [{ name: COACH_LABEL }],
-          pull_request: { url: "https://api.github.com/repos/o/r/pulls/8" },
-        },
-      ]);
-    }
-    return Response.json({}, { status: 201 });
-  });
+      if (url.pathname.endsWith("/comments") && req.method === "POST") {
+        return Response.json({
+          html_url: "https://github.com/o/r/issues/7#issuecomment-1",
+        }, { status: 201 });
+      }
+      if (url.pathname.endsWith("/issues") && req.method === "POST") {
+        return Response.json(
+          { number: 7, html_url: "https://github.com/o/r/issues/7" },
+          { status: 201 },
+        );
+      }
+      if (url.pathname.endsWith("/issues") && req.method === "GET") {
+        return Response.json([
+          {
+            number: 7,
+            title: "POST /sets 500s",
+            html_url: "https://github.com/o/r/issues/7",
+            created_at: "2026-08-24T10:00:00Z",
+            labels: [{ name: COACH_LABEL }, { name: "bug" }],
+          },
+          // A pull request. GitHub returns these from the issues endpoint too.
+          {
+            number: 8,
+            title: "Fix the 500",
+            html_url: "https://github.com/o/r/pull/8",
+            created_at: "2026-08-25T10:00:00Z",
+            labels: [{ name: COACH_LABEL }],
+            pull_request: { url: "https://api.github.com/repos/o/r/pulls/8" },
+          },
+        ]);
+      }
+      return Response.json({}, { status: 201 });
+    },
+  );
   const cfg = {
     apiBase: `http://127.0.0.1:${server.addr.port}`,
     token: "stub-token",
@@ -296,7 +299,11 @@ Deno.test("github client", async (t) => {
     async () => {
       let response = "";
       let calls = 0;
-      const server = Deno.serve({ port: 0, onListen() {} }, async (req) => {
+      const server = Deno.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        onListen() {},
+      }, async (req) => {
         await req.text();
         calls++;
         return new Response(response, {
@@ -406,7 +413,7 @@ Deno.test("github client", async (t) => {
   // status; without it a typo answers 502 and blames the server.
   await t.step("an error surfaces its status and message", async () => {
     const server = Deno.serve(
-      { port: 0, onListen() {} },
+      { hostname: "127.0.0.1", port: 0, onListen() {} },
       () => Response.json({ message: "Not Found" }, { status: 404 }),
     );
     const cfg = {

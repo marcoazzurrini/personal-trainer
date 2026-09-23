@@ -1,121 +1,99 @@
-// What was actually eaten: food and grams, or an ad-hoc estimate.
-// Meal logging preserves its ingredients and quantities, never a live recipe.
-// intake_values derives macros from corrected food labels. Only ad-hoc entries
-// and explicit overrides store numbers; food corrections invalidate overrides.
-
-import { sql } from "../db.ts";
+import {
+  batch,
+  type Clock,
+  type Database,
+  databaseError,
+  date,
+  decimal,
+  instant,
+  type Parameter,
+  requestId,
+  type Result,
+  romeDate,
+  rows,
+  statement,
+  systemClock,
+} from "../shared/d1.ts";
 import { requireNotFuture } from "../shared/dates.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
-import { gramsEaten, type MacroTotals, sumMacros } from "./rules.ts";
-import { writeOnce } from "../shared/idempotency.ts";
-import { romeToday } from "../shared/calendar.ts";
-import { resolveFoodId, resolveMealId } from "./resolve.ts";
+import { gramsEaten, sumMacros } from "./rules.ts";
+import type {
+  CorrectInput,
+  DayView,
+  IntakeEntry,
+  LogInput,
+} from "./intake.types.ts";
+import {
+  beginNutritionWrite,
+  finishNutritionWrite,
+  nutritionCheck,
+  nutritionResolver,
+  nutritionRows,
+} from "./resolve.ts";
 
-export interface IntakeEntry {
-  id: number;
-  day: string;
-  grams: number | null;
-  kcal: number;
-  protein_g: number | null;
-  carbs_g: number | null;
-  fat_g: number | null;
-  fiber_g: number | null;
-  note: string | null;
-  created_at: string;
-  food_id: number | null;
-  food: string | null;
-  meal_id: number | null;
-  meal: string | null;
-}
-
-export interface DayView {
-  day: string;
-  entries: IntakeEntry[];
-  totals: MacroTotals;
-  flags: string[];
-}
-
-/** "I didn't track today at all." See flagDay for what the flag buys. */
-export const FLAGS = ["incomplete"] as const;
-
-// Past this, a "portion" is a mistyped decimal. See the check in logIntake.
 const MAX_SCALE = 10;
-
-/**
- * A day's entries, totals and flags.
- *
- * Omit the day for today in Europe/Rome. That default cannot live in the
- * request schema, because which day it is now is a question for Postgres and
- * not for the caller — it is the whole reason GET /intake answers without
- * being told a date.
- */
-export async function viewDay(day?: string | null): Promise<DayView> {
-  return await dayView(day ?? await romeToday());
-}
-
-async function dayView(day: string): Promise<DayView> {
-  const entries = await sql<IntakeEntry[]>`
-    select i.id, i.day, i.grams::float8, i.kcal::float8,
-      i.protein_g::float8, i.carbs_g::float8, i.fat_g::float8,
-      i.fiber_g::float8, i.note, i.created_at,
-      i.food_id, f.name as food, i.meal_id, m.name as meal
-    from intake_values i
-    left join foods f on f.id = i.food_id
-    left join meals m on m.id = i.meal_id
-    where i.day = ${day}
-    order by i.created_at, i.id`;
-  const flags = await sql<{ flag: string }[]>`
-    select flag from day_flags where day = ${day} order by flag`;
-  return {
-    day,
-    entries,
-    totals: sumMacros(entries),
-    flags: flags.map((f) => f.flag),
-  };
-}
-
 const MACROS = ["kcal", "protein_g", "carbs_g", "fat_g", "fiber_g"] as const;
+const per100g = {
+  kcal: "kcal_100g",
+  protein_g: "protein_100g",
+  carbs_g: "carbs_100g",
+  fat_g: "fat_100g",
+  fiber_g: "fiber_100g",
+};
 
-/** A food or meal named by id, name, or alias. */
-type Reference = string | number;
-
-export interface LogInput {
-  day?: string | null;
-  meal?: Reference | null;
-  scale?: number | null;
-  food?: Reference | null;
-  grams?: number | null;
-  units?: number | null;
-  adhoc_kcal?: number | null;
-  adhoc_protein_g?: number | null;
-  note?: string | null;
-  request_id: string;
-}
-
-/**
- * Logs one of a meal, a food, or an ad-hoc estimate, and answers with the day.
- *
- * `created` is false when this request_id has already logged — the retry is
- * answered with the day unchanged rather than logging it twice.
- */
-export async function logIntake(
-  b: LogInput,
-): Promise<{ view: DayView; created: boolean }> {
-  const { body: view, status } = await writeOnce<
-    { day: string },
-    DayView,
-    DayView
-  >({
-    table: "intake_entries",
-    requestId: b.request_id,
-    select: sql`day`,
-    replay: (seen) => dayView(seen.day),
-    write: async () => {
-      const today = await romeToday();
-      const day = requireNotFuture(b.day ?? today, today, "day");
+export function intakeStore(db: Database, clock: Clock = systemClock) {
+  const resolver = nutritionResolver(db);
+  const today = () => romeDate(instant(clock().toISOString()));
+  function dayReads(day: string, byEntry = false) {
+    const on = byEntry ? "(SELECT day FROM intake_entries WHERE id = ?)" : "?";
+    return [
+      statement(
+        db,
+        `SELECT i.id, i.day, i.grams, i.kcal, i.protein_g, i.carbs_g, i.fat_g, i.fiber_g, i.note,
+      substr(i.created_at, 1, 23) || 'Z' AS created_at, i.food_id, f.name AS food, i.meal_id, m.name AS meal
+      FROM intake_values i LEFT JOIN foods f ON f.id = i.food_id LEFT JOIN meals m ON m.id = i.meal_id
+      WHERE i.day = ${on} ORDER BY i.created_at, i.id`,
+        day,
+      ),
+      statement(
+        db,
+        `SELECT flag FROM day_flags WHERE day = ${on} ORDER BY flag`,
+        day,
+      ),
+    ];
+  }
+  function view(day: string, result: Result[]): DayView {
+    const entries = result[0].results as unknown as IntakeEntry[];
+    return {
+      day,
+      entries,
+      totals: sumMacros(entries),
+      flags: result[1].results.map((r) => r.flag as string),
+    };
+  }
+  async function viewDay(day?: string | null): Promise<DayView> {
+    const on = date(day ?? today());
+    return view(on, await batch(db, dayReads(on)));
+  }
+  async function seen(uuid: string) {
+    const [entry] = await rows<{ day: string }>(
+      db,
+      "SELECT day FROM intake_entries WHERE request_id = ? ORDER BY id LIMIT 1",
+      uuid,
+    );
+    return entry ? await viewDay(entry.day) : undefined;
+  }
+  async function logIntake(
+    b: LogInput,
+  ): Promise<{ view: DayView; created: boolean }> {
+    const uuid = requestId(b.request_id);
+    const replay = await seen(uuid);
+    if (replay) return { view: replay, created: false };
+    try {
+      const day = requireNotFuture(date(b.day ?? today()), today(), "day");
       const note = b.note ?? null;
-      const wants = (["meal", "food", "adhoc_kcal"] as const).filter((k) =>
-        b[k] !== undefined && b[k] !== null
+      const wants = (["meal", "food", "adhoc_kcal"] as const).filter(
+        (k) => b[k] !== undefined && b[k] !== null,
       );
       if (wants.length !== 1) {
         throw new ApiError(
@@ -123,7 +101,9 @@ export async function logIntake(
           wants.length === 0
             ? 'An intake entry is one of three things: "meal" (a saved meal by id, name, or alias), "food" plus "grams" or "units", or "adhoc_kcal" for an estimated entry. Send exactly one.'
             : `Send exactly one of "meal", "food", "adhoc_kcal" — got ${
-              wants.join(" and ")
+              wants.join(
+                " and ",
+              )
             }. A meal plus an extra food is two calls, which is also how a variation on a routine gets logged.`,
         );
       }
@@ -163,230 +143,270 @@ export async function logIntake(
         }
       }
 
-      if (b.adhoc_kcal !== undefined && b.adhoc_kcal !== null) {
-        // A number, always. An "unknown" would be counted as zero by the intake
-        // mean that feeds the expenditure back-solve; a day genuinely beyond
-        // estimating is flagged incomplete instead, which excludes it entirely.
-        const kcal = b.adhoc_kcal;
-        if (kcal < 0) {
+      const writes = [
+        beginNutritionWrite(db),
+        nutritionCheck(
+          db,
+          "NOT EXISTS (SELECT 1 FROM intake_entries WHERE request_id = ?)",
+          uuid,
+        ),
+      ];
+      const now = instant(clock().toISOString());
+      if (b.adhoc_kcal != null) {
+        if (b.adhoc_kcal < 0) {
           throw new ApiError(422, '"adhoc_kcal" must be zero or more.');
         }
-        await sql`
-          insert into intake_entries (day, kcal, protein_g, note, request_id)
-          values (${day}, ${kcal}, ${
-          b.adhoc_protein_g ?? null
-        }, ${note}, ${b.request_id})`;
-        return await dayView(day);
-      }
-
-      if (b.food !== undefined && b.food !== null) {
-        const foodId = await resolveFoodId(b.food);
-        const [food] = await sql`select * from foods where id = ${foodId}`;
+        writes.push(
+          statement(
+            db,
+            `INSERT INTO intake_entries (day, kcal, protein_g, note, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+            day,
+            decimal(b.adhoc_kcal, 7, 1),
+            decimal(b.adhoc_protein_g ?? null, 6, 1),
+            note,
+            uuid,
+            now,
+          ),
+          nutritionRows(db, 1),
+        );
+      } else if (b.food != null) {
+        const foodId = await resolver.resolveFoodId(b.food);
+        const food = requireRow(
+          await rows<{ name: string; grams_per_unit: number | null }>(
+            db,
+            "SELECT name, grams_per_unit / 10.0 AS grams_per_unit FROM foods WHERE id = ?",
+            foodId,
+          ),
+          `No food with id ${foodId}.`,
+        );
         const grams = gramsEaten(
           b.grams ?? null,
           b.units ?? null,
-          food.grams_per_unit === null ? null : Number(food.grams_per_unit),
+          food.grams_per_unit,
           food.name,
         );
-        await sql`
-          insert into intake_entries (day, food_id, grams, note, request_id)
-          values (${day}, ${foodId}, ${grams}, ${note}, ${b.request_id})`;
-        return await dayView(day);
-      }
-
-      const mealId = await resolveMealId(b.meal);
-      const items = await sql`
-    select mi.grams::float8, mi.food_id
-    from meal_items mi
-    where mi.meal_id = ${mealId}`;
-      if (items.length === 0) {
-        const [meal] = await sql`select name from meals where id = ${mealId}`;
-        throw new ApiError(
-          422,
-          `"${meal.name}" has no foods in it, so there is nothing to log. Add its items first.`,
+        if (b.units != null) {
+          writes.push(
+            nutritionCheck(
+              db,
+              "EXISTS (SELECT 1 FROM foods WHERE id = ? AND grams_per_unit IS ?)",
+              foodId,
+              decimal(food.grams_per_unit, 6, 1),
+            ),
+          );
+        }
+        writes.push(
+          statement(
+            db,
+            `INSERT INTO intake_entries (day, food_id, grams, note, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+            day,
+            foodId,
+            decimal(grams, 7, 1),
+            note,
+            uuid,
+            now,
+          ),
+          nutritionRows(db, 1),
+        );
+      } else {
+        const mealId = await resolver.resolveMealId(b.meal);
+        const [meal] = await rows<{ name: string; items: number }>(
+          db,
+          "SELECT name, (SELECT count(*) FROM meal_items WHERE meal_id = m.id) AS items FROM meals m WHERE id = ?",
+          mealId,
+        );
+        if (!meal?.items) {
+          throw new ApiError(
+            422,
+            `"${meal?.name}" has no foods in it, so there is nothing to log. Add its items first.`,
+          );
+        }
+        // Copy the current recipe inside the batch, not a recipe read before it.
+        // Preserve the public Math.round(grams * scale * 10) operation order,
+        // including binary floating-point ties, without reading recipes outside the batch.
+        writes.push(
+          statement(
+            db,
+            `WITH portions AS (
+          SELECT id, food_id, meal_id, grams / 10.0 * ? * 10 AS amount FROM meal_items WHERE meal_id = ?
+        ) INSERT INTO intake_entries (day, food_id, grams, meal_id, note, request_id, created_at)
+          SELECT ?, food_id, CAST(amount AS INTEGER) + (amount - CAST(amount AS INTEGER) >= 0.5), meal_id, ?, ?, ?
+          FROM portions ORDER BY id`,
+            scale ?? 1,
+            mealId,
+            day,
+            note,
+            uuid,
+            now,
+          ),
+          nutritionCheck(db, "changes() > 0"),
         );
       }
-
-      // Snapshot ingredients and rounded quantities, not label values.
-      // One INSERT is atomic: an invalid item leaves none of the meal logged.
-      const rows = items.map((item) => ({
-        day,
-        food_id: item.food_id,
-        grams: Math.round(item.grams * (scale ?? 1) * 10) / 10,
-        meal_id: mealId,
-        note,
-        request_id: b.request_id,
-      }));
-      await sql`insert into intake_entries ${sql(rows)}`;
-      return await dayView(day);
-    },
-  });
-  return { view, created: status === 201 };
-}
-
-export interface CorrectInput {
-  day?: string | null;
-  grams?: number | null;
-  kcal?: number | null;
-  protein_g?: number | null;
-  carbs_g?: number | null;
-  fat_g?: number | null;
-  fiber_g?: number | null;
-  note?: string | null;
-}
-
-/**
- * Corrects one logged entry, and answers with the day it now lives on.
- *
- * New grams remove an explicit override and derive macros from the food.
- * Direct macro corrections override the entry until the next food correction,
- * preserving the former blanket retroactivity policy without rewriting intake.
- *
- * `movedFrom` names the day the entry left, when it left one.
- */
-export async function correctEntry(
-  id: number,
-  b: CorrectInput,
-): Promise<{ view: DayView; movedFrom: string | null }> {
-  const entry = requireRow(
-    await sql`
-    select * from intake_entries where id = ${id}`,
-    `No intake entry with id ${id}. GET /intake?day=YYYY-MM-DD lists a day's entries with their ids.`,
-  );
-
-  const note = b.note !== undefined ? b.note : undefined;
-
-  // The date was wrong; the food was not. Logging after midnight, or
-  // reconstructing a day from memory, puts entries on the day either side of
-  // the one meant. Without this the only repair was to delete each row and log
-  // it again, which retypes every ad-hoc number by hand — and a typo made
-  // while repairing looks exactly like a correct value.
-  //
-  // Only the day moves. Ingredients, quantities and overrides stay untouched;
-  // no recipe is re-read and no override is replaced by derived values.
-  const rawDay = b.day ?? null;
-  const day = rawDay === null
-    ? null
-    : requireNotFuture(rawDay, await romeToday(), "day");
-  const grams = b.grams == null ? null : gramsEaten(b.grams, null, null, "");
-  const kcal = b.kcal ?? null;
-
-  // "grams" answers every macro question by re-scaling from the food; a
-  // direct macro is a second answer to one of them. Accepting both wrote a
-  // row whose macros described the grams while the overridden field said
-  // something else — the same contradiction checkEnergy refuses at food
-  // creation, so it is refused here too.
-  const overridden =
-    (["kcal", "protein_g", "carbs_g", "fat_g", "fiber_g"] as const)
-      .filter((k) => b[k] !== undefined && b[k] !== null);
-  if (grams !== null && overridden.length > 0) {
-    throw new ApiError(
-      422,
-      `"grams" recomputes kcal and the macros from the food, so it cannot be combined with ${
-        overridden.map((k) => `"${k}"`).join(", ")
-      }. Send "grams" alone to re-scale, or the numbers alone to override them.`,
+      const result = await batch(db, [
+        ...writes,
+        ...dayReads(day),
+        finishNutritionWrite(db),
+      ]);
+      return { view: view(day, result.slice(-3, -1)), created: true };
+    } catch (error) {
+      const replay = await seen(uuid);
+      if (replay) return { view: replay, created: false };
+      throw databaseError(error);
+    }
+  }
+  async function correctEntry(
+    id: number,
+    b: CorrectInput,
+  ): Promise<{ view: DayView; movedFrom: string | null }> {
+    const entry = requireRow(
+      await rows<{ day: string; food_id: number | null }>(
+        db,
+        "SELECT day, food_id FROM intake_entries WHERE id = ?",
+        id,
+      ),
+      `No intake entry with id ${id}. GET /intake?day=YYYY-MM-DD lists a day's entries with their ids.`,
     );
-  }
+    const note = b.note !== undefined ? b.note : undefined;
 
-  if (grams !== null && entry.food_id === null) {
-    throw new ApiError(
-      422,
-      'This is an ad-hoc entry, so it has no food to re-scale from. Correct it with "kcal" (and optionally "protein_g") directly.',
-    );
-  }
+    // The date was wrong; the food was not. Logging after midnight, or
+    // reconstructing a day from memory, puts entries on the day either side of
+    // the one meant. Without this the only repair was to delete each row and log
+    // it again, which retypes every ad-hoc number by hand — and a typo made
+    // while repairing looks exactly like a correct value.
+    //
+    // Only the day moves. Ingredients, quantities and overrides stay untouched;
+    // no recipe is re-read and no override is replaced by derived values.
+    const rawDay = b.day ?? null;
+    const day = rawDay === null
+      ? null
+      : requireNotFuture(date(rawDay), today(), "day");
+    const grams = b.grams == null ? null : gramsEaten(b.grams, null, null, "");
 
-  const fields: Record<string, unknown> = {};
-  if (note !== undefined) fields.note = note;
-  if (day !== null) fields.day = day;
+    // "grams" answers every macro question by re-scaling from the food; a
+    // direct macro is a second answer to one of them. Accepting both wrote a
+    // row whose macros described the grams while the overridden field said
+    // something else — the same contradiction checkEnergy refuses at food
+    // creation, so it is refused here too.
+    const overridden = (
+      ["kcal", "protein_g", "carbs_g", "fat_g", "fiber_g"] as const
+    ).filter((k) => b[k] !== undefined && b[k] !== null);
+    if (grams !== null && overridden.length > 0) {
+      throw new ApiError(
+        422,
+        `"grams" recomputes kcal and the macros from the food, so it cannot be combined with ${
+          overridden
+            .map((k) => `"${k}"`)
+            .join(
+              ", ",
+            )
+        }. Send "grams" alone to re-scale, or the numbers alone to override them.`,
+      );
+    }
 
-  if (grams !== null) {
-    fields.grams = grams;
-    fields.food_macro_revision = null;
-    for (const macro of MACROS) fields[macro] = null;
-  }
-  if (kcal !== null) fields.kcal = kcal;
-  for (const macro of ["protein_g", "carbs_g", "fat_g", "fiber_g"] as const) {
-    const value = b[macro] ?? null;
-    if (value !== null) fields[macro] = value;
-  }
+    if (grams !== null && entry.food_id === null) {
+      throw new ApiError(
+        422,
+        'This is an ad-hoc entry, so it has no food to re-scale from. Correct it with "kcal" (and optionally "protein_g") directly.',
+      );
+    }
 
-  if (Object.keys(fields).length === 0) {
-    throw new ApiError(
-      422,
-      'Send at least one of "day" (moves the entry to another date, numbers untouched), "grams" (re-scales from the food as it is now), "kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", or "note". To remove an entry entirely, DELETE it.',
-    );
-  }
-
-  if (entry.food_id !== null && overridden.length > 0) {
-    // Read omitted values from the UPDATE's target row, not a self-join to
-    // intake_values. After waiting for another correction, Postgres evaluates
-    // these expressions against the latest target row. A stale joined copy
-    // would silently undo a concurrent override or use its old grams.
-    const per100g = {
-      kcal: "kcal_100g",
-      protein_g: "protein_100g",
-      carbs_g: "carbs_100g",
-      fat_g: "fat_100g",
-      fiber_g: "fiber_100g",
+    const updates: string[] = [];
+    const values: Parameter[] = [];
+    const set = (key: string, value: Parameter) => {
+      updates.push(`${key} = ?`);
+      values.push(value);
     };
+    if (note !== undefined) set("note", note);
+    if (day !== null) set("day", day);
+    if (grams !== null) {
+      set("grams", decimal(grams, 7, 1));
+      updates.push(
+        "food_macro_revision = NULL",
+        ...MACROS.map((m) => `${m} = NULL`),
+      );
+    }
     for (const macro of MACROS) {
-      if (!(macro in fields)) {
-        fields[macro] = sql`case
-          when i.food_macro_revision = f.macro_revision then i.${sql(macro)}
-          else round(f.${sql(per100g[macro])} * i.grams / 100, 1) end`;
+      if (b[macro] != null) {
+        set(macro, decimal(b[macro]!, macro === "kcal" ? 7 : 6, 1));
+      } else if (entry.food_id !== null && overridden.length) {
+        updates.push(`${macro} = CASE
+        WHEN i.food_macro_revision = (SELECT macro_revision FROM foods WHERE id = i.food_id) THEN i.${macro}
+        ELSE (SELECT (${
+          per100g[macro]
+        } * i.grams + 500) / 1000 FROM foods WHERE id = i.food_id) END`);
       }
     }
-    fields.food_macro_revision = sql`f.macro_revision`;
-    await sql`
-      update intake_entries i set ${sql(fields)}
-      from foods f where i.food_id = f.id and i.id = ${id}`;
-  } else {
-    await sql`update intake_entries set ${sql(fields)} where id = ${id}`;
+    if (entry.food_id !== null && overridden.length) {
+      updates.push(
+        "food_macro_revision = (SELECT macro_revision FROM foods WHERE id = i.food_id)",
+      );
+    }
+    if (!updates.length) {
+      throw new ApiError(
+        422,
+        'Send at least one of "day" (moves the entry to another date, numbers untouched), "grams" (re-scales from the food as it is now), "kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", or "note". To remove an entry entirely, DELETE it.',
+      );
+    }
+    const result = await batch(db, [
+      beginNutritionWrite(db),
+      statement(db, "SELECT day FROM intake_entries WHERE id = ?", id),
+      statement(
+        db,
+        `UPDATE intake_entries AS i SET ${
+          updates.join(", ")
+        } WHERE id = ? RETURNING day`,
+        ...values,
+        id,
+      ),
+      nutritionRows(db, 1),
+      ...dayReads(String(id), true),
+      finishNutritionWrite(db),
+    ]);
+    const previous = result[1].results[0].day as string;
+    const landed = result[2].results[0].day as string;
+    return {
+      view: view(landed, result.slice(-3, -1)),
+      movedFrom: landed !== previous ? previous : null,
+    };
   }
-
-  // The day the entry now lives on, not the one it left. Returning the old day
-  // would show a view the entry is no longer in, which reads as a failed write.
-  // moved_from names the other day when there is one: it also changed, and an
-  // emptied day leaves the expenditure window entirely.
-  const landedOn = day ?? entry.day;
-  return {
-    view: await dayView(landedOn),
-    movedFrom: day !== null && day !== entry.day ? entry.day as string : null,
-  };
-}
-
-// A mis-log ("I logged that twice") is removed, not zeroed: a zero-kcal row
-// would count as a logged entry and quietly inflate adherence.
-export async function removeEntry(id: number): Promise<DayView> {
-  const entry = requireRow(
-    await sql`
-    delete from intake_entries where id = ${id} returning day`,
-    `No intake entry with id ${id}.`,
-  );
-  return await dayView(entry.day);
-}
-
-/**
- * Flags a day.
- *
- * `incomplete` takes the day out of the expenditure window rather than letting
- * it enter as zero intake, which would drag the mean and bias the back-solve
- * toward a lower expenditure. Removable: a flag is a statement about the
- * record, not part of it.
- */
-export async function flagDay(day: string, flag: string): Promise<DayView> {
-  const on = requireNotFuture(day, await romeToday(), "day");
-  await sql`
-    insert into day_flags (day, flag) values (${on}, ${flag})
-    on conflict (day, flag) do nothing`;
-  return await dayView(on);
-}
-
-export async function unflagDay(day: string, flag: string): Promise<DayView> {
-  requireRow(
-    await sql`
-    delete from day_flags where day = ${day} and flag = ${flag} returning id`,
-    `${day} is not flagged "${flag}".`,
-  );
-  return await dayView(day);
+  async function removeEntry(id: number): Promise<DayView> {
+    const entry = requireRow(
+      await rows<{ day: string }>(
+        db,
+        "DELETE FROM intake_entries WHERE id = ? RETURNING day",
+        id,
+      ),
+      `No intake entry with id ${id}.`,
+    );
+    return await viewDay(entry.day);
+  }
+  async function flagDay(day: string, flag: string): Promise<DayView> {
+    const on = requireNotFuture(date(day), today(), "day");
+    const result = await batch(db, [
+      statement(
+        db,
+        "INSERT INTO day_flags (day, flag, created_at) VALUES (?, ?, ?) ON CONFLICT (day, flag) DO NOTHING",
+        on,
+        flag,
+        instant(clock().toISOString()),
+      ),
+      ...dayReads(on),
+    ]);
+    return view(on, result.slice(-2));
+  }
+  async function unflagDay(day: string, flag: string): Promise<DayView> {
+    const on = date(day);
+    const result = await batch(db, [
+      statement(
+        db,
+        "DELETE FROM day_flags WHERE day = ? AND flag = ? RETURNING id",
+        on,
+        flag,
+      ),
+      ...dayReads(on),
+    ]);
+    requireRow(result[0].results, `${day} is not flagged "${flag}".`);
+    return view(on, result.slice(-2));
+  }
+  return { viewDay, logIntake, correctEntry, removeEntry, flagDay, unflagDay };
 }

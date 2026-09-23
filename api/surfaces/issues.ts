@@ -51,11 +51,17 @@ export interface OpenedIssue {
   title: string;
 }
 
-// Read per request, not at startup: the rest of the API works without
-// GitHub configured, and the error should say exactly what is missing.
-function config(): GithubConfig {
-  const token = Deno.env.get("GITHUB_TOKEN");
-  const repo = Deno.env.get("GITHUB_REPO");
+export interface IssueBindings {
+  GITHUB_TOKEN?: string;
+  GITHUB_REPO?: string;
+  GITHUB_API_BASE?: string;
+}
+
+// Read only for this request. Missing GitHub configuration must not disable
+// unrelated record reads, and bindings must never leak across environments.
+function config(env: IssueBindings): GithubConfig {
+  const token = env.GITHUB_TOKEN;
+  const repo = env.GITHUB_REPO;
   if (!token || !repo) {
     throw new ApiError(
       500,
@@ -63,7 +69,7 @@ function config(): GithubConfig {
     );
   }
   return {
-    apiBase: Deno.env.get("GITHUB_API_BASE") ?? "https://api.github.com",
+    apiBase: env.GITHUB_API_BASE ?? "https://api.github.com",
     token,
     repo,
   };
@@ -121,9 +127,9 @@ function parseDocs(raw: string[] | null | undefined): string[] {
 }
 
 /** Every open coach-filed issue in the repository. */
-export async function listIssues(): Promise<CoachIssue[]> {
+export async function listIssues(env: IssueBindings): Promise<CoachIssue[]> {
   try {
-    return await listCoachIssues(config());
+    return await listCoachIssues(config(env));
   } catch (err) {
     if (err instanceof GithubError) throw new ApiError(502, err.message);
     throw err;
@@ -138,7 +144,7 @@ export async function fileIssue(b: {
   suggestion?: string | null;
   docs?: string[];
   request_id: string;
-}): Promise<OpenedIssue> {
+}, env: IssueBindings): Promise<OpenedIssue> {
   for (
     const value of [
       b.title,
@@ -176,7 +182,7 @@ export async function fileIssue(b: {
 
   let opened: { number: number; url: string };
   try {
-    opened = await openIssue(config(), {
+    opened = await openIssue(config(env), {
       title,
       kind,
       body: issueBody({
@@ -210,11 +216,12 @@ export async function fileIssue(b: {
 export async function commentOnReport(
   issueNumber: number,
   rawNote: string,
+  env: IssueBindings,
 ): Promise<{ url: string }> {
   requireSanitizedReport(rawNote);
   const note = capped(rawNote, MAX_COMMENT, "note");
   try {
-    return await commentOnIssue(config(), issueNumber, note);
+    return await commentOnIssue(config(env), issueNumber, note);
   } catch (err) {
     if (err instanceof GithubError) {
       // A wrong number is the caller's mistake, and answering it with a 502

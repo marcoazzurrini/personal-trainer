@@ -1,160 +1,95 @@
-// The bodyfat_estimates table: what an estimate is, and every question asked
-// of it.
-//
-// Body fat exists here for one reason: the energy density of a weight change
-// is composition-weighted, not a flat 7,700 kcal/kg. Forbes gives
-// p = C / (C + FM) with C = 10.4 kg, and FM comes from this series. Precision
-// is not the point — the result is only modestly sensitive to FM error — but
-// it has to be a number the server can read, and it has to have history,
-// because the estimate gets re-anchored as a phase runs on.
-
-import { sql } from "../db.ts";
-import { romeToday } from "../shared/calendar.ts";
-import { writeOnce } from "../shared/idempotency.ts";
+import {
+  type Clock,
+  type Database,
+  date,
+  decimal,
+  instant,
+  requestId,
+  romeDate,
+  rows,
+  systemClock,
+} from "../shared/d1.ts";
 import { requireNotFuture } from "../shared/dates.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
+import type {
+  BodyfatRow,
+  RecordBodyfatInput,
+  RecordedBodyfat,
+} from "./bodyfat.types.ts";
 
-export const METHODS = ["bia", "dxa", "caliper", "visual", "other"] as const;
-export type Method = (typeof METHODS)[number];
+const columns =
+  "id, day, percent / 10.0 AS percent, method, note, substr(created_at, 1, 23) || 'Z' AS created_at";
 
-export interface BodyfatRow {
-  id: number;
-  day: string;
-  percent: number;
-  method: Method;
-  note: string | null;
-  created_at: string;
-}
-
-// A function and not a shared constant, for the reason shared/calendar.ts
-// gives about its own fragments: a postgres.js fragment is a query object
-// rather than a string, so callers splice a fresh one instead of sharing an
-// instance.
-function estimateColumns() {
-  return sql`id, day, percent::float8, method, note, created_at`;
-}
-
-/** Every estimate, by day then method. */
-export async function listBodyfat(): Promise<BodyfatRow[]> {
-  return await sql<BodyfatRow[]>`
-    select ${estimateColumns()}
-    from bodyfat_estimates order by day, method`;
-}
-
-export interface RecordedBodyfat {
-  row: BodyfatRow;
-  /** False when the estimate was already on record — an idempotent retry. */
-  created: boolean;
-}
-
-/**
- * Records one estimate, or recognises that it is already recorded.
- *
- * `day` defaults to Rome's today, which is why it is not a caller's decision:
- * the answer comes from the same clock that stamped the rows. Throws ApiError
- * 422 for a day in the future, and 409 when that day and method already hold a
- * *different* reading.
- */
-export async function recordBodyfat(input: {
-  percent: number;
-  method: Method;
-  day?: string | null;
-  note?: string | null;
-  requestId: string;
-}): Promise<RecordedBodyfat> {
-  const today = await romeToday();
-  // Rome's today comes from Postgres, so the rule cannot be expressed in the
-  // schema: it is a comparison against a value the schema never sees.
-  const day = requireNotFuture(input.day ?? today, today, "day");
-
-  // Deduped on (day, method), like bodyweight on (measured_at, source):
-  // resending is a no-op, and a genuinely different value for the same day and
-  // method is a conflict worth asking about rather than silently overwriting.
-  //
-  // That key alone cannot keep the request_id promise, because it is not the
-  // same question. It asks whether the record already holds an estimate for a
-  // day; the request_id asks whether this call has already been answered. They
-  // part company when day moves under a retry — it defaults to Rome's today,
-  // so a call retried after midnight lands on a free (day, method) and writes
-  // a second estimate of the same reading a day late.
-  //
-  // The natural key is settled first, because it asks about the record rather
-  // than about this call: an estimate for this day and method either exists or
-  // it does not, whoever sent it. Asking the other way round would answer a
-  // retry that arrived carrying a changed reading with the reading it replaced.
-  const [found] = await sql<(BodyfatRow & { same_value: boolean })[]>`
-    select ${estimateColumns()}, percent = ${input.percent}::numeric(4, 1) as same_value
-    from bodyfat_estimates where day = ${day} and method = ${input.method}`;
-  if (found !== undefined) {
-    // A retry carries the original number, which may have more decimal places
-    // than the column. Compare using the same precision as the original write.
-    const { same_value, ...existing } = found;
-    if (same_value) {
-      return { row: existing, created: false }; // idempotent retry
+export function bodyfatStore(db: Database, clock: Clock = systemClock) {
+  async function recordBodyfat(
+    input: RecordBodyfatInput,
+  ): Promise<RecordedBodyfat> {
+    const now = instant(clock().toISOString());
+    const today = romeDate(now);
+    const day = requireNotFuture(date(input.day ?? today), today, "day");
+    const value = decimal(input.percent, 4, 1);
+    // Keep natural-key precedence over request-id replay, including a changed
+    // reading sent after midnight. A retry cannot overwrite a measurement.
+    const [found] = await rows<BodyfatRow & { stored_value: number }>(
+      db,
+      `SELECT ${columns}, percent AS stored_value FROM bodyfat_estimates WHERE day = ? AND method = ?`,
+      day,
+      input.method,
+    );
+    if (found) {
+      const { stored_value, ...existing } = found;
+      if (stored_value === value) return { row: existing, created: false };
+      throw new ApiError(
+        409,
+        `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${input.method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`,
+      );
     }
-    throw new ApiError(
-      409,
-      `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${input.method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`,
+    const uuid = requestId(input.requestId);
+    const [seen] = await rows<BodyfatRow>(
+      db,
+      `SELECT ${columns} FROM bodyfat_estimates WHERE request_id = ?`,
+      uuid,
+    );
+    if (seen) return { row: seen, created: false };
+    const row = requireRow(
+      await rows<BodyfatRow>(
+        db,
+        `INSERT INTO bodyfat_estimates (day, percent, method, note, request_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?) RETURNING ${columns}`,
+        day,
+        value,
+        input.method,
+        input.note ?? null,
+        uuid,
+        now,
+      ),
+      "The body-fat estimate could not be read after saving.",
+    );
+    return { row, created: true };
+  }
+  async function listBodyfat(): Promise<BodyfatRow[]> {
+    return await rows<BodyfatRow>(
+      db,
+      `SELECT ${columns} FROM bodyfat_estimates ORDER BY day, method`,
     );
   }
-
-  const { body: row, status } = await writeOnce<
-    BodyfatRow,
-    BodyfatRow,
-    BodyfatRow
-  >({
-    table: "bodyfat_estimates",
-    requestId: input.requestId,
-    select: estimateColumns(),
-    // The original estimate, on the day it was recorded against — which is
-    // the point of replaying rather than writing: a retry after midnight
-    // gets back the day it meant, not the day it arrived on.
-    replay: (found) => found,
-    write: async () => {
-      // No on-conflict clause: the select above has already established that
-      // this day and method are free, so the only way the natural key can
-      // still fire is a concurrent write between the two, and that is a
-      // refusal rather than something to swallow.
-      const [written] = await sql<BodyfatRow[]>`
-        insert into bodyfat_estimates (day, percent, method, note, request_id)
-        values (${day}, ${input.percent}, ${input.method}, ${
-        input.note ?? null
-      }, ${input.requestId})
-        returning ${estimateColumns()}`;
-      return written;
-    },
-  });
-  return { row, created: status === 201 };
-}
-
-/**
- * The most recent estimate, or null when none is on record.
- *
- * Tie-broken by id, because several methods can land on one day and the
- * back-solve needs one number. shared/dates.ts documents the hazard that
- * ordering creates — which is why the ordering is stated once here rather
- * than wherever a caller happens to want the row. Callers that only need the
- * number take `.percent`; nutrition-state shows the whole estimate, and it
- * used to run a second, separately written query to get it.
- */
-export async function latestBodyfat(): Promise<BodyfatRow | null> {
-  const [row] = await sql<BodyfatRow[]>`
-    select ${estimateColumns()} from bodyfat_estimates
-    order by day desc, id desc limit 1`;
-  return row ?? null;
-}
-
-// A mistyped estimate is a mistake, not a measurement. 41% instead of 14%
-// changes fat mass by 22 kg, which changes the energy density of every kg of
-// weight change, which moves the calorie target — and the natural key means it
-// cannot simply be overwritten. Removing it is the way out.
-export async function removeBodyfat(
-  id: number,
-): Promise<Pick<BodyfatRow, "day" | "percent" | "method">> {
-  return requireRow(
-    await sql<Array<Pick<BodyfatRow, "day" | "percent" | "method">>>`
-    delete from bodyfat_estimates where id = ${id}
-    returning day, percent::float8, method`,
-    `No body-fat estimate with id ${id}.`,
-  );
+  async function latestBodyfat(): Promise<BodyfatRow | null> {
+    return (await rows<BodyfatRow>(
+      db,
+      `SELECT ${columns} FROM bodyfat_estimates ORDER BY day DESC, id DESC LIMIT 1`,
+    ))[0] ?? null;
+  }
+  async function removeBodyfat(
+    id: number,
+  ): Promise<Pick<BodyfatRow, "day" | "percent" | "method">> {
+    return requireRow(
+      await rows<Pick<BodyfatRow, "day" | "percent" | "method">>(
+        db,
+        "DELETE FROM bodyfat_estimates WHERE id = ? RETURNING day, percent / 10.0 AS percent, method",
+        id,
+      ),
+      `No body-fat estimate with id ${id}.`,
+    );
+  }
+  return { recordBodyfat, listBodyfat, latestBodyfat, removeBodyfat };
 }

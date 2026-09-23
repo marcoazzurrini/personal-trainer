@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Private migration exports contain health records and provider credentials
+*.snapshot.json
+*.import.sql
+
 # Editor / OS
 .DS_Store
 .idea/
@@ -10,8 +14,14 @@
 !.vscode/settings.json
 *.swp
 
-# Generated caches, including coverage profiles and reports
+# Generated caches, dependencies and Worker build output
 /.cache/
+/node_modules/
+/dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 
 # Web build output and dependencies
 web/node_modules/

@@ -134,53 +134,8 @@ export function errorResponse(err: unknown, c: Context): Response {
   if (err instanceof ApiError) {
     return c.json({ error: err.message }, err.status);
   }
-  // postgres.js surfaces Postgres errors with code + constraint_name.
-  const pg = err as {
-    code?: string;
-    constraint_name?: string;
-    column_name?: string;
-    message?: string;
-    detail?: string;
-  };
-  if (pg.code === "23505") {
-    const message = constraintMessages[pg.constraint_name ?? ""] ??
-      `That would duplicate an existing row (unique constraint "${pg.constraint_name}").`;
-    return c.json({ error: message }, 409);
-  }
-  if (pg.code === "23514") {
-    const message = constraintMessages[pg.constraint_name ?? ""] ??
-      `The database rejected a value (check constraint "${pg.constraint_name}"). Fix the offending field and retry.`;
-    return c.json({ error: message }, 422);
-  }
-  if (pg.code === "23503") {
-    return c.json({
-      error:
-        `A referenced row does not exist (foreign key "${pg.constraint_name}").`,
-    }, 422);
-  }
-  // Numeric field overflow. Every measured column is a bounded numeric, so a
-  // decimal point in the wrong place lands here — and without this it lands as
-  // a 500, which tells the caller nothing it can act on. The same reasoning as
-  // idParam: a malformed number deserves a prompt, not an internal error.
-  // Postgres carries no constraint name here, but its detail names the
-  // precision and scale, which is exactly what the caller needs.
-  // A null written into a column that cannot hold one. Reaching Postgres at
-  // all means a validator accepted an explicit null for a required field —
-  // PATCH /foods with {"kcal_100g": null} was the live case. The caller still
-  // deserves a prompt naming the field, not an internal error.
-  if (pg.code === "23502") {
-    return c.json({
-      error: `"${pg.column_name}" is required and cannot be null. Omit the ` +
-        "field to leave it unchanged, or send a real value.",
-    }, 422);
-  }
-  if (pg.code === "22003") {
-    return c.json({
-      error: `A number is too large for the column it was written to.${
-        pg.detail ? ` ${pg.detail}` : ""
-      } Check for a misplaced decimal point, or per-serving values sent as per-100 g.`,
-    }, 422);
-  }
+  // Persistence maps known D1 failures to ApiError before this boundary.
+  // Unknown failures are diagnostics, never raw SQL or bound parameters.
   const diagnostic: Diagnostic = c.get("diagnostic") ?? {
     id: crypto.randomUUID(),
     route: c.req.routePath ?? "unmatched",

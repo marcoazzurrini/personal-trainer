@@ -1,41 +1,12 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
-import {
-  api,
-  type ApiResponse,
-  DB_URL,
-  ensureCatalogue,
-  resetTraining,
-  today,
-  uuid,
-} from "./helpers.ts";
+import d1 from "./d1.ts";
+import { api, ensureCatalogue, resetTraining, today, uuid } from "./helpers.ts";
 
 Deno.test("discard and every actual writer honor the same session boundary", async (t) => {
   await resetTraining();
   await ensureCatalogue();
-  const db = postgres(DB_URL);
-  const gate = await db.reserve();
-  // A trigger holds the winning operation mid-write. Database lock state,
-  // not a sleep or request launch order, proves both calls overlap.
-  async function blocked(count: number) {
-    const end = Date.now() + 5000;
-    while (Date.now() < end) {
-      const [{ n }] = await db`select count(*)::int as n from pg_stat_activity
-        where datname = current_database() and wait_event_type = 'Lock'`;
-      if (n >= count) return;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error(
-      `Expected ${count} blocked operations at the controlled boundary.`,
-    );
-  }
+  const db = d1();
   try {
-    await db`create function test_session_gate() returns trigger language plpgsql as $$
-      begin
-        perform pg_advisory_xact_lock(90254);
-        if TG_OP = 'DELETE' then return old; end if;
-        return new;
-      end $$`;
     for (
       const writer of [
         "correct",
@@ -45,110 +16,124 @@ Deno.test("discard and every actual writer honor the same session boundary", asy
         "finish",
       ] as const
     ) {
-      for (const deletionWins of [false, true]) {
-        await t.step(
-          `${writer}: ${deletionWins ? "deletion" : "logging"} wins`,
-          async () => {
-            const draft = await api.post("/sessions", {
-              request_id: uuid(),
-              date: today(),
-              rationale: "Controlled race",
-              sets: [{
+      // Launch order is varied, not asserted to be the database's commit order.
+      // Sequential cases also hold both outcomes without relying on scheduling.
+      for (
+        const order of [
+          "write first",
+          "discard first",
+          "write then discard",
+          "discard then write",
+        ] as const
+      ) {
+        await t.step(`${writer}: ${order}`, async () => {
+          const draft = await api.post("/sessions", {
+            request_id: uuid(),
+            date: today(),
+            rationale: "Session boundary race",
+            sets: [{
+              exercise: "squat",
+              kind: "working",
+              target_reps: 8,
+              target_weight_kg: 100,
+            }],
+          });
+          assertEquals(draft.status, 201);
+          const session = draft.body.session;
+          const at = new Date().toISOString();
+          const write = () =>
+            writer === "correct"
+              ? api.patch(`/sets/${session.sets[0].id}`, {
+                reps: 8,
+                weight_kg: 100,
+                effort: "hard",
+              })
+              : writer === "report"
+              ? api.patch(`/sessions/${session.id}`, {
+                sets: [{
+                  id: session.sets[0].id,
+                  reps: 8,
+                  weight_kg: 100,
+                  effort: "hard",
+                }],
+                notes: "Reported together",
+              })
+              : writer === "append"
+              ? api.post(`/sessions/${session.id}/sets`, {
                 exercise: "squat",
                 kind: "working",
-                target_reps: 8,
-                target_weight_kg: 100,
-              }],
-            });
-            assertEquals(draft.status, 201);
-            const session = draft.body.session;
-            const write = () =>
-              writer === "correct"
-                ? api.patch(`/sets/${session.sets[0].id}`, {
-                  reps: 8,
-                  weight_kg: 100,
-                  effort: "hard",
-                })
-                : writer === "report"
-                ? api.patch(`/sessions/${session.id}`, {
-                  sets: [{
-                    id: session.sets[0].id,
-                    reps: 8,
-                    weight_kg: 100,
-                    effort: "hard",
-                  }],
-                  notes: "Reported together",
-                })
-                : writer === "append"
-                ? api.post(`/sessions/${session.id}/sets`, {
-                  exercise: "squat",
-                  kind: "working",
-                  reps: 8,
-                  weight_kg: 100,
-                  effort: "hard",
-                  request_id: uuid(),
-                })
-                : api.patch(`/sessions/${session.id}`, {
-                  [writer === "start" ? "started_at" : "completed_at"]:
-                    new Date().toISOString(),
-                });
-            const remove = () => api.delete(`/sessions/${session.id}`);
-            const table =
-              deletionWins || writer === "correct" || writer === "report" ||
-                writer === "append"
-                ? "sets"
-                : "sessions";
-            const event = deletionWins
-              ? "delete"
-              : writer === "append"
-              ? "insert"
-              : "update";
-            await db.unsafe(
-              `create trigger test_session_gate before ${event} on ${table} for each row execute function test_session_gate()`,
+                reps: 8,
+                weight_kg: 100,
+                effort: "hard",
+                request_id: uuid(),
+              })
+              : api.patch(`/sessions/${session.id}`, {
+                [writer === "start" ? "started_at" : "completed_at"]: at,
+              });
+          const remove = () => api.delete(`/sessions/${session.id}`);
+          const [written, discarded] = order === "write then discard"
+            ? [await write(), await remove()]
+            : order === "discard then write"
+            ? await (async () => {
+              const discarded = await remove();
+              return [await write(), discarded];
+            })()
+            : order === "write first"
+            ? await Promise.all([write(), remove()])
+            : (await Promise.all([remove(), write()])).reverse();
+          if (order === "write then discard") {
+            assertEquals(discarded.status, 409);
+          }
+          if (order === "discard then write") {
+            assertEquals(discarded.status, 200);
+          }
+          const saved = await api.get(`/sessions/${session.id}`);
+          if (discarded.status === 200) {
+            assertEquals(written.status, 404);
+            assertEquals(saved.status, 404);
+            assertEquals(
+              (await db`select count(*) as n from sets where session_id = ${session.id}`)[
+                0
+              ].n,
+              0,
             );
-            let first: Promise<ApiResponse> | undefined;
-            let second: Promise<ApiResponse> | undefined;
-            try {
-              await gate`select pg_advisory_lock(90254)`;
-              first = deletionWins ? remove() : write();
-              await blocked(1);
-              second = deletionWins ? write() : remove();
-              await blocked(2);
-              await gate`select pg_advisory_unlock(90254)`;
-              const [winner, loser] = await Promise.all([first, second]);
+            assertEquals((await remove()).status, 404);
+          } else {
+            assertEquals(discarded.status, 409);
+            assertEquals(written.status, writer === "append" ? 201 : 200);
+            assertEquals(saved.status, 200);
+            assertEquals(
+              saved.body.session.sets.length,
+              writer === "append" ? 2 : 1,
+            );
+            if (writer === "start" || writer === "finish") {
               assertEquals(
-                winner.status,
-                !deletionWins && writer === "append" ? 201 : 200,
+                saved.body
+                  .session[writer === "start" ? "started_at" : "completed_at"],
+                at,
               );
-              assertEquals(loser.status, deletionWins ? 404 : 409);
-              const saved = await api.get(`/sessions/${session.id}`);
-              assertEquals(saved.status, deletionWins ? 404 : 200);
-              if (
-                !deletionWins &&
-                (writer === "correct" || writer === "report" ||
-                  writer === "append")
-              ) {
-                assert(
-                  saved.body.session.sets.some((s: { reps: number | null }) =>
-                    s.reps === 8
-                  ),
-                );
+            } else {
+              assert(
+                saved.body.session.sets.some((
+                  s: {
+                    reps: number | null;
+                    weight_kg: number | null;
+                    effort: string | null;
+                  },
+                ) =>
+                  s.reps === 8 && s.weight_kg === 100 && s.effort === "hard"
+                ),
+              );
+              if (writer === "report") {
+                assertEquals(saved.body.session.notes, "Reported together");
               }
-            } finally {
-              await gate`select pg_advisory_unlock_all()`;
-              await Promise.allSettled(
-                [first, second].filter((p) => p !== undefined),
-              );
-              await db.unsafe(`drop trigger test_session_gate on ${table}`);
             }
-          },
-        );
+            assertEquals((await remove()).status, 409);
+          }
+        });
       }
     }
   } finally {
-    await gate`select pg_advisory_unlock_all()`;
-    gate.release();
-    await db`drop function test_session_gate()`;
     await db.end();
   }
 });

@@ -1,25 +1,27 @@
-// Test-only entrypoint. No identity route or test dependency ships in the image.
-import {
-  assertIdentity,
-  databaseIdentity,
-  verifiedDatabase,
-} from "./disposable.ts";
+// Test-only entrypoint. Production bundles api/worker.ts, never this module.
+import worker from "../worker.ts";
+import type { Bindings, Invocation } from "../environment.ts";
 
-const d = await verifiedDatabase();
-Deno.env.set("DATABASE_URL", d.databaseUrl);
-const { sql } = await import("../db.ts");
-// Verify the actual operations' singleton before importing/serving the API.
-assertIdentity(d, await databaseIdentity(sql));
-const { handleRequest, startServer } = await import("../index.ts");
-const server = startServer({ hostname: "127.0.0.1", port: 0 }, async (req) => {
-  if (new URL(req.url).pathname === "/api/__test_identity") {
-    const identity = await databaseIdentity(sql);
-    assertIdentity(d, identity);
-    return Response.json(identity);
-  }
-  return handleRequest(req);
-});
-await Deno.writeTextFile(
-  `${Deno.env.get("TEST_DISPOSABLE_FILE")}.ready`,
-  `http://127.0.0.1:${server.addr.port}/api`,
-);
+type TestBindings = Bindings & { TEST_SECRET: string; TEST_RUN: string };
+export default {
+  async fetch(
+    req: Request,
+    env: TestBindings,
+    ctx: Invocation,
+  ): Promise<Response> {
+    if (new URL(req.url).pathname === "/api/__test_identity") {
+      if (req.headers.get("authorization") !== `Bearer ${env.TEST_SECRET}`) {
+        return Response.json({ error: "Test capability required." }, {
+          status: 403,
+        });
+      }
+      const result = await env.DB.prepare("SELECT run FROM __test_identity")
+        .all<{ run: string }>();
+      return Response.json({
+        kind: "personal-trainer-worker-d1-v1",
+        run: result.results[0]?.run,
+      });
+    }
+    return worker.fetch(req, env, ctx);
+  },
+};

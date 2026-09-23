@@ -24,6 +24,26 @@ export class JwtError extends Error {
   }
 }
 
+/** Compare credentials through native HMAC verification, not JavaScript equality. */
+export async function timingSafeEqual(
+  left: string,
+  right: string,
+): Promise<boolean> {
+  const key = await crypto.subtle.generateKey(
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const encoder = new TextEncoder();
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(left));
+  return await crypto.subtle.verify(
+    "HMAC",
+    key,
+    signature,
+    encoder.encode(right),
+  );
+}
+
 export interface Jwks {
   keys: Array<JsonWebKey & { kid?: string }>;
 }

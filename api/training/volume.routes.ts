@@ -1,8 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { dosePerExercise, volumePerMuscle } from "./volume.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { query } from "../shared/schema.ts";
 
-export const weeklyVolume = new OpenAPIHono();
+export const weeklyVolume = new OpenAPIHono<AppEnv>();
 
 const MesocycleSelector = z.string().optional().meta({
   description:
@@ -46,10 +46,14 @@ weeklyVolume.openapi(
     },
   }),
   async (c) =>
-    c.json(await volumePerMuscle(c.req.valid("query").mesocycle ?? "current")),
+    c.json(
+      await services(c).volume.volumePerMuscle(
+        c.req.valid("query").mesocycle ?? "current",
+      ),
+    ),
 );
 
-export const weeklyExerciseSets = new OpenAPIHono();
+export const weeklyExerciseSets = new OpenAPIHono<AppEnv>();
 
 const ExerciseWeek = z.object({
   week: z.int(),
@@ -94,5 +98,9 @@ weeklyExerciseSets.openapi(
     },
   }),
   async (c) =>
-    c.json(await dosePerExercise(c.req.valid("query").mesocycle ?? "current")),
+    c.json(
+      await services(c).volume.dosePerExercise(
+        c.req.valid("query").mesocycle ?? "current",
+      ),
+    ),
 );

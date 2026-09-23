@@ -1,35 +1,20 @@
-// Finished weeks only, like every other weekly read in this system: the
-// current week is never blended in, because a Tuesday's three logged days
-// would read as a collapse in intake.
-//
-// This is the evaluation surface for "is the cut working". Each row carries
-// what was eaten, what the trend did, and the expenditure that week implies
-// on its own. A single week's implied expenditure is noisy by construction —
-// it is here so a run of them can be read as a direction, not so any one of
-// them can be reacted to.
-
-import { sql } from "../db.ts";
+import { bodyfatStore } from "../body/bodyfat.ts";
+import { bodyweightStore } from "../body/bodyweight.ts";
+import {
+  type Clock,
+  type Database,
+  romeDate,
+  rows,
+  systemClock,
+} from "../shared/d1.ts";
+import { addDays, lastFinishedSunday, mondayOf } from "../shared/dates.ts";
 import { energyDensity, fatMassKg, weeklyTrendChange } from "./expenditure.ts";
-import { lastFinishedDay } from "../shared/calendar.ts";
-import { loadTrend } from "../body/bodyweight.ts";
-import { latestBodyfat } from "../body/bodyfat.ts";
+import type { Week, WeekEvent } from "./weekly.types.ts";
 
-export interface WeekEvent {
-  day: string;
-  kind: string;
-  note: string | null;
-}
+const NOTE =
+  "Finished weeks only. Each week carries what was eaten and the target in force at its end, so intake, protein and rate of change can each be read against what was actually asked for. A single week's implied_tdee_kcal is noisy — read the run, not the point, and never react to one week's movement inside the estimate's band. Where days_logged is low, mean_kcal is an average over few days and not a description of the week. Protein coverage excludes flagged days: days_in_mean is the mean's denominator (days with any known protein), entries counts all eligible entries, and unknown_entries counts those without protein. Partial protein is a known-protein floor over those days, not evidence of a target shortfall; wholly unknown days are not zeros.";
 
-export interface WeekTarget {
-  kcal: number;
-  protein_g: number;
-  goal: string;
-  rate_pct_bw_week: number;
-  effective_from: string;
-  changed_during_week: boolean;
-}
-
-export interface Week {
+interface WeekRow {
   week_start: string;
   week_end: string;
   days_logged: number;
@@ -37,142 +22,127 @@ export interface Week {
   weigh_ins: number;
   mean_kcal: number | null;
   mean_protein_g: number | null;
-  protein_coverage: {
-    days_in_mean: number;
-    entries: number;
-    unknown_entries: number;
-  };
-  trend_start_kg: number | null;
-  trend_end_kg: number | null;
-  trend_delta_kg: number | null;
-  rate_pct_bw_week: number | null;
-  implied_tdee_kcal: number | null;
-  target: WeekTarget | null;
-  events: WeekEvent[];
+  protein_days: number;
+  protein_entries: number;
+  unknown_protein_entries: number;
+  kcal_target: number | null;
+  protein_g_target: number;
+  target_goal: string;
+  target_rate_pct_bw_week: number;
+  target_effective_from: string;
+  target_changed: number;
 }
 
-const NOTE =
-  "Finished weeks only. Each week carries what was eaten and the target in force at its end, so intake, protein and rate of change can each be read against what was actually asked for. A single week's implied_tdee_kcal is noisy — read the run, not the point, and never react to one week's movement inside the estimate's band. Where days_logged is low, mean_kcal is an average over few days and not a description of the week. Protein coverage excludes flagged days: days_in_mean is the mean's denominator (days with any known protein), entries counts all eligible entries, and unknown_entries counts those without protein. Partial protein is a known-protein floor over those days, not evidence of a target shortfall; wholly unknown days are not zeros.";
+export function nutritionWeeklyStore(db: Database, clock: Clock = systemClock) {
+  async function finishedWeeks(
+    weeks: number,
+  ): Promise<{ weeks: Week[]; note: string }> {
+    const end = lastFinishedSunday(romeDate(clock().toISOString()));
+    const from = addDays(end, 1 - weeks * 7);
+    const trend = await bodyweightStore(db, clock).loadTrend();
+    const bodyfat = (await bodyfatStore(db, clock).latestBodyfat())?.percent ??
+      null;
 
-export async function finishedWeeks(
-  weeks: number,
-): Promise<{ weeks: Week[]; note: string }> {
-  const end = await lastFinishedDay();
-  const trend = await loadTrend();
-  const bodyfat = (await latestBodyfat())?.percent ?? null;
+    // Four reads even at the public maximum of 104 weeks. Never issue a D1
+    // subrequest per week, or bind a growing list of dates/target ids.
+    const data = await rows<WeekRow>(
+      db,
+      `
+      WITH RECURSIVE weeks(week_start, week_end, n) AS (
+        SELECT date(?, '-6 days'), ?, 1 WHERE ? > 0
+        UNION ALL
+        SELECT date(week_start, '-7 days'), date(week_end, '-7 days'), n + 1
+        FROM weeks WHERE n < ?
+      ), intake AS (
+        SELECT w.week_start,
+          count(CASE WHEN d.entries > 0 THEN 1 END) AS days_logged,
+          count(CASE WHEN d.incomplete THEN 1 END) AS days_flagged,
+          avg(CASE WHEN NOT d.incomplete THEN d.kcal END) AS mean_kcal,
+          avg(CASE WHEN NOT d.incomplete THEN d.protein_g END) AS mean_protein_g,
+          count(CASE WHEN NOT d.incomplete THEN d.protein_g END) AS protein_days,
+          coalesce(sum(CASE WHEN NOT d.incomplete THEN d.entries END), 0) AS protein_entries,
+          coalesce(sum(CASE WHEN NOT d.incomplete THEN d.entries - d.protein_entries END), 0) AS unknown_protein_entries
+        FROM weeks w LEFT JOIN daily_intake d
+          ON d.day BETWEEN w.week_start AND w.week_end
+        GROUP BY w.week_start
+      )
+      SELECT w.week_start, w.week_end, i.days_logged, i.days_flagged,
+        i.mean_kcal, i.mean_protein_g, i.protein_days, i.protein_entries,
+        i.unknown_protein_entries,
+        (SELECT count(*) FROM daily_bodyweight b
+          WHERE b.day BETWEEN w.week_start AND w.week_end) AS weigh_ins,
+        t.kcal_target, t.protein_g_target, t.goal AS target_goal,
+        t.rate_pct_bw_week / 100.0 AS target_rate_pct_bw_week,
+        t.effective_from AS target_effective_from,
+        EXISTS (SELECT 1 FROM nutrition_targets t2
+          WHERE t2.effective_from > w.week_start
+            AND t2.effective_from <= w.week_end) AS target_changed
+      FROM weeks w JOIN intake i ON i.week_start = w.week_start
+      LEFT JOIN nutrition_targets t ON t.id = (
+        SELECT id FROM nutrition_targets
+        WHERE effective_from <= w.week_end
+        ORDER BY effective_from DESC, id DESC LIMIT 1
+      ) ORDER BY w.week_start`,
+      end,
+      end,
+      weeks,
+      weeks,
+    );
 
-  const rows = await sql`
-    select
-      w.week_start,
-      (w.week_start + 6) as week_end,
-      (select count(*)::int from daily_intake d
-       where d.day >= w.week_start and d.day <= w.week_start + 6
-         and d.entries > 0)
-        as days_logged,
-      intake.mean_kcal,
-      intake.mean_protein_g,
-      intake.protein_days, intake.protein_entries, intake.unknown_protein_entries,
-      (select count(*)::int from daily_bodyweight b
-       where b.day >= w.week_start and b.day <= w.week_start + 6)
-        as weigh_ins,
-      (select count(*)::int from daily_intake d
-       where d.day >= w.week_start and d.day <= w.week_start + 6
-         and d.incomplete)
-        as days_flagged,
-      coalesce((select json_agg(json_build_object(
-                 'day', e.day, 'kind', e.kind, 'note', e.note) order by e.day)
-                from nutrition_effective_events e
-                where e.day >= w.week_start and e.day <= w.week_start + 6),
-               '[]') as events,
-      -- What the week was supposed to be, alongside what it was. Without this
-      -- the caller has to fetch the append-only target history and work out by
-      -- date which row governed each week — date arithmetic in the client, for
-      -- a comparison that is the entire point of the read.
-      tg.kcal_target, tg.protein_g_target, tg.goal as target_goal,
-      tg.rate_pct_bw_week::float8 as target_rate_pct_bw_week,
-      tg.effective_from as target_effective_from,
-      exists (select 1 from nutrition_targets t2
-              where t2.effective_from > w.week_start
-                and t2.effective_from <= w.week_start + 6) as target_changed
-    from (
-      select (${end}::date - 6 - (g * 7))::date as week_start
-      from generate_series(0, ${weeks - 1}) g
-    ) w
-    -- Both means are averaged over one filtered set of days, so they cannot
-    -- come to disagree about which days count. A day flagged incomplete is
-    -- unusable, not unusable-for-energy: Marco has said he did not track it,
-    -- so its partial protein understates the week exactly as its partial kcal
-    -- does, and excluding it from one mean but not the other would report a
-    -- protein shortfall that never happened.
-    --
-    -- avg ignores nulls, so a day carrying no protein at all leaves
-    -- mean_protein_g alone rather than dragging it toward zero — the same
-    -- floor-not-total rule sumMacros applies inside a single day, and the
-    -- reason daily_intake does not coalesce its sums.
-    left join lateral (
-      select avg(d.kcal)::float8 as mean_kcal,
-        avg(d.protein_g)::float8 as mean_protein_g,
-        count(d.protein_g)::int as protein_days,
-        coalesce(sum(d.entries), 0)::int as protein_entries,
-        coalesce(sum(d.entries - d.protein_entries), 0)::int as unknown_protein_entries
-      from daily_intake d
-      where d.day >= w.week_start and d.day <= w.week_start + 6
-        and not d.incomplete
-    ) intake on true
-    -- The target in force at the week's end: what Marco was eating to by the
-    -- time the week was over. target_changed flags the weeks where one
-    -- superseded another mid-week and the comparison is therefore muddy.
-    left join lateral (
-      select t.kcal_target, t.protein_g_target, t.goal, t.rate_pct_bw_week,
-        t.effective_from
-      from nutrition_targets t
-      where t.effective_from <= w.week_start + 6
-      order by t.effective_from desc, t.id desc
-      limit 1
-    ) tg on true
-    order by w.week_start`;
-
-  const byDay = new Map(trend.map((p) => [p.day, p]));
-
-  const enriched: Week[] = rows.map((row) => {
-    const start = byDay.get(row.week_start);
-    const finish = byDay.get(row.week_end);
-    const trendStart = start?.trend_kg ?? null;
-    const trendEnd = finish?.trend_kg ?? null;
-
-    const density = trendEnd === null || bodyfat === null
-      ? null
-      : energyDensity(fatMassKg(trendEnd, bodyfat));
-
-    return {
-      week_start: row.week_start,
-      week_end: row.week_end,
-      days_logged: row.days_logged,
-      days_flagged: row.days_flagged,
-      weigh_ins: row.weigh_ins,
-      mean_kcal: row.mean_kcal === null ? null : Math.round(row.mean_kcal),
-      mean_protein_g: row.mean_protein_g === null
+    // The view compares the entire winning target history before this filter.
+    const events = await rows<WeekEvent>(
+      db,
+      `
+      SELECT day, kind, note FROM nutrition_effective_events
+      WHERE day >= ? AND day <= ? ORDER BY day, id`,
+      from,
+      end,
+    );
+    const eventsByWeek = new Map<string, WeekEvent[]>();
+    for (const event of events) {
+      const start = mondayOf(event.day);
+      const group = eventsByWeek.get(start) ?? [];
+      group.push(event);
+      eventsByWeek.set(start, group);
+    }
+    const byDay = new Map(trend.map((point) => [point.day, point]));
+    const enriched: Week[] = data.map((row) => {
+      const start = byDay.get(row.week_start);
+      const finish = byDay.get(row.week_end);
+      const trendEnd = finish?.trend_kg ?? null;
+      const density = trendEnd === null || bodyfat === null
         ? null
-        : Math.round(row.mean_protein_g),
-      protein_coverage: {
-        days_in_mean: row.protein_days,
-        entries: row.protein_entries,
-        unknown_entries: row.unknown_protein_entries,
-      },
-      trend_start_kg: trendStart,
-      trend_end_kg: trendEnd,
-      ...weeklyTrendChange(start, finish, row.mean_kcal, density),
-      target: row.kcal_target === null ? null : {
-        kcal: row.kcal_target,
-        protein_g: row.protein_g_target,
-        goal: row.target_goal,
-        rate_pct_bw_week: row.target_rate_pct_bw_week,
-        effective_from: row.target_effective_from,
-        changed_during_week: row.target_changed,
-      },
-      events: row.events,
-    };
-  });
-
-  return { weeks: enriched, note: NOTE };
+        : energyDensity(fatMassKg(trendEnd, bodyfat));
+      return {
+        week_start: row.week_start,
+        week_end: row.week_end,
+        days_logged: row.days_logged,
+        days_flagged: row.days_flagged,
+        weigh_ins: row.weigh_ins,
+        mean_kcal: row.mean_kcal === null ? null : Math.round(row.mean_kcal),
+        mean_protein_g: row.mean_protein_g === null
+          ? null
+          : Math.round(row.mean_protein_g),
+        protein_coverage: {
+          days_in_mean: row.protein_days,
+          entries: row.protein_entries,
+          unknown_entries: row.unknown_protein_entries,
+        },
+        trend_start_kg: start?.trend_kg ?? null,
+        trend_end_kg: trendEnd,
+        ...weeklyTrendChange(start, finish, row.mean_kcal, density),
+        target: row.kcal_target === null ? null : {
+          kcal: row.kcal_target,
+          protein_g: row.protein_g_target,
+          goal: row.target_goal,
+          rate_pct_bw_week: row.target_rate_pct_bw_week,
+          effective_from: row.target_effective_from,
+          changed_during_week: Boolean(row.target_changed),
+        },
+        events: eventsByWeek.get(row.week_start) ?? [],
+      };
+    });
+    return { weeks: enriched, note: NOTE };
+  }
+  return { finishedWeeks };
 }

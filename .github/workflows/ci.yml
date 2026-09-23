@@ -11,34 +11,55 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+      - run: npm ci
       - uses: denoland/setup-deno@v2
         with:
           deno-version: 2.9.6
+      # Docker is still used by the secret scanner, not by the application.
       - run: deno task secrets
       - run: deno task test:secrets
       - run: deno fmt --check
       - run: deno lint
       - run: deno task check
-      - run: deno test --allow-read --allow-env --allow-net=127.0.0.1 api/tests/deno_version_test.ts api/tests/deploy_test.ts api/tests/revision_test.ts
+      - run: deno test --frozen --allow-read --allow-env api/tests/deno_version_test.ts api/tests/deploy_test.ts api/tests/revision_test.ts
+      - run: npm run test:tooling
+      - run: npm run test:operators
+      - run: npm run build
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+      - run: npm ci
       - uses: denoland/setup-deno@v2
         with:
           deno-version: 2.9.6
-      - run: deno task coverage
-      - uses: actions/upload-artifact@v4
-        if: always()
+      # Resolve dependencies before the cached-only, loopback-only test client.
+      - run: npm run test:prepare
+      - run: npm run test:api
+      - run: npm run test:shutdown
+
+  d1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          name: coverage
-          path: .cache/coverage/
-          # The cache is hidden; include only this scoped report directory.
-          include-hidden-files: true
-          retention-days: 7
-      # Builds and exercises the production image/entrypoint on disposable state.
-      - run: deno task test:shutdown
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: db/d1/package-lock.json
+      - run: npm ci --ignore-scripts --prefix db/d1
+      - run: npm test --prefix db/d1
+      # Disposable PostgreSQL remains only as the one-time import reference.
+      - run: npm --prefix db/d1 run test:postgres
 
   web:
     runs-on: ubuntu-latest
@@ -46,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci --prefix web
@@ -55,13 +76,12 @@ jobs:
       - run: npm --prefix web test
       - run: npm exec --prefix web -- playwright install --with-deps chromium
       - run: npm --prefix web run test:browser
-      - run: npm --prefix web run test:container
+      - run: npm --prefix web run test:workers
 
-  # A green main proves tests AND the exact tested revision's live readiness.
-  # Hold serialization through pinning, queue acceptance and bounded polling.
-  # Missing credentials fail; PR checks deliberately do not deploy.
+  # Keep migrations, API readiness, dashboard deployment and public verification
+  # inside one serialized release. PRs never deploy; missing secrets fail closed.
   deploy:
-    needs: [checks, test, web]
+    needs: [checks, test, d1, web]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -71,37 +91,63 @@ jobs:
       group: deploy
       cancel-in-progress: false
     env:
-      COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
-      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-      COOLIFY_DASHBOARD_WEBHOOK: ${{ secrets.COOLIFY_DASHBOARD_WEBHOOK }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: "false"
       DEPLOY_HEALTH_URL: https://trainer.marcoazzurrini.com/api/health
       DASHBOARD_HEALTH_URL: https://app.trainer.marcoazzurrini.com/api/health
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
         with:
-          deno-version: 2.9.6
-      # Check both targets before changing either application's commit pin.
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix web
       - name: Validate both release configurations
         run: |
-          deno eval '
-            import { deploymentConfig } from "./scripts/deploy.ts";
-            const common = Object.fromEntries(
-              ["COOLIFY_TOKEN", "GITHUB_SHA", "GITHUB_REPOSITORY"].map(key => [key, Deno.env.get(key)])
-            );
-            deploymentConfig({ ...common,
-              COOLIFY_WEBHOOK: Deno.env.get("COOLIFY_WEBHOOK"),
-              DEPLOY_HEALTH_URL: Deno.env.get("DEPLOY_HEALTH_URL")
-            });
-            deploymentConfig({ ...common,
-              COOLIFY_WEBHOOK: Deno.env.get("COOLIFY_DASHBOARD_WEBHOOK"),
-              DEPLOY_HEALTH_URL: Deno.env.get("DASHBOARD_HEALTH_URL")
-            });
-          '
-      - name: Deploy and verify the API revision
-        run: deno task deploy
-      - name: Deploy and verify the dashboard revision
+          node --input-type=module <<'JS'
+          import { sourceRevision } from './scripts/build-worker.mjs';
+          for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'GITHUB_SHA']) {
+            if (!process.env[key]?.trim()) throw new Error(`Deployment requires ${key}.`);
+          }
+          sourceRevision(process.env.GITHUB_SHA);
+          for (const key of ['DEPLOY_HEALTH_URL', 'DASHBOARD_HEALTH_URL']) {
+            const url = new URL(process.env[key]);
+            if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search || url.pathname !== '/api/health') {
+              throw new Error(`${key} must be a public HTTPS /api/health URL without credentials, query or fragment.`);
+            }
+          }
+          JS
+      - name: Build the dashboard before changing production
         env:
-          COOLIFY_WEBHOOK: ${{ env.COOLIFY_DASHBOARD_WEBHOOK }}
-          DEPLOY_HEALTH_URL: ${{ env.DASHBOARD_HEALTH_URL }}
-        run: deno task deploy
+          BUILD_REVISION: ${{ github.sha }}
+        run: npm --prefix web run build
+      - name: Validate dashboard build identity
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile } from 'node:fs/promises';
+          const metadata = JSON.parse(await readFile('web/.output/build.json', 'utf8'));
+          if (metadata.revision !== process.env.GITHUB_SHA || !/^[a-f0-9]{64}$/.test(metadata.digest)) {
+            throw new Error('Dashboard build must identify the exact tested revision and artifact.');
+          }
+          JS
+      # This command applies D1 migrations, deploys the API and verifies its
+      # exact immutable build at the public readiness endpoint before returning.
+      - name: Migrate, deploy and verify the API build
+        run: npm run deploy
+      - name: Deploy the dashboard build
+        run: npm --prefix web run deploy
+      - name: Verify the public dashboard build
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile } from 'node:fs/promises';
+          import { verifyRelease } from './scripts/deploy-worker.mjs';
+          const metadata = JSON.parse(await readFile('web/.output/build.json', 'utf8'));
+          await verifyRelease(process.env.DASHBOARD_HEALTH_URL, metadata);
+          JS

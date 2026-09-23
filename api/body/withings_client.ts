@@ -97,6 +97,7 @@ export interface TokenSet {
 export async function refreshTokens(
   cfg: WithingsConfig,
   refreshToken: string,
+  now: () => number = Date.now,
 ): Promise<TokenSet> {
   const body = await callWithings(cfg, "/v2/oauth2", {
     action: "requesttoken",
@@ -111,7 +112,7 @@ export async function refreshTokens(
   };
 
   const expiresAt = typeof body.expires_in === "number"
-    ? new Date(Date.now() + body.expires_in * 1000)
+    ? new Date(now() + body.expires_in * 1000)
     : new Date(NaN);
   if (
     typeof body.access_token !== "string" || body.access_token.trim() === "" ||

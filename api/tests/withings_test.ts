@@ -29,17 +29,20 @@ function stubWithings(
   opts: { raw?: string } = {},
 ) {
   const requests: Recorded[] = [];
-  const server = Deno.serve({ port: 0, onListen() {} }, async (req) => {
-    const url = new URL(req.url);
-    const params = new URLSearchParams(await req.text());
-    requests.push({
-      path: url.pathname,
-      params: Object.fromEntries(params),
-      auth: req.headers.get("authorization"),
-    });
-    if (opts.raw !== undefined) return new Response(opts.raw);
-    return Response.json(reply(url.pathname, params));
-  });
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen() {} },
+    async (req) => {
+      const url = new URL(req.url);
+      const params = new URLSearchParams(await req.text());
+      requests.push({
+        path: url.pathname,
+        params: Object.fromEntries(params),
+        auth: req.headers.get("authorization"),
+      });
+      if (opts.raw !== undefined) return new Response(opts.raw);
+      return Response.json(reply(url.pathname, params));
+    },
+  );
   return {
     cfg: {
       apiBase: `http://127.0.0.1:${server.addr.port}`,

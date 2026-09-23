@@ -7,161 +7,145 @@ import {
   today,
   uuid,
 } from "./helpers.ts";
-import {
-  assertIdentity,
-  databaseIdentity,
-  verifiedDatabase,
-} from "./disposable.ts";
-import type { SetEntry } from "../training/sessions.ts";
+import { database } from "./d1.ts";
+import { sessionStore } from "../training/sessions.ts";
+import type { Database } from "../shared/d1.ts";
+import type { SetEntry } from "../training/sessions.types.ts";
 
 Deno.test("session creation resolves references per request and inserts sets in batches", async (t) => {
-  const disposable = await verifiedDatabase();
   await resetTraining();
   await ensureCatalogue();
-  const { sql } = await import("../db.ts");
-  const previousDebug = sql.options.debug;
-  try {
-    // Observe the real driver's statements, not a mock or source-code pattern.
-    // Verify this process's singleton too: the HTTP server has its own handle.
-    assertIdentity(disposable, await databaseIdentity(sql));
-    const { writeSession } = await import("../training/sessions.ts");
-    const measured = async (sets: SetEntry[], request_id = uuid()) => {
-      const statements: string[] = [];
-      sql.options.debug = (_connection, query) => {
-        const statement = query.trim().replace(/\s+/g, " ");
-        if (/^(select|insert|update|delete)\b/i.test(statement)) {
-          statements.push(statement);
-        }
-      };
-      try {
-        const result = await writeSession({
-          date: today(),
-          rationale: "Session creation regression fixture",
-          request_id,
-          sets,
-        });
-        return { ...result, statements, request_id };
-      } finally {
-        sql.options.debug = previousDebug;
-      }
-    };
-    const squat: SetEntry = {
-      exercise: "squat",
-      kind: "working",
-      target_weight_kg: 100,
-      target_reps: 5,
-    };
+  let statements: string[] = [];
+  const observed: Database = {
+    prepare(query) {
+      statements.push(query.trim().replace(/\s+/g, " "));
+      return database.prepare(query);
+    },
+    batch: database.batch,
+  };
+  const { writeSession } = sessionStore(observed);
+  const measured = async (sets: SetEntry[], request_id = uuid()) => {
+    statements = [];
+    const result = await writeSession({
+      date: today(),
+      rationale: "Session creation regression fixture",
+      request_id,
+      sets,
+    });
+    return { ...result, statements: [...statements], request_id };
+  };
+  const squat: SetEntry = {
+    exercise: "squat",
+    kind: "working",
+    target_weight_kg: 100,
+    target_reps: 5,
+  };
 
-    await t.step(
-      "twenty off-plan sets cost no more statements than one",
-      async () => {
-        const one = await measured([squat]);
-        const many = await measured(Array.from({ length: 20 }, (_, i) => ({
-          ...squat,
-          notes: `Set ${i + 1}`,
-          target_weight_kg: i === 0 ? 0 : 100,
-        })));
-        assertEquals(many.session.sets.length, 20);
-        assertEquals(
-          many.session.sets.map((s) => s.position),
-          Array.from({ length: 20 }, (_, i) => i + 1),
-        );
-        assert(many.session.sets.every((s) => s.mesocycle_id === null));
-        assertEquals(many.session.sets[0].target_weight_kg, 0);
-        assertEquals(many.session.sets[19].notes, "Set 20");
-        assertEquals(many.session.sets[19].reps, null);
-        console.info(
-          `Session data statements: one set ${one.statements.length}; twenty repeated sets ${many.statements.length}.`,
-        );
-        assert(
-          many.statements.length <= one.statements.length,
-          `Repeated sets increased data statements: ${one.statements.length} to ${many.statements.length}.`,
-        );
-        assert(
-          many.statements.length <= 10,
-          `One exercise needs at most ten data statements, got ${many.statements.length}.`,
-        );
-        assertEquals(
-          many.statements.filter((q) => /^insert into sets\b/i.test(q)).length,
-          1,
-        );
-      },
-    );
+  await t.step(
+    "twenty off-plan sets cost no more statements than one",
+    async () => {
+      const one = await measured([squat]);
+      const many = await measured(Array.from({ length: 20 }, (_, i) => ({
+        ...squat,
+        notes: `Set ${i + 1}`,
+        target_weight_kg: i === 0 ? 0 : 100,
+      })));
+      assertEquals(many.session.sets.length, 20);
+      assertEquals(
+        many.session.sets.map((s) => s.position),
+        Array.from({ length: 20 }, (_, i) => i + 1),
+      );
+      assert(many.session.sets.every((s) => s.mesocycle_id === null));
+      assertEquals(many.session.sets[0].target_weight_kg, 0);
+      assertEquals(many.session.sets[19].notes, "Set 20");
+      assertEquals(many.session.sets[19].reps, null);
+      console.info(
+        `Session data statements: one set ${one.statements.length}; twenty repeated sets ${many.statements.length}.`,
+      );
+      assert(
+        many.statements.length <= one.statements.length,
+        `Repeated sets increased data statements: ${one.statements.length} to ${many.statements.length}.`,
+      );
+      assert(
+        many.statements.length <= 15,
+        `One exercise needs at most fifteen D1 statements, got ${many.statements.length}.`,
+      );
+      assertEquals(
+        many.statements.filter((q) => /^insert into sets\b/i.test(q)).length,
+        1,
+      );
+    },
+  );
 
-    await t.step(
-      "a later request sees the new plan instead of cached off-plan attribution",
-      async () => {
-        const { body } = await api.get("/exercises");
-        const lifts: string[] = body.exercises.filter(
-          (e: { measure: string; stimulus_type: string }) =>
-            e.measure === "load_reps" && e.stimulus_type === "strength",
-        ).slice(0, 5).map((e: { name: string }) => e.name);
-        assertEquals(lifts.length, 5);
-        const plan = await seedPlan({
-          exercises: [...new Set(["Back Squat", ...lifts])].map((exercise) => ({
-            exercise,
-          })),
-        });
-        const current = await measured([squat]);
-        assertEquals(current.session.sets[0].mesocycle_id, plan.mesocycleId);
-        const many = await measured(Array.from({ length: 20 }, (_, i) => ({
-          ...squat,
-          exercise: lifts[i % lifts.length],
-        })));
-        assert(
-          many.session.sets.every((s) => s.mesocycle_id === plan.mesocycleId),
-        );
-        console.info(
-          `Session data statements: twenty sets across five references ${many.statements.length}.`,
-        );
-        assert(
-          many.statements.length <= 20,
-          `Five exercise references need at most twenty data statements, got ${many.statements.length}.`,
-        );
+  await t.step(
+    "a later request sees the new plan instead of cached off-plan attribution",
+    async () => {
+      const { body } = await api.get("/exercises");
+      const lifts: string[] = body.exercises.filter(
+        (e: { measure: string; stimulus_type: string }) =>
+          e.measure === "load_reps" && e.stimulus_type === "strength",
+      ).slice(0, 5).map((e: { name: string }) => e.name);
+      assertEquals(lifts.length, 5);
+      const plan = await seedPlan({
+        exercises: [...new Set(["Back Squat", ...lifts])].map((exercise) => ({
+          exercise,
+        })),
+      });
+      const current = await measured([squat]);
+      assertEquals(current.session.sets[0].mesocycle_id, plan.mesocycleId);
+      const many = await measured(Array.from({ length: 20 }, (_, i) => ({
+        ...squat,
+        exercise: lifts[i % lifts.length],
+      })));
+      assert(
+        many.session.sets.every((s) => s.mesocycle_id === plan.mesocycleId),
+      );
+      console.info(
+        `Session data statements: twenty sets across five references ${many.statements.length}.`,
+      );
+      assert(
+        many.statements.length <= 20,
+        `Five exercise references need at most twenty data statements, got ${many.statements.length}.`,
+      );
 
-        const replay = await measured([{
-          ...squat,
-          exercise: "not in the catalogue",
-        }], many.request_id);
-        assertEquals(replay.created, false);
-        assertEquals(replay.session, many.session);
-        assert(replay.statements.every((q) => !/^insert\b/i.test(q)));
-        assert(
-          replay.statements.length <= 3,
-          "A retry must not resolve the replacement payload.",
-        );
-      },
-    );
+      const replay = await measured([{
+        ...squat,
+        exercise: "not in the catalogue",
+      }], many.request_id);
+      assertEquals(replay.created, false);
+      assertEquals(replay.session, many.session);
+      assert(replay.statements.every((q) => !/^insert\b/i.test(q)));
+      assert(
+        replay.statements.length <= 3,
+        "A retry must not resolve the replacement payload.",
+      );
+    },
+  );
 
-    await t.step(
-      "large sessions stay below the driver's parameter limit and retain positions",
-      async () => {
-        // Sixteen columns per set: one VALUES statement for this input exceeds
-        // Postgres's 65,535-parameter limit. Small requests still use one insert.
-        const count = 4_100;
-        const result = await measured(Array.from({ length: count }, (_, i) => ({
-          ...squat,
-          notes: `Large set ${i + 1}`,
-        })));
-        assertEquals(result.session.sets.length, count);
-        assertEquals(
-          result.session.sets.map((s) => s.position),
-          Array.from({ length: count }, (_, i) => i + 1),
-        );
-        assertEquals(result.session.sets.at(-1)?.notes, `Large set ${count}`);
-        const inserts = result.statements.filter((q) =>
-          /^insert into sets\b/i.test(q)
-        ).length;
-        assert(
-          inserts <= 5,
-          `Expected bounded batches, got ${inserts} set inserts.`,
-        );
-      },
-    );
-  } finally {
-    sql.options.debug = previousDebug;
-    await sql.end();
-  }
+  await t.step(
+    "large sessions stay below the driver's parameter limit and retain positions",
+    async () => {
+      // D1 JSON chunks avoid its per-statement bound-parameter limit.
+      // Small requests still use one insert; large requests retain positions.
+      const count = 4_100;
+      const result = await measured(Array.from({ length: count }, (_, i) => ({
+        ...squat,
+        notes: `Large set ${i + 1}`,
+      })));
+      assertEquals(result.session.sets.length, count);
+      assertEquals(
+        result.session.sets.map((s) => s.position),
+        Array.from({ length: count }, (_, i) => i + 1),
+      );
+      assertEquals(result.session.sets.at(-1)?.notes, `Large set ${count}`);
+      const inserts =
+        result.statements.filter((q) => /^insert into sets\b/i.test(q)).length;
+      assert(
+        inserts <= 5,
+        `Expected bounded batches, got ${inserts} set inserts.`,
+      );
+    },
+  );
 });
 
 Deno.test("session batches preserve measures, timestamps and notes at stored precision", async () => {

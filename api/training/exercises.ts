@@ -1,453 +1,416 @@
-// The catalogue, and the correction surface tiered by what a change rewrites.
-//
-// Foods have had a correction surface from the start; exercises were
-// write-once, and the docs promised corrections the API never offered. The
-// tiers here match how much history each field can rewrite: prose changes
-// freely, identity-shaping fields only while nothing has been logged, and the
-// muscle classification only between plans.
-
-import { sql, type Tx } from "../db.ts";
-import { ApiError } from "../shared/errors.ts";
-import { romeNow } from "../shared/calendar.ts";
+import { aliasStore } from "../shared/aliases.ts";
 import {
-  assertExerciseAliasesFree,
-  resolveExercise,
-  resolveExerciseId,
-} from "./resolve.ts";
-import type { Measure, StimulusType } from "./rules.ts";
+  batch,
+  caseKey,
+  type Clock,
+  type Database,
+  decimal,
+  instant,
+  jsonChunks,
+  type Parameter,
+  romeDate,
+  rows,
+  statement,
+  systemClock,
+} from "../shared/d1.ts";
+import { mondayOf } from "../shared/dates.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
+import { trainingResolver } from "./resolve.ts";
+import type {
+  AddExerciseInput,
+  CorrectExerciseInput,
+  ExerciseHistory,
+  ExerciseRow,
+  HistorySet,
+  MuscleEntryInput,
+  MuscleRow,
+} from "./exercises.types.ts";
 
 export const SYSTEMIC_FATIGUE_LEVELS = ["normal", "high"] as const;
-export type SystemicFatigue = typeof SYSTEMIC_FATIGUE_LEVELS[number];
+export type SystemicFatigue = (typeof SYSTEMIC_FATIGUE_LEVELS)[number];
 
-export interface MuscleLink {
-  muscle: string;
-  volume_factor: number;
-}
+const select = `SELECT e.id, e.name, e.equipment, e.pattern, e.stimulus_type,
+  e.systemic_fatigue, e.measure, e.notes,
+  (SELECT json_group_array(alias) FROM (SELECT alias FROM exercise_aliases WHERE exercise_id = e.id ORDER BY alias)) AS aliases,
+  (SELECT json_group_array(json_object('muscle', name, 'volume_factor', volume_factor / 10.0))
+   FROM (SELECT m.name, em.volume_factor FROM exercise_muscles em JOIN muscles m ON m.id = em.muscle_id
+         WHERE em.exercise_id = e.id ORDER BY m.name)) AS muscles FROM exercises e`;
+type StoredExercise = Omit<ExerciseRow, "aliases" | "muscles"> & {
+  aliases: string;
+  muscles: string;
+};
+const decode = (row: StoredExercise): ExerciseRow => ({
+  ...row,
+  aliases: JSON.parse(row.aliases),
+  muscles: JSON.parse(row.muscles),
+});
+const performed =
+  "(t.reps IS NOT NULL OR t.distance_m IS NOT NULL OR t.duration_s IS NOT NULL)";
 
-export interface ExerciseRow {
-  id: number;
-  name: string;
-  equipment: string | null;
-  pattern: string | null;
-  stimulus_type: StimulusType;
-  systemic_fatigue: SystemicFatigue;
-  measure: Measure;
-  notes: string | null;
-  aliases: string[];
-  muscles: MuscleLink[];
-}
-
-export interface MuscleRow {
-  id: number;
-  name: string;
-}
-
-/** What a muscle entry may carry, including the two field names that retired. */
-export interface MuscleEntryInput {
-  muscle: string;
-  volume_factor: number;
-  counts?: unknown;
-  fatigue?: unknown;
-}
-
-interface MuscleEntry {
-  muscle: string;
-  volumeFactor: number;
-}
-
-function selectExercise(id?: number) {
-  return sql<ExerciseRow[]>`
-    select
-      e.id, e.name, e.equipment, e.pattern, e.stimulus_type,
-      e.systemic_fatigue, e.measure, e.notes,
-      coalesce(
-        (select array_agg(a.alias order by a.alias)
-         from exercise_aliases a where a.exercise_id = e.id),
-        '{}'
-      ) as aliases,
-      coalesce(
-        (select json_agg(
-           json_build_object('muscle', m.name, 'volume_factor', em.volume_factor::float8)
-           order by m.name)
-         from exercise_muscles em
-         join muscles m on m.id = em.muscle_id
-         where em.exercise_id = e.id),
-        '[]'
-      ) as muscles
-    from exercises e
-    ${id === undefined ? sql`` : sql`where e.id = ${id}`}
-    order by e.name`;
-}
-
-/** Every exercise with its aliases and muscle classification, by name. */
-export async function listExercises(): Promise<ExerciseRow[]> {
-  return await selectExercise();
-}
-
-export async function exerciseById(id: number): Promise<ExerciseRow> {
-  const [row] = await selectExercise(id);
-  return row;
-}
-
-// One shape for a muscle classification, learned once: creation and the
-// full-replacement PUT take exactly the same list. The two retired field
-// names are checked here because each needs to name its replacement.
-function parseMuscleList(
-  entries: ReadonlyArray<MuscleEntryInput> | undefined,
-): MuscleEntry[] {
-  return (entries ?? []).map((m) => {
-    if (m.counts !== undefined) {
-      throw new ApiError(
-        422,
-        '"counts" was replaced by "volume_factor": 1.0 (direct — primary force generator), 0.5 (indirect — meaningfully trained, not primary), 0 (considered and deliberately excluded). See the `reference/exercises` document.',
+export function exerciseStore(db: Database, clock: Clock = systemClock) {
+  const resolver = trainingResolver(db);
+  const aliases = aliasStore(db, "exercise");
+  async function listExercises(): Promise<ExerciseRow[]> {
+    return (await rows<StoredExercise>(db, `${select} ORDER BY e.name`)).map(
+      decode,
+    );
+  }
+  async function exerciseById(id: number): Promise<ExerciseRow> {
+    return decode(
+      requireRow(
+        await rows<StoredExercise>(db, `${select} WHERE e.id = ?`, id),
+        `No exercise with id ${id}.`,
+      ),
+    );
+  }
+  async function listMuscles(): Promise<MuscleRow[]> {
+    return await rows<MuscleRow>(
+      db,
+      "SELECT id, name FROM muscles ORDER BY name",
+    );
+  }
+  async function addMuscle(name: string): Promise<MuscleRow> {
+    return requireRow(
+      await rows<MuscleRow>(
+        db,
+        "INSERT INTO muscles (name) VALUES (?) RETURNING id, name",
+        name,
+      ),
+      "The muscle could not be read after saving.",
+    );
+  }
+  async function muscleEntries(entries: readonly MuscleEntryInput[] = []) {
+    // muscles.name remains case-sensitive unique. Matching names retains the
+    // reference's Unicode case-insensitive lookup rather than SQLite lower().
+    const known = await listMuscles();
+    return entries.map((entry) => {
+      if (entry.counts !== undefined) {
+        throw new ApiError(
+          422,
+          '"counts" was replaced by "volume_factor": 1.0 (direct — primary force generator), 0.5 (indirect — meaningfully trained, not primary), 0 (considered and deliberately excluded). See the `reference/exercises` document.',
+        );
+      }
+      if (entry.fatigue !== undefined) {
+        throw new ApiError(
+          422,
+          'Per-muscle "fatigue" no longer exists. Systemic fatigue is a property of the exercise: send "systemic_fatigue": "normal" | "high" at the top level (defaults to "normal").',
+        );
+      }
+      const muscle = known.find(
+        (m) => caseKey(m.name) === caseKey(entry.muscle),
       );
-    }
-    if (m.fatigue !== undefined) {
-      throw new ApiError(
-        422,
-        'Per-muscle "fatigue" no longer exists. Systemic fatigue is a property of the exercise: send "systemic_fatigue": "normal" | "high" at the top level (defaults to "normal").',
-      );
-    }
-    return { muscle: m.muscle, volumeFactor: m.volume_factor };
-  });
-}
-
-async function insertMuscles(
-  tx: Tx,
-  exerciseId: number,
-  muscles: MuscleEntry[],
-) {
-  if (muscles.length === 0) return;
-  const rows = [];
-  for (const { muscle, volumeFactor } of muscles) {
-    const [row] = await tx`
-      select id from muscles where lower(name) = lower(${muscle})`;
-    if (!row) {
-      const [{ names }] = await tx`
-        select coalesce(string_agg(name, ', ' order by name), '(none yet)') as names
-        from muscles`;
-      throw new ApiError(
-        422,
-        `Unknown muscle "${muscle}". Known muscles: ${names}. Add it first with POST /muscles.`,
-      );
-    }
-    rows.push({
-      exercise_id: exerciseId,
-      muscle_id: row.id as number,
-      volume_factor: volumeFactor,
+      if (!muscle) {
+        throw new ApiError(
+          422,
+          `Unknown muscle "${entry.muscle}". Known muscles: ${
+            known.map((m) => m.name).join(", ") || "(none yet)"
+          }. Add it first with POST /muscles.`,
+        );
+      }
+      return {
+        muscle_id: muscle.id,
+        volume_factor: decimal(entry.volume_factor, 2, 1),
+      };
     });
   }
-  await tx`
-    insert into exercise_muscles
-    ${tx(rows, "exercise_id", "muscle_id", "volume_factor")}`;
-}
-
-/**
- * Creates the exercise with its aliases and muscle classification in one call.
- * Muscles are referenced by name and must already exist.
- */
-export async function addExercise(b: {
-  name: string;
-  equipment?: string | null;
-  pattern?: string | null;
-  notes?: string | null;
-  measure: Measure;
-  stimulus_type: StimulusType;
-  systemic_fatigue: SystemicFatigue;
-  aliases?: string[] | null;
-  muscles?: MuscleEntryInput[];
-}): Promise<ExerciseRow> {
-  const aliases = b.aliases ?? [];
-  const muscles = parseMuscleList(b.muscles);
-  await assertExerciseAliasesFree(aliases);
-
-  const id = await sql.begin(async (tx) => {
-    const [exercise] = await tx`
-      insert into exercises
-        (name, equipment, pattern, stimulus_type, systemic_fatigue, measure,
-         notes)
-      values
-        (${b.name}, ${b.equipment ?? null}, ${b.pattern ?? null},
-         ${b.stimulus_type}, ${b.systemic_fatigue}, ${b.measure},
-         ${b.notes ?? null})
-      returning id`;
-
-    if (aliases.length > 0) {
-      await tx`
-        insert into exercise_aliases
-        ${
-        tx(
-          aliases.map((alias) => ({ exercise_id: exercise.id, alias })),
-          "exercise_id",
-          "alias",
-        )
-      }`;
-    }
-
-    await insertMuscles(tx, exercise.id, muscles);
-
-    return exercise.id as number;
-  });
-
-  return await exerciseById(id);
-}
-
-export interface HistorySet {
-  date: string;
-  weight_kg: number | null;
-  reps: number | null;
-  distance_m: number | null;
-  duration_s: number | null;
-  effort: string | null;
-  notes: string | null;
-  session_id: number;
-}
-
-// How much history the caller asked for — required, with no default.
-//
-// A default here would be a decision nobody makes. request_id was optional
-// once and the calls that could have sent it simply did not; the fix was to
-// stop offering the choice of not deciding. The same applies to a read whose
-// size grows forever: a main lift reaches a few hundred sets in a year, every
-// set now carries its note, and "however much there is" is not an amount
-// anybody chose.
-//
-// "all" is a first-class answer rather than a large number, because charting
-// a whole block genuinely wants the series. Forced to invent a number, a
-// caller picks a round one and plots a third of the history without noticing.
-function historyLimit(raw: string | undefined): number | null {
-  if (raw === "all") return null;
-  const n = Number(raw);
-  if (raw === undefined || !Number.isInteger(n) || n < 1) {
-    throw new ApiError(
-      422,
-      '"limit" is required on a history read: a whole number for the most recent sets — 10 to 30 is usually enough to judge how an exercise is going — or "all" for the whole series, which is what charting a block or a year needs. Every set carries its note, so ask for what you will actually read. The reply says how many sets exist in total, so a partial read knows what it left behind.',
+  // Guard and readback share the write transaction. A late set or membership
+  // must refuse the whole edit, not invalidate an eligibility read silently.
+  function guard(condition: string, ...values: Parameter[]) {
+    return statement(
+      db,
+      `INSERT INTO api_write_assertions (id, rows_match) SELECT 1, (${condition})`,
+      ...values,
     );
   }
-  return n;
-}
-
-/** Every working set of one lift, oldest last. */
-export async function exerciseHistory(ref: string, rawLimit?: string): Promise<{
-  exercise: string;
-  exercise_id: number;
-  measure: Measure;
-  total_sets: number;
-  returned: number;
-  sets: HistorySet[];
-}> {
-  const limit = historyLimit(rawLimit);
-  const exerciseId = await resolveExerciseId(ref);
-  const [exercise] = await sql`
-    select id, name, measure from exercises where id = ${exerciseId}`;
-
-  const [{ total }] = await sql`
-    select count(*)::int as total
-    from sets t
-    where t.exercise_id = ${exerciseId} and t.kind = 'working'
-      and set_performed(t.reps, t.distance_m, t.duration_s)`;
-
-  // Every measure comes back, and which ones are populated is the exercise's
-  // measure. A sprint's history is metres and seconds; reading it for a rising
-  // weight would find nothing and conclude wrongly that nothing is happening.
-  //
-  // notes comes with them because this is where an exercise is judged, not
-  // only where it is plotted. Four sessions at four reps read as a plateau;
-  // "top third under control, red band" is the only thing that says otherwise,
-  // and it was invisible here while the numbers were not.
-  //
-  // Ordered newest-first so a limit keeps the recent end, then reversed: the
-  // series reads oldest to newest whichever amount was asked for. Postgres
-  // treats `limit null` as no limit, which is what "all" resolves to.
-  const rows = await sql<HistorySet[]>`
-    select s.date, t.weight_kg::float8, t.reps,
-      t.distance_m::float8, t.duration_s::float8, t.effort, t.notes,
-      t.session_id
-    from sets t
-    join sessions s on s.id = t.session_id
-    where t.exercise_id = ${exerciseId} and t.kind = 'working'
-      and set_performed(t.reps, t.distance_m, t.duration_s)
-    order by s.date desc, t.position desc
-    limit ${limit}`;
-
-  return {
-    exercise: exercise.name as string,
-    exercise_id: exercise.id as number,
-    measure: exercise.measure as Measure,
-    total_sets: total as number,
-    returned: rows.length,
-    sets: rows.reverse(),
-  };
-}
-
-/**
- * Corrects an exercise.
- *
- * Prose and labels change freely — nothing computes with them. measure and
- * stimulus_type are the creation-mistake window: every logged set was
- * validated and counted under them, so they freeze at the first set. After
- * that the fix is a new exercise with the right value, taking this one's
- * aliases — the same rule as foods' "a different product is never an edit".
- */
-export async function correctExercise(ref: string, b: {
-  name?: string;
-  equipment?: string | null;
-  pattern?: string | null;
-  notes?: string | null;
-  measure?: Measure;
-  stimulus_type?: StimulusType;
-  systemic_fatigue?: SystemicFatigue;
-  alias?: unknown;
-  aliases?: unknown;
-  muscles?: unknown;
-}): Promise<ExerciseRow> {
-  const e = await resolveExercise(ref);
-
-  if (b.muscles !== undefined) {
-    throw new ApiError(
-      422,
-      "The muscle classification is replaced whole with PUT /exercises/:ref/muscles — a partial edit of a classification is ambiguous about the rows it does not mention.",
-    );
-  }
-  if (b.alias !== undefined || b.aliases !== undefined) {
-    throw new ApiError(
-      422,
-      "Aliases have their own surface: POST /exercises/:ref/aliases adds, DELETE /exercises/:ref/aliases/:alias removes.",
-    );
-  }
-
-  const fields: Record<string, unknown> = {};
-  for (
-    const f of [
-      "name",
-      "equipment",
-      "pattern",
-      "notes",
-      "systemic_fatigue",
-    ] as const
+  const cleanup = () =>
+    statement(db, "DELETE FROM api_write_assertions WHERE id = 1");
+  function muscleStatements(
+    owner: string,
+    ownerValue: Parameter,
+    entries: Awaited<ReturnType<typeof muscleEntries>>,
   ) {
-    if (b[f] !== undefined) fields[f] = b[f];
+    return jsonChunks(entries).map((chunk) =>
+      statement(
+        db,
+        `INSERT INTO exercise_muscles (exercise_id, muscle_id, volume_factor)
+       SELECT ${owner}, json_extract(value, '$.muscle_id'), json_extract(value, '$.volume_factor') FROM json_each(?)`,
+        ownerValue,
+        chunk.json,
+      )
+    );
   }
-
-  if (b.measure !== undefined || b.stimulus_type !== undefined) {
-    const [{ n }] = await sql`
-      select count(*)::int as n from sets where exercise_id = ${e.id}`;
-    if (n > 0) {
+  async function addExercise(
+    b: AddExerciseInput,
+  ): Promise<ExerciseRow> {
+    const muscles = await muscleEntries(b.muscles);
+    await aliases.assertAliasesFree(b.aliases ?? []);
+    const key = caseKey(b.name);
+    const result = await batch(db, [
+      statement(
+        db,
+        `INSERT INTO exercises (name, name_key, equipment, pattern, stimulus_type, systemic_fatigue, measure, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        b.name,
+        key,
+        b.equipment ?? null,
+        b.pattern ?? null,
+        b.stimulus_type,
+        b.systemic_fatigue,
+        b.measure,
+        b.notes ?? null,
+      ),
+      ...jsonChunks(
+        (b.aliases ?? []).map((alias) => ({ alias, key: caseKey(alias) })),
+      ).map((chunk) =>
+        statement(
+          db,
+          `INSERT INTO exercise_aliases (exercise_id, alias, alias_key)
+         SELECT (SELECT id FROM exercises WHERE name_key = ?), json_extract(value, '$.alias'), json_extract(value, '$.key') FROM json_each(?)`,
+          key,
+          chunk.json,
+        )
+      ),
+      ...muscleStatements(
+        "(SELECT id FROM exercises WHERE name_key = ?)",
+        key,
+        muscles,
+      ),
+      statement(db, `${select} WHERE e.name_key = ?`, key),
+    ]);
+    return decode(
+      requireRow(
+        result.at(-1)!.results as unknown as StoredExercise[],
+        "The exercise could not be read after saving.",
+      ),
+    );
+  }
+  async function exerciseHistory(
+    ref: string,
+    rawLimit?: string,
+  ): Promise<ExerciseHistory> {
+    const limit = rawLimit === "all" ? -1 : Number(rawLimit);
+    if (
+      rawLimit !== "all" &&
+      (rawLimit === undefined || !Number.isInteger(limit) || limit < 1)
+    ) {
       throw new ApiError(
         422,
-        `"measure" and "stimulus_type" are frozen once an exercise has logged sets — "${e.name}" has ${n}. Every one of them was validated and counted under the current values, so changing them would rewrite history that already happened. The fix now is a new exercise with the right value, which takes over this one's aliases (POST /exercises, then move the aliases).`,
+        '"limit" is required on a history read: a whole number for the most recent sets — 10 to 30 is usually enough to judge how an exercise is going — or "all" for the whole series, which is what charting a block or a year needs. Every set carries its note, so ask for what you will actually read. The reply says how many sets exist in total, so a partial read knows what it left behind.',
       );
     }
-    if (b.measure !== undefined) fields.measure = b.measure;
-    if (b.stimulus_type !== undefined) {
-      fields.stimulus_type = b.stimulus_type;
+    const e = await resolver.resolveExercise(ref);
+    const result = await batch(db, [
+      statement(
+        db,
+        `SELECT count(*) AS total FROM sets t WHERE t.exercise_id = ? AND t.kind = 'working' AND ${performed}`,
+        e.id,
+      ),
+      statement(
+        db,
+        `SELECT s.date, t.weight_kg / 100.0 AS weight_kg, t.reps,
+        t.distance_m / 10.0 AS distance_m, t.duration_s / 100.0 AS duration_s, t.effort, t.notes, t.session_id
+        FROM sets t JOIN sessions s ON s.id = t.session_id
+        WHERE t.exercise_id = ? AND t.kind = 'working' AND ${performed}
+        ORDER BY s.date DESC, t.position DESC LIMIT ?`,
+        e.id,
+        limit,
+      ),
+    ]);
+    const sets = (result[1].results as unknown as HistorySet[]).reverse();
+    return {
+      exercise: e.name,
+      exercise_id: e.id,
+      measure: e.measure as ExerciseRow["measure"],
+      total_sets: result[0].results[0].total as number,
+      returned: sets.length,
+      sets,
+    };
+  }
+  async function correctExercise(
+    ref: string,
+    b: CorrectExerciseInput,
+  ): Promise<ExerciseRow> {
+    const e = await resolver.resolveExercise(ref);
+    if (b.muscles !== undefined) {
+      throw new ApiError(
+        422,
+        "The muscle classification is replaced whole with PUT /exercises/:ref/muscles — a partial edit of a classification is ambiguous about the rows it does not mention.",
+      );
     }
-  }
-
-  if (Object.keys(fields).length === 0) {
-    throw new ApiError(
-      422,
-      "Send at least one of: name, equipment, pattern, notes, systemic_fatigue — or, while the exercise has no logged sets, measure and stimulus_type.",
+    if (b.alias !== undefined || b.aliases !== undefined) {
+      throw new ApiError(
+        422,
+        "Aliases have their own surface: POST /exercises/:ref/aliases adds, DELETE /exercises/:ref/aliases/:alias removes.",
+      );
+    }
+    const fields: Record<string, Parameter> = {};
+    for (
+      const f of [
+        "name",
+        "equipment",
+        "pattern",
+        "notes",
+        "systemic_fatigue",
+        "measure",
+        "stimulus_type",
+      ] as const
+    ) {
+      if (b[f] !== undefined) fields[f] = b[f];
+    }
+    const identity = b.measure !== undefined || b.stimulus_type !== undefined;
+    if (identity) {
+      const [{ n }] = await rows<{ n: number }>(
+        db,
+        "SELECT count(*) AS n FROM sets WHERE exercise_id = ?",
+        e.id,
+      );
+      if (n > 0) {
+        throw new ApiError(
+          422,
+          `"measure" and "stimulus_type" are frozen once an exercise has logged sets — "${e.name}" has ${n}. Every one of them was validated and counted under the current values, so changing them would rewrite history that already happened. The fix now is a new exercise with the right value, which takes over this one's aliases (POST /exercises, then move the aliases).`,
+        );
+      }
+    }
+    if (!Object.keys(fields).length) {
+      throw new ApiError(
+        422,
+        "Send at least one of: name, equipment, pattern, notes, systemic_fatigue — or, while the exercise has no logged sets, measure and stimulus_type.",
+      );
+    }
+    if (b.name !== undefined) fields.name_key = caseKey(b.name);
+    const result = await batch(db, [
+      guard(
+        `EXISTS (SELECT 1 FROM exercises WHERE id = ?)${
+          identity
+            ? " AND NOT EXISTS (SELECT 1 FROM sets WHERE exercise_id = ?)"
+            : ""
+        }`,
+        e.id,
+        ...(identity ? [e.id] : []),
+      ),
+      statement(
+        db,
+        `UPDATE exercises SET ${
+          Object.keys(fields)
+            .map((f) => `${f} = ?`)
+            .join(", ")
+        } WHERE id = ?`,
+        ...Object.values(fields),
+        e.id,
+      ),
+      statement(db, `${select} WHERE e.id = ?`, e.id),
+      cleanup(),
+    ]);
+    return decode(
+      requireRow(
+        result.at(-2)!.results as unknown as StoredExercise[],
+        `No exercise with id ${e.id}.`,
+      ),
     );
   }
-
-  await sql`update exercises set ${sql(fields)} where id = ${e.id}`;
-  return await exerciseById(e.id);
-}
-
-// Only an exercise nothing has ever referenced — a typo'd duplicate caught
-// before it was logged or planned. Once it is in the record, deleting it
-// would orphan history; the answer there is a correction for the fixable
-// fields, or aliases moved to the exercise being kept.
-export async function deleteExercise(ref: string): Promise<string> {
-  const e = await resolveExercise(ref);
-  const [{ set_count, plan_count, dose_count }] = await sql`
-    select
-      (select count(*)::int from sets where exercise_id = ${e.id})
-        as set_count,
-      (select count(*)::int from mesocycle_exercises
-       where exercise_id = ${e.id}) as plan_count,
-      (select count(*)::int from mesocycle_exercise_doses
-       where exercise_id = ${e.id}) as dose_count`;
-  if (set_count > 0 || plan_count > 0 || dose_count > 0) {
-    throw new ApiError(
-      409,
-      `"${e.name}" is in the record — ${set_count} logged ${
-        set_count === 1 ? "set" : "sets"
-      }, ${plan_count} plan ${
-        plan_count === 1 ? "entry" : "entries"
-      }, ${dose_count} dose history ${
-        dose_count === 1 ? "row" : "rows"
-      } — so deleting it would orphan history. PATCH /exercises/:ref fixes what is fixable; a duplicate's aliases move to the exercise being kept.`,
+  async function deleteExercise(ref: string): Promise<string> {
+    const e = await resolver.resolveExercise(ref);
+    const [{ set_count, plan_count, dose_count }] = await rows<{
+      set_count: number;
+      plan_count: number;
+      dose_count: number;
+    }>(
+      db,
+      `SELECT (SELECT count(*) FROM sets WHERE exercise_id = ?) AS set_count,
+       (SELECT count(*) FROM mesocycle_exercises WHERE exercise_id = ?) AS plan_count,
+       (SELECT count(*) FROM mesocycle_exercise_doses WHERE exercise_id = ?) AS dose_count`,
+      e.id,
+      e.id,
+      e.id,
     );
+    if (set_count || plan_count || dose_count) {
+      throw new ApiError(
+        409,
+        `"${e.name}" is in the record — ${set_count} logged ${
+          set_count === 1 ? "set" : "sets"
+        }, ${plan_count} plan ${
+          plan_count === 1 ? "entry" : "entries"
+        }, ${dose_count} dose history ${
+          dose_count === 1 ? "row" : "rows"
+        } — so deleting it would orphan history. PATCH /exercises/:ref fixes what is fixable; a duplicate's aliases move to the exercise being kept.`,
+      );
+    }
+    const result = await batch(db, [
+      guard(
+        "NOT EXISTS (SELECT 1 FROM sets WHERE exercise_id = ?) AND NOT EXISTS (SELECT 1 FROM mesocycle_exercises WHERE exercise_id = ?) AND NOT EXISTS (SELECT 1 FROM mesocycle_exercise_doses WHERE exercise_id = ?)",
+        e.id,
+        e.id,
+        e.id,
+      ),
+      statement(db, "DELETE FROM exercises WHERE id = ? RETURNING name", e.id),
+      cleanup(),
+    ]);
+    return requireRow(result[1].results, `No exercise with id ${e.id}.`)
+      .name as string;
   }
-  const [row] = await sql`
-    delete from exercises where id = ${e.id} returning name`;
-  return row.name as string;
-}
-
-/**
- * Replaces the muscle classification whole.
- *
- * Reclassification is a retroactive fix in the correct-a-food sense: a wrong
- * classification was wrong when written, and every past volume number it fed
- * was wrong with it. That is also why it is refused while any active plan
- * holds the exercise — "wholesale change belongs between mesocycles" was
- * programming.md's rule with no enforcement, and a mid-plan reclassification
- * silently rewrites the very numbers the plan is being judged on.
- */
-export async function reclassifyMuscles(
-  ref: string,
-  entries: MuscleEntryInput[],
-): Promise<{ exercise: ExerciseRow; note: string }> {
-  const e = await resolveExercise(ref);
-  const muscles = parseMuscleList(entries);
-
-  const active = await sql`
-    select mc.name from mesocycle_exercises me
-    join mesocycles mc on mc.id = me.mesocycle_id
-    where me.exercise_id = ${e.id} and mc.ended_on is null
-    order by mc.name`;
-  if (active.length > 0) {
-    throw new ApiError(
-      409,
-      `"${e.name}" is in ${
-        active.map((m) => `"${m.name}"`).join(" and ")
-      }, which is still running. Reclassifying its muscles mid-plan silently rewrites the weekly-volume numbers that plan is being judged on — this change belongs between mesocycles, at the review.`,
+  async function reclassifyMuscles(
+    ref: string,
+    entries: MuscleEntryInput[],
+  ): Promise<{ exercise: ExerciseRow; note: string }> {
+    const e = await resolver.resolveExercise(ref);
+    const muscles = await muscleEntries(entries);
+    const activeSql =
+      `SELECT mc.name FROM mesocycle_exercises me JOIN mesocycles mc ON mc.id = me.mesocycle_id WHERE me.exercise_id = ? AND mc.ended_on IS NULL`;
+    const active = await rows<{ name: string }>(
+      db,
+      `${activeSql} ORDER BY mc.name`,
+      e.id,
     );
+    if (active.length) {
+      throw new ApiError(
+        409,
+        `"${e.name}" is in ${
+          active.map((m) => `"${m.name}"`).join(" and ")
+        }, which is still running. Reclassifying its muscles mid-plan silently rewrites the weekly-volume numbers that plan is being judged on — this change belongs between mesocycles, at the review.`,
+      );
+    }
+    const result = await batch(db, [
+      guard(
+        `EXISTS (SELECT 1 FROM exercises WHERE id = ?) AND NOT EXISTS (${activeSql})`,
+        e.id,
+        e.id,
+      ),
+      statement(db, "DELETE FROM exercise_muscles WHERE exercise_id = ?", e.id),
+      ...muscleStatements("?", e.id, muscles),
+      statement(
+        db,
+        `SELECT count(DISTINCT date(s.date, '-' || ((CAST(strftime('%w', s.date) AS INTEGER) + 6) % 7) || ' days')) AS weeks
+        FROM sets t JOIN sessions s ON s.id = t.session_id WHERE t.exercise_id = ? AND t.kind = 'working' AND s.date < ?`,
+        e.id,
+        mondayOf(romeDate(instant(clock().toISOString()))),
+      ),
+      statement(db, `${select} WHERE e.id = ?`, e.id),
+      cleanup(),
+    ]);
+    const weeks = result.at(-3)!.results[0].weeks as number;
+    return {
+      exercise: decode(
+        requireRow(
+          result.at(-2)!.results as unknown as StoredExercise[],
+          `No exercise with id ${e.id}.`,
+        ),
+      ),
+      note: weeks === 0
+        ? "No finished week of volume references this exercise, so nothing historical moved."
+        : `This reclassification rewrote the weekly-volume numbers of ${weeks} finished ${
+          weeks === 1 ? "week" : "weeks"
+        }. That is the point — a wrong classification was wrong when written — but it is why this is refused mid-plan.`,
+    };
   }
-
-  const [{ weeks }] = await sql`
-    select count(distinct date_trunc('week', s.date))::int as weeks
-    from sets t
-    join sessions s on s.id = t.session_id
-    where t.exercise_id = ${e.id} and t.kind = 'working'
-      and date_trunc('week', s.date)
-        < date_trunc('week', ${romeNow()})`;
-
-  await sql.begin(async (tx) => {
-    await tx`delete from exercise_muscles where exercise_id = ${e.id}`;
-    await insertMuscles(tx, e.id, muscles);
-  });
-
   return {
-    exercise: await exerciseById(e.id),
-    note: weeks === 0
-      ? "No finished week of volume references this exercise, so nothing historical moved."
-      : `This reclassification rewrote the weekly-volume numbers of ${weeks} finished ${
-        weeks === 1 ? "week" : "weeks"
-      }. That is the point — a wrong classification was wrong when written — but it is why this is refused mid-plan.`,
+    listExercises,
+    exerciseById,
+    addExercise,
+    exerciseHistory,
+    correctExercise,
+    deleteExercise,
+    reclassifyMuscles,
+    listMuscles,
+    addMuscle,
   };
-}
-
-/** Every muscle an exercise can be classified against. */
-export async function listMuscles(): Promise<MuscleRow[]> {
-  return await sql<MuscleRow[]>`
-      select id, name from muscles order by name`;
-}
-
-export async function addMuscle(name: string): Promise<MuscleRow> {
-  const [row] = await sql<MuscleRow[]>`
-    insert into muscles (name) values (${name}) returning id, name`;
-  return row;
 }

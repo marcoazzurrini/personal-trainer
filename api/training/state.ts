@@ -1,279 +1,200 @@
-// The composite: everything true about the training as of now. A view over
-// things that each have their own address — nothing here is only obtainable
-// through this bundle.
-//
-// Plans are plural. Hypertrophy and speed run side by side, each with its own
-// start Monday and so its own week number, its own dose to be judged against,
-// and its own method document. What they share is the week: one schedule, one
-// list of recent sessions, one person.
+import {
+  type Clock,
+  type Database,
+  instant as canonicalInstant,
+  romeDate,
+  rows,
+  systemClock,
+  wireInstant,
+} from "../shared/d1.ts";
+import { addDays, daysBetween, mondayOf } from "../shared/dates.ts";
+import { deliveredInDoseUnit, DOCUMENTED_TRACKS, type Track } from "./rules.ts";
+import { contextStore } from "./user_context.ts";
+import type {
+  ActiveMesocycle,
+  PlanExercise,
+  RecentDecision,
+  RecentSession,
+  RecentWeek,
+  SessionExercise,
+  TrainingState,
+  WeekScheduleEntry,
+} from "./state.types.ts";
 
-import { sql } from "../db.ts";
-import { romeClock, romeDate, romeWeekStart } from "../shared/calendar.ts";
-import { deliveredInDoseUnit, DOCUMENTED_TRACKS } from "./rules.ts";
-import { planWeekOrNull, planWeekSince } from "./mesocycles.ts";
-import { type ContextEntry, currentContext } from "./user_context.ts";
-
-export interface WeekScheduleEntry {
-  week_start: string;
-  schedule: string;
-  written_at: string;
-}
-
-export interface PlanExercise {
-  exercise: string;
-  measure: string;
-  role: string;
-  priority: number;
-  notes: string | null;
-  dose: number;
-  dose_unit: string;
-  sets_done: number;
-  distance_m: number | null;
-  duration_s: number | null;
-  days_since_trained: number | null;
-  delivered_this_week: number;
-}
-
-export interface RecentWeek {
-  week: number;
-  working_sets_done: number;
-  sessions_done: number;
-}
-
-export interface RecentDecision {
-  id: number;
-  made_at: string;
-  what_changed: string;
-  why: string;
-}
-
-export interface ActiveMesocycle {
+const performed =
+  "(t.reps IS NOT NULL OR t.distance_m IS NOT NULL OR t.duration_s IS NOT NULL)";
+interface Plan {
   id: number;
   name: string;
-  track: string;
+  track: Track;
   intent: string;
-  week: number | null;
   planned_weeks: number;
+  sessions_per_week: number;
   started_on: string;
-  method_doc: string | null;
-  method_note: string | null;
-  exercises: PlanExercise[];
-  this_week: { sessions_done: number; sessions_per_week: number };
-  recent_weeks: RecentWeek[];
-  recent_decisions: RecentDecision[];
 }
 
-export interface SessionExercise {
-  exercise: string;
-  mesocycle_id: number | null;
-  working_sets: number;
-  top_weight_kg: number | null;
-  top_reps: number | null;
-  top_distance_m: number | null;
-  top_duration_s: number | null;
-  top_effort: string | null;
-}
-
-export interface RecentSession {
-  id: number;
-  date: string;
-  rationale: string | null;
-  notes: string | null;
-  overall_feel: string | null;
-  exercises: SessionExercise[];
-}
-
-// Two shapes. With no active mesocycle the answer is a `note` routing to
-// onboarding or to programming, and `recent_sessions` is not fetched at all —
-// there is nothing to read them against yet.
-export interface TrainingState {
-  now: { date: string; time: string; weekday: string; tz: string };
-  week_schedule: WeekScheduleEntry | null;
-  mesocycles: ActiveMesocycle[];
-  note?: string;
-  recent_sessions?: RecentSession[];
-  user_context: ContextEntry[];
-}
-
-export async function trainingState(): Promise<TrainingState> {
-  const now = await romeClock();
-  const [{ week_start: weekStart }] = await sql`
-  select ${romeWeekStart()} as week_start`;
-
-  const userContext = await currentContext();
-
-  const [weekSchedule] = await sql<WeekScheduleEntry[]>`
-  select week_start, schedule, written_at from week_schedules
-  where week_start = ${weekStart}`;
-
-  const active = await sql`
-  select id, name, track, intent, planned_weeks, sessions_per_week,
-    started_on,
-    ${planWeekSince()} as week
-  from mesocycles where ended_on is null
-  order by track`;
-
-  if (active.length === 0) {
-    // The cold start routes to onboarding; a known person routes to planning.
-    const note = userContext.length === 0
-      ? "No active mesocycle and no user context: this is a first conversation. Start with the onboarding document, `tasks/onboarding` — do not program anything yet."
-      : "No active mesocycle. Read the `tasks/programming` document, then create one with POST /mesocycles (blocks via POST /blocks).";
+export function trainingStateStore(db: Database, clock: Clock = systemClock) {
+  async function trainingState(): Promise<TrainingState> {
+    const instant = clock();
+    const today = romeDate(canonicalInstant(instant.toISOString()));
+    const weekStart = mondayOf(today);
+    const now = {
+      date: today,
+      time: new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Rome",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(instant),
+      weekday: new Intl.DateTimeFormat("en-US", {
+        timeZone: "Europe/Rome",
+        weekday: "long",
+      }).format(instant),
+      tz: "Europe/Rome",
+    };
+    const userContext = await contextStore(db).currentContext();
+    const [schedule] = await rows<WeekScheduleEntry>(
+      db,
+      "SELECT week_start, schedule, written_at FROM week_schedules WHERE week_start = ?",
+      weekStart,
+    );
+    const weekSchedule = schedule
+      ? { ...schedule, written_at: wireInstant(schedule.written_at)! }
+      : null;
+    const active = await rows<Plan>(
+      db,
+      "SELECT id, name, track, intent, planned_weeks, sessions_per_week, started_on FROM mesocycles WHERE ended_on IS NULL ORDER BY track",
+    );
+    if (!active.length) {
+      return {
+        now,
+        mesocycles: [],
+        week_schedule: weekSchedule,
+        user_context: userContext,
+        note: userContext.length === 0
+          ? "No active mesocycle and no user context: this is a first conversation. Start with the onboarding document, `tasks/onboarding` — do not program anything yet."
+          : "No active mesocycle. Read the `tasks/programming` document, then create one with POST /mesocycles (blocks via POST /blocks).",
+      };
+    }
+    const mesocycles: ActiveMesocycle[] = [];
+    for (const m of active) {
+      // Match PostgreSQL integer division, including the partial pre-start
+      // week, and the plan-detail reader's null rule.
+      const numberedWeek = Math.trunc(daysBetween(m.started_on, today) / 7) + 1;
+      const week = numberedWeek < 1 ? null : numberedWeek;
+      const exercises = await rows<Omit<PlanExercise, "delivered_this_week">>(
+        db,
+        `SELECT e.name AS exercise, e.measure, me.role, me.priority, me.notes,
+          dose.weekly_dose / 100.0 AS dose, dose.weekly_dose_unit AS dose_unit,
+          coalesce(d.sets_done, 0) AS sets_done, d.distance_m, d.duration_s,
+          CAST(julianday(?) - julianday((SELECT max(s.date) FROM sets t JOIN sessions s ON s.id = t.session_id
+            WHERE t.exercise_id = me.exercise_id AND ${performed})) AS INTEGER) AS days_since_trained
+         FROM mesocycle_exercises me JOIN exercises e ON e.id = me.exercise_id
+         JOIN mesocycle_exercise_doses dose ON dose.id = (
+           SELECT h.id FROM mesocycle_exercise_doses h WHERE h.mesocycle_id = me.mesocycle_id
+           AND h.exercise_id = me.exercise_id AND h.effective_from <= ? ORDER BY h.effective_from DESC, h.id DESC LIMIT 1)
+         LEFT JOIN (SELECT t.exercise_id, count(*) AS sets_done, sum(t.distance_m) / 10.0 AS distance_m,
+           sum(t.duration_s) / 100.0 AS duration_s FROM sets t JOIN sessions s ON s.id = t.session_id
+           WHERE t.mesocycle_id = ? AND t.kind = 'working' AND ${performed} AND s.date >= ? GROUP BY t.exercise_id) d
+           ON d.exercise_id = me.exercise_id
+         WHERE me.mesocycle_id = ? ORDER BY me.priority, e.name`,
+        today,
+        today > m.started_on ? today : m.started_on,
+        m.id,
+        weekStart,
+        m.id,
+      );
+      const [{ sessions_done }] = await rows<{ sessions_done: number }>(
+        db,
+        `SELECT count(DISTINCT s.id) AS sessions_done FROM sessions s JOIN sets t ON t.session_id = s.id
+         WHERE t.mesocycle_id = ? AND s.date >= ? AND ${performed}`,
+        m.id,
+        weekStart,
+      );
+      const recentWeeks: RecentWeek[] = [];
+      if (week !== null) {
+        for (let w = Math.max(1, week - 3); w < week; w++) {
+          const [done] = await rows<Omit<RecentWeek, "week">>(
+            db,
+            `SELECT (SELECT count(*) FROM sets t JOIN sessions s ON s.id = t.session_id
+               WHERE t.mesocycle_id = ? AND t.kind = 'working' AND ${performed} AND s.date < ?
+               AND CAST(julianday(s.date) - julianday(?) AS INTEGER) / 7 + 1 = ?) AS working_sets_done,
+             (SELECT count(DISTINCT s.id) FROM sessions s JOIN sets t ON t.session_id = s.id
+               WHERE t.mesocycle_id = ? AND s.date >= ? AND s.date < ? AND ${performed}) AS sessions_done`,
+            m.id,
+            weekStart,
+            m.started_on,
+            w,
+            m.id,
+            addDays(m.started_on, (w - 1) * 7),
+            addDays(m.started_on, w * 7),
+          );
+          recentWeeks.push({ week: w, ...done });
+        }
+      }
+      const decisions = await rows<RecentDecision>(
+        db,
+        "SELECT id, made_at, what_changed, why FROM mesocycle_decisions WHERE mesocycle_id = ? ORDER BY made_at DESC, id DESC LIMIT 5",
+        m.id,
+      );
+      const hasMethod = DOCUMENTED_TRACKS.includes(m.track);
+      mesocycles.push({
+        id: m.id,
+        name: m.name,
+        track: m.track,
+        intent: m.intent,
+        week,
+        planned_weeks: m.planned_weeks,
+        started_on: m.started_on,
+        method_doc: hasMethod ? `method/${m.track}` : null,
+        method_note: hasMethod
+          ? null
+          : `There is no method document for the ${m.track} track yet, so this plan is coached from general knowledge. Say so plainly rather than implying an authority the documents do not give you.`,
+        exercises: exercises.map((e) => ({
+          ...e,
+          delivered_this_week: deliveredInDoseUnit(
+            e.dose_unit,
+            e.sets_done,
+            e.distance_m,
+            e.duration_s,
+          ),
+        })),
+        this_week: { sessions_done, sessions_per_week: m.sessions_per_week },
+        recent_weeks: recentWeeks,
+        recent_decisions: decisions.map((d) => ({
+          ...d,
+          made_at: wireInstant(d.made_at)!,
+        })),
+      });
+    }
+    const recentSessions = await rows<Omit<RecentSession, "exercises">>(
+      db,
+      "SELECT id, date, rationale, notes, overall_feel FROM sessions ORDER BY date DESC, id DESC LIMIT 5",
+    );
+    const sessions: RecentSession[] = [];
+    for (const s of recentSessions) {
+      const exercises = await rows<SessionExercise>(
+        db,
+        `SELECT exercise, mesocycle_id, working_sets, top_weight_kg, top_reps, top_distance_m, top_duration_s, top_effort FROM (
+          SELECT e.name AS exercise, t.mesocycle_id,
+            count(*) OVER (PARTITION BY t.exercise_id) AS working_sets,
+            t.weight_kg / 100.0 AS top_weight_kg, t.reps AS top_reps,
+            t.distance_m / 10.0 AS top_distance_m, t.duration_s / 100.0 AS top_duration_s, t.effort AS top_effort,
+            row_number() OVER (PARTITION BY t.exercise_id ORDER BY t.weight_kg DESC NULLS LAST,
+              t.reps DESC NULLS LAST, t.distance_m DESC NULLS LAST) AS rank
+          FROM sets t JOIN exercises e ON e.id = t.exercise_id WHERE t.session_id = ? AND t.kind = 'working' AND ${performed}
+        ) WHERE rank = 1 ORDER BY exercise`,
+        s.id,
+      );
+      sessions.push({ ...s, exercises });
+    }
     return {
       now,
-      mesocycles: [],
-      note,
-      week_schedule: weekSchedule ?? null,
+      week_schedule: weekSchedule,
+      mesocycles,
+      recent_sessions: sessions,
       user_context: userContext,
     };
   }
-
-  const mesocycles: ActiveMesocycle[] = [];
-  for (const meso of active) {
-    const week = planWeekOrNull(meso.week);
-
-    // The plan's exercises with, per exercise: the dose, what this week has
-    // delivered against it in the dose's own unit, and staleness.
-    //
-    // Delivery is scoped to this plan — the same work cannot count twice for
-    // two plans — while staleness is not: how long since the last squat is a
-    // fact about the lift and the body, not about which plan asked for it.
-    const exercises = await sql<
-      Array<Omit<PlanExercise, "delivered_this_week">>
-    >`
-    select e.name as exercise, e.measure, me.role, me.priority, me.notes,
-      dose.weekly_dose::float8 as dose, dose.weekly_dose_unit as dose_unit,
-      coalesce(d.sets_done, 0)::int as sets_done,
-      d.distance_m, d.duration_s,
-      ((${romeDate()}) -
-       (select max(s.date) from sets t
-        join sessions s on s.id = t.session_id
-        where t.exercise_id = me.exercise_id
-          and set_performed(t.reps, t.distance_m, t.duration_s))
-      ) as days_since_trained
-    from mesocycle_exercises me
-    join exercises e on e.id = me.exercise_id
-    join lateral (
-      select weekly_dose, weekly_dose_unit
-      from mesocycle_exercise_doses dose
-      where dose.mesocycle_id = me.mesocycle_id
-        and dose.exercise_id = me.exercise_id
-        and dose.effective_from <= greatest(${romeDate()}, ${meso.started_on}::date)
-      order by dose.effective_from desc, dose.id desc
-      limit 1
-    ) dose on true
-    left join lateral (
-      select count(*)::int as sets_done,
-        sum(t.distance_m)::float8 as distance_m,
-        sum(t.duration_s)::float8 as duration_s
-      from sets t
-      join sessions s on s.id = t.session_id
-      where t.exercise_id = me.exercise_id
-        and t.mesocycle_id = me.mesocycle_id
-        and t.kind = 'working'
-        and set_performed(t.reps, t.distance_m, t.duration_s)
-        and s.date >= ${weekStart}
-    ) d on true
-    where me.mesocycle_id = ${meso.id}
-    order by me.priority, e.name`;
-
-    const [thisWeek] = await sql`
-    select count(distinct s.id)::int as sessions_done
-    from sessions s
-    join sets t on t.session_id = s.id
-    where t.mesocycle_id = ${meso.id} and s.date >= ${weekStart}
-      and set_performed(t.reps, t.distance_m, t.duration_s)`;
-
-    // The last few finished weeks: what was delivered. Judging it against the
-    // doses (and the decision log's adjustments) is the coach's job.
-    const recentWeeks = week === null ? [] : await sql<
-      RecentWeek[]
-    >`
-    select g.w as week,
-      coalesce((select sum(v.sets_done)::int
-        from weekly_exercise_sets_done v
-        where v.mesocycle_id = ${meso.id} and v.week = g.w), 0) as working_sets_done,
-      (select count(distinct s.id)::int from sessions s
-       join sets t on t.session_id = s.id
-       where t.mesocycle_id = ${meso.id}
-         and s.date >= ${meso.started_on}::date + (g.w - 1) * 7
-         and s.date < ${meso.started_on}::date + g.w * 7
-         and set_performed(t.reps, t.distance_m, t.duration_s)) as sessions_done
-    from generate_series(greatest(1, ${week} - 3), ${week} - 1) g(w)
-    order by g.w`;
-
-    // Session generation reads these: a backed-off lift or a declared light
-    // week changes what today's session should ask for.
-    const recentDecisions = await sql<RecentDecision[]>`
-    select id, made_at, what_changed, why
-    from mesocycle_decisions
-    where mesocycle_id = ${meso.id}
-    order by made_at desc, id desc
-    limit 5`;
-
-    // Stated by the API rather than left for the coach to discover: a plan on
-    // a track with no method document is coached from general knowledge, and
-    // saying so is the difference between honest and authoritative. Named as
-    // a document, not a route: the documents are the skill's to read.
-    const hasMethodDoc = DOCUMENTED_TRACKS.includes(meso.track);
-
-    mesocycles.push({
-      id: meso.id,
-      name: meso.name,
-      track: meso.track,
-      intent: meso.intent,
-      week,
-      planned_weeks: meso.planned_weeks,
-      started_on: meso.started_on,
-      method_doc: hasMethodDoc ? `method/${meso.track}` : null,
-      method_note: hasMethodDoc
-        ? null
-        : `There is no method document for the ${meso.track} track yet, so this plan is coached from general knowledge. Say so plainly rather than implying an authority the documents do not give you.`,
-      exercises: exercises.map((e) => ({
-        ...e,
-        delivered_this_week: deliveredInDoseUnit(
-          e.dose_unit,
-          e.sets_done,
-          e.distance_m,
-          e.duration_s,
-        ),
-      })),
-      this_week: {
-        sessions_done: thisWeek.sessions_done,
-        sessions_per_week: meso.sessions_per_week,
-      },
-      recent_weeks: recentWeeks,
-      recent_decisions: recentDecisions,
-    });
-  }
-
-  // Shared across plans, because the week is shared. A session that sprinted
-  // and then squatted appears once, with the work it held.
-  const recentSessions = await sql<RecentSession[]>`
-  select s.id, s.date, s.rationale, s.notes, s.overall_feel,
-    coalesce((select json_agg(x order by x.exercise)
-      from (
-        select distinct on (t.exercise_id) e.name as exercise,
-          t.mesocycle_id,
-          count(*) over (partition by t.exercise_id)::int as working_sets,
-          t.weight_kg::float8 as top_weight_kg, t.reps as top_reps,
-          t.distance_m::float8 as top_distance_m,
-          t.duration_s::float8 as top_duration_s,
-          t.effort as top_effort
-        from sets t join exercises e on e.id = t.exercise_id
-        where t.session_id = s.id and t.kind = 'working'
-          and set_performed(t.reps, t.distance_m, t.duration_s)
-        order by t.exercise_id, t.weight_kg desc nulls last,
-          t.reps desc nulls last, t.distance_m desc nulls last
-      ) x), '[]') as exercises
-  from sessions s
-  order by s.date desc, s.id desc
-  limit 5`;
-
-  return {
-    now,
-    week_schedule: weekSchedule ?? null,
-    mesocycles,
-    recent_sessions: recentSessions,
-    user_context: userContext,
-  };
+  return { trainingState };
 }

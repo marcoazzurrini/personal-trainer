@@ -1,9 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
+import d1 from "./d1.ts";
 import {
   api,
   daysBefore,
-  DB_URL,
   ensureCatalogue,
   lastMonday,
   resetTraining,
@@ -20,7 +19,7 @@ Deno.test("dose history owns current reads without owning membership", async (t)
     exercises: [{ exercise: "squat", weekly_dose: 9 }],
   });
   const membershipId = mesocycle.exercises[0].id;
-  const db = postgres(DB_URL, { max: 1 });
+  const db = d1();
   const path = `/mesocycles/${mesocycleId}`;
   const decisionPath = `${path}/decisions`;
   const history = async () => [
@@ -57,9 +56,8 @@ Deno.test("dose history owns current reads without owning membership", async (t)
       "creation stores membership separately from its one dose",
       async () => {
         const columns = await db`
-        select column_name from information_schema.columns
-        where table_schema = 'public' and table_name = 'mesocycle_exercises'
-          and column_name in ('weekly_dose', 'weekly_dose_unit')`;
+        select name from pragma_table_info('mesocycle_exercises')
+        where name in ('weekly_dose', 'weekly_dose_unit')`;
         assertEquals(columns.length, 0);
         assertEquals((await history()).length, 1);
         await assertCurrent(9);
@@ -89,9 +87,10 @@ Deno.test("dose history owns current reads without owning membership", async (t)
         const after = await history();
         assertEquals(after.length, 2);
         assertEquals(after[0], before[0]);
-        assertEquals(Number(after[1].weekly_dose), 12);
+        // D1 stores hundredths; the public API still reports 12 sets.
+        assertEquals(Number(after[1].weekly_dose), 1200);
         assertEquals(
-          after[1].effective_from.toISOString().slice(0, 10),
+          after[1].effective_from,
           today(),
         );
         assertEquals(result.body.mesocycle.exercises[0].id, membershipId);
@@ -229,14 +228,10 @@ Deno.test("dose history owns current reads without owning membership", async (t)
         const plan = await api.get(path);
         const log = await api.get(decisionPath);
         const failedId = uuid();
-        await db`create function fail_dose_decision() returns trigger language plpgsql as $$
-        begin
-          raise exception 'injected decision failure' using errcode = '23514';
-        end $$`;
         await db.unsafe(
           `create trigger fail_dose_decision before insert on mesocycle_decisions
-        for each row when (new.request_id = '${failedId}'::uuid)
-        execute function fail_dose_decision()`,
+          for each row when new.request_id = '${failedId}'
+          begin select raise(abort, 'CHECK constraint failed: injected decision failure'); end`,
         );
         const body = {
           request_id: failedId,
@@ -264,8 +259,7 @@ Deno.test("dose history owns current reads without owning membership", async (t)
           assertEquals((await api.get(path)).body, plan.body);
           assertEquals((await api.get(decisionPath)).body, log.body);
         } finally {
-          await db`drop trigger fail_dose_decision on mesocycle_decisions`;
-          await db`drop function fail_dose_decision()`;
+          await db`drop trigger fail_dose_decision`;
         }
         // A failed call did not spend its request_id.
         assertEquals((await api.post(decisionPath, body)).status, 201);
@@ -308,10 +302,9 @@ Deno.test("future plans expose their starting dose and pre-start decisions", asy
     state.body.mesocycles[0].exercises.map((e: { dose: number }) => e.dose),
     [12, 6],
   );
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
-    const rows =
-      await db`select effective_from::text from mesocycle_exercise_doses
+    const rows = await db`select effective_from from mesocycle_exercise_doses
       where mesocycle_id = ${mesocycleId} order by id`;
     assertEquals(rows.map((r) => r.effective_from), [start, start, start]);
     assertEquals(

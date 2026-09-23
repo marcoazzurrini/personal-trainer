@@ -1,0 +1,16 @@
+{
+  "name": "personal-trainer-d1-migration",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.20.0 <25" },
+  "scripts": {
+    "test": "WRANGLER_SEND_METRICS=false node --test --test-concurrency=1 codec.test.mjs schema.test.mjs api.test.mjs access.test.mjs nutrition.test.mjs nutrition-summary.test.mjs runtime.test.mjs training.test.mjs withings.test.mjs",
+    "test:postgres": "WRANGLER_SEND_METRICS=false node --test --test-concurrency=1 postgres.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "miniflare": "5.20260911.1-alpha",
+    "postgres": "3.4.9",
+    "wrangler": "4.131.2"
+  }
+}

@@ -1,10 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  listBodyfat,
-  METHODS,
-  recordBodyfat,
-  removeBodyfat,
-} from "./bodyfat.ts";
+import { type AppEnv, services } from "../shared/services.ts";
+import { METHODS } from "./constants.ts";
 import {
   body,
   idParam,
@@ -16,7 +12,7 @@ import {
   requestId,
 } from "../shared/schema.ts";
 
-export const bodyfat = new OpenAPIHono();
+export const bodyfat = new OpenAPIHono<AppEnv>();
 
 const Estimate = z.object({
   id: z.int(),
@@ -45,7 +41,8 @@ bodyfat.openapi(
       },
     },
   }),
-  async (c) => c.json({ bodyfat_estimates: await listBodyfat() }),
+  async (c) =>
+    c.json({ bodyfat_estimates: await services(c).bodyfat.listBodyfat() }),
 );
 
 bodyfat.openapi(
@@ -96,7 +93,7 @@ bodyfat.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const { row, created } = await recordBodyfat({
+    const { row, created } = await services(c).bodyfat.recordBodyfat({
       percent: b.percent,
       method: b.method,
       day: b.day,
@@ -139,6 +136,6 @@ bodyfat.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    return c.json({ deleted: await removeBodyfat(id) });
+    return c.json({ deleted: await services(c).bodyfat.removeBodyfat(id) });
   },
 );

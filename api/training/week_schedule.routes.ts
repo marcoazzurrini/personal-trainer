@@ -1,8 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { writeWeekSchedule } from "./week_schedule.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { body, optionalDate, query, text } from "../shared/schema.ts";
 
-export const weekSchedule = new OpenAPIHono();
+export const weekSchedule = new OpenAPIHono<AppEnv>();
 
 const WeekSchedule = z.object({
   week_start: z.string(),
@@ -46,7 +46,9 @@ weekSchedule.openapi(
     },
   }),
   async (c) => {
-    const { row, note } = await writeWeekSchedule(c.req.valid("json"));
+    const { row, note } = await services(c).schedule.writeWeekSchedule(
+      c.req.valid("json"),
+    );
     return c.json({ week_schedule: row, ...(note ? { note } : {}) }, 201);
   },
 );

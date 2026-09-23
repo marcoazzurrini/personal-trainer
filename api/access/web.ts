@@ -1,18 +1,35 @@
 import { ApiError } from "../shared/errors.ts";
-import { fetchJwks, JwtError, readHeader, verifyWebSessionJwt } from "./jwt.ts";
+import {
+  fetchJwks,
+  JwtError,
+  readHeader,
+  timingSafeEqual,
+  verifyWebSessionJwt,
+} from "./jwt.ts";
 
 // An explicit, optional second credential policy. No database access and no
 // token minting: the web server forwards the user's short-lived WorkOS token.
 // These settings are separate from Connect's issuer, audience and key set.
+export interface WebAuthConfig {
+  issuer?: string;
+  clientId?: string;
+  jwksUrl?: string;
+  allowedSubject?: string;
+}
+
+/** Bind server configuration explicitly; omitted settings disable dashboard access. */
+export function createWebAuthorizer(config: WebAuthConfig) {
+  return (token: string, method: string, path: string) =>
+    authorizeWebRead(token, method, path, config);
+}
+
 export async function authorizeWebRead(
   token: string,
   method: string,
   path: string,
+  config: WebAuthConfig,
 ): Promise<void> {
-  const issuer = Deno.env.get("WEB_AUTH_ISSUER");
-  const clientId = Deno.env.get("WEB_AUTH_CLIENT_ID");
-  const jwksUrl = Deno.env.get("WEB_AUTH_JWKS_URL");
-  const subject = Deno.env.get("ALLOWED_SUBJECT");
+  const { issuer, clientId, jwksUrl, allowedSubject: subject } = config;
   if (!issuer || !clientId || !jwksUrl || !subject) {
     throw new ApiError(
       401,
@@ -40,7 +57,7 @@ export async function authorizeWebRead(
       "The authorization server could not be reached to check the web session. Try again in a moment.",
     );
   }
-  if (identity.sub !== subject) {
+  if (!(await timingSafeEqual(identity.sub, subject))) {
     throw new ApiError(
       403,
       "This dashboard belongs to one person. This account is not allowed.",

@@ -1,0 +1,34 @@
+{
+  "name": "personal-trainer",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.20.0 <25",
+    "deno": "2.9.6"
+  },
+  "scripts": {
+    "dev": "npm run db:migrate:local && wrangler dev --local",
+    "build": "node scripts/build-worker.mjs",
+    "deploy": "node scripts/deploy-worker.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply personal-trainer --local",
+    "db:migrate:remote": "wrangler d1 migrations apply personal-trainer --remote",
+    "test": "npm run test:prepare && npm run test:api && npm run test:d1 && npm run test:tooling && npm run test:operators && npm run test:shutdown",
+    "test:prepare": "deno test --no-run --frozen api/tests/ scripts/shutdown_test.ts",
+    "test:api": "node scripts/test-worker.mjs",
+    "test:d1": "npm test --prefix db/d1",
+    "test:tooling": "node --test scripts/build-worker.test.mjs scripts/deploy-worker.test.mjs",
+    "test:operators": "deno test --frozen --allow-read --allow-write scripts/seed_withings_test.ts",
+    "test:shutdown": "deno test --cached-only --frozen --allow-run=node --allow-env --allow-net=127.0.0.1 scripts/shutdown_test.ts",
+    "test:postgres-import": "npm --prefix db/d1 run test:postgres"
+  },
+  "dependencies": {
+    "@hono/hono": "npm:hono@4.13.7",
+    "@hono/zod-openapi": "1.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.4",
+    "esbuild": "0.28.1",
+    "miniflare": "5.20260911.1-alpha",
+    "wrangler": "4.131.2"
+  }
+}

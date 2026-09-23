@@ -1,128 +1,93 @@
-// Both reads go through the views, which already enforce the rules: working
-// sets only, performed only, finished weeks only — plus, on weekly_volume
-// alone, strength stimulus only.
-
-import { sql } from "../db.ts";
+import {
+  type Clock,
+  type Database,
+  instant,
+  romeDate,
+  rows,
+  systemClock,
+} from "../shared/d1.ts";
+import { mondayOf } from "../shared/dates.ts";
 import { ApiError } from "../shared/errors.ts";
-import { resolveMesocycle } from "./resolve.ts";
+import { trainingResolver } from "./resolve.ts";
 import { deliveredInDoseUnit } from "./rules.ts";
+import type { ExerciseWeek, VolumeRow } from "./volume.types.ts";
 
-export interface VolumeRow {
-  week_start: string;
-  muscle: string;
-  working_sets: number;
-}
-
-export interface ExerciseWeek {
-  week: number;
-  exercise: string;
-  exercise_id: number;
-  measure: string;
-  sets_done: number;
-  distance_m: number | null;
-  duration_s: number | null;
-  dose: number | null;
-  dose_unit: string | null;
-  /** The dose's own unit, so adherence is a subtraction rather than a conversion. */
-  delivered: number | null;
-}
-
-/**
- * Working sets per muscle per week. One row per muscle, never a total.
- *
- * `mesocycle_id` is absent under "all", which re-sums across every plan with
- * off-plan work included: a muscle does not care which plan loaded it, and the
- * long view is about the muscle.
- */
-export async function volumePerMuscle(
-  param: string,
-): Promise<{ mesocycle_id?: number; weekly_volume: VolumeRow[] }> {
-  if (param === "all") {
+/** The D1 views retain all weeks. Only readers apply the Rome cutoff. */
+export function volumeStore(db: Database, clock: Clock = systemClock) {
+  const resolver = trainingResolver(db);
+  async function volumePerMuscle(
+    param: string,
+  ): Promise<{ mesocycle_id?: number; weekly_volume: VolumeRow[] }> {
+    const cutoff = mondayOf(romeDate(instant(clock().toISOString())));
+    if (param === "all") {
+      return {
+        weekly_volume: await rows<VolumeRow>(
+          db,
+          `SELECT week_start, muscle, sum(working_sets) AS working_sets FROM weekly_volume
+       WHERE week_start < ? GROUP BY week_start, muscle ORDER BY week_start, muscle`,
+          cutoff,
+        ),
+      };
+    }
+    const m = await resolver.resolveMesocycle(param);
     return {
-      weekly_volume: await sql<VolumeRow[]>`
-      select week_start, muscle, sum(working_sets)::float8 as working_sets
-      from weekly_volume
-      group by week_start, muscle
-      order by week_start, muscle`,
+      mesocycle_id: m.id,
+      weekly_volume: await rows<VolumeRow>(
+        db,
+        `SELECT week_start, muscle, working_sets FROM weekly_volume WHERE mesocycle_id = ? AND week_start < ? ORDER BY week_start, muscle`,
+        m.id,
+        cutoff,
+      ),
     };
   }
-  // Attribution, not calendar. A date-range filter here once swept another
-  // overlapping plan's sets — and any off-plan lifting — into this plan's
-  // numbers, while the response echoed a mesocycle_id it wasn't honouring.
-  const m = await resolveMesocycle(param);
-  return {
-    mesocycle_id: m.id,
-    weekly_volume: await sql<VolumeRow[]>`
-    select week_start, muscle, working_sets from weekly_volume
-    where mesocycle_id = ${m.id}
-    order by week_start, muscle`,
-  };
-}
-
-/**
- * What the plan asked for each week beside what was delivered, per exercise.
- *
- * Both come back in the dose's own unit, so adherence is one subtraction
- * rather than a unit conversion the caller has to get right — and the raw
- * sets, metres and seconds come too, because a dose in km says nothing about
- * how many efforts it took to cover.
- *
- * The dose is the one that was in force during that week, from the history
- * table, not the plan's current dose. Before the history existed a redose
- * silently rewrote what every past week was judged against, and the only
- * recovery was reading prose out of the decision log.
- */
-export async function dosePerExercise(
-  param: string,
-): Promise<
-  { mesocycle_id: number; track: string; weekly_exercise_sets: ExerciseWeek[] }
-> {
-  // Unlike volumePerMuscle, which accepts it. Not an oversight: volume is sets
-  // per muscle per calendar week and comparable across years, while week
-  // numbers here are relative to a mesocycle's start — week 3 of one plan and
-  // week 3 of another are different weeks judged against different doses, and
-  // stacking them would put numbers with no shared meaning on one axis.
-  if (param === "all") {
-    throw new ApiError(
-      422,
-      '"all" works on GET /weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".',
+  async function dosePerExercise(param: string): Promise<{
+    mesocycle_id: number;
+    track: string;
+    weekly_exercise_sets: ExerciseWeek[];
+  }> {
+    if (param === "all") {
+      throw new ApiError(
+        422,
+        '"all" works on GET /weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".',
+      );
+    }
+    const m = await resolver.resolveMesocycle(param);
+    const found = await rows<Omit<ExerciseWeek, "delivered">>(
+      db,
+      // Filter source dates before grouping: pre-start sets can share relative
+      // week 1 with the first plan week because integer division truncates.
+      `WITH finished AS (
+         SELECT t.mesocycle_id, t.exercise_id,
+           CAST(julianday(s.date) - julianday(mc.started_on) AS INTEGER) / 7 + 1 AS week,
+           count(*) AS sets_done, sum(t.distance_m) / 10.0 AS distance_m, sum(t.duration_s) / 100.0 AS duration_s
+         FROM sets t JOIN sessions s ON s.id = t.session_id JOIN mesocycles mc ON mc.id = t.mesocycle_id
+         WHERE t.kind = 'working' AND (t.reps IS NOT NULL OR t.distance_m IS NOT NULL OR t.duration_s IS NOT NULL)
+           AND s.date < ? AND t.mesocycle_id = ? GROUP BY 1, 2, 3
+       ) SELECT v.week, e.name AS exercise, v.exercise_id, e.measure, v.sets_done, v.distance_m, v.duration_s,
+        d.weekly_dose / 100.0 AS dose, d.weekly_dose_unit AS dose_unit
+       FROM finished v JOIN exercises e ON e.id = v.exercise_id
+       JOIN mesocycles mc ON mc.id = v.mesocycle_id
+       LEFT JOIN mesocycle_exercise_doses d ON d.id = (
+         SELECT dose.id FROM mesocycle_exercise_doses dose WHERE dose.mesocycle_id = v.mesocycle_id
+         AND dose.exercise_id = v.exercise_id AND dose.effective_from <= date(mc.started_on, (v.week * 7 - 1) || ' days')
+         ORDER BY dose.effective_from DESC, dose.id DESC LIMIT 1)
+       ORDER BY v.week, e.name`,
+      mondayOf(romeDate(instant(clock().toISOString()))),
+      m.id,
     );
+    return {
+      mesocycle_id: m.id,
+      track: m.track,
+      weekly_exercise_sets: found.map((r) => ({
+        ...r,
+        delivered: r.dose_unit === null ? null : deliveredInDoseUnit(
+          r.dose_unit,
+          r.sets_done,
+          r.distance_m,
+          r.duration_s,
+        ),
+      })),
+    };
   }
-  const m = await resolveMesocycle(param);
-  const rows = await sql<Array<Omit<ExerciseWeek, "delivered">>>`
-    select v.week, e.name as exercise, v.exercise_id, e.measure,
-      v.sets_done, v.distance_m, v.duration_s,
-      d.weekly_dose::float8 as dose, d.weekly_dose_unit as dose_unit
-    from weekly_exercise_sets_done v
-    join exercises e on e.id = v.exercise_id
-    -- The dose in force at the week's end: a redose decided mid-week is what
-    -- that week's delivery was steered at, so the week's Sunday is the
-    -- honest as-of point. Left, not inner: an exercise revised out of the
-    -- plan keeps the work it delivered while it was in it, judged against
-    -- the dose it was actually asked for at the time.
-    left join lateral (
-      select weekly_dose, weekly_dose_unit
-      from mesocycle_exercise_doses d
-      where d.mesocycle_id = v.mesocycle_id
-        and d.exercise_id = v.exercise_id
-        and d.effective_from <= ${m.started_on}::date + v.week * 7 - 1
-      order by d.effective_from desc, d.id desc
-      limit 1
-    ) d on true
-    where v.mesocycle_id = ${m.id}
-    order by v.week, e.name`;
-
-  return {
-    mesocycle_id: m.id,
-    track: m.track,
-    weekly_exercise_sets: rows.map((r) => ({
-      ...r,
-      delivered: r.dose_unit === null ? null : deliveredInDoseUnit(
-        r.dose_unit,
-        r.sets_done,
-        r.distance_m,
-        r.duration_s,
-      ),
-    })),
-  };
+  return { volumePerMuscle, dosePerExercise };
 }

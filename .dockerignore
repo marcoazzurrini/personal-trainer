@@ -1,7 +1,0 @@
-# Only deno.json, deno.lock, api/ and db/ go into the image.
-*
-!deno.json
-!deno.lock
-!api
-api/tests
-!db

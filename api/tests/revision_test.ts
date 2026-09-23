@@ -1,40 +1,42 @@
-import { assertEquals, assertThrows } from "@std/assert";
-import { readBuildRevision } from "../shared/revision.ts";
+import { assert, assertEquals, assertThrows } from "@std/assert";
+import { sourceRevision } from "../../scripts/build-worker.mjs";
 
-Deno.test("build revision comes from the image file, never a runtime environment label", () => {
-  const sha = "a".repeat(40);
-  assertEquals(readBuildRevision(() => `${sha}\n`), sha);
-  assertEquals(
-    readBuildRevision(() => {
-      throw new Deno.errors.NotFound();
-    }),
-    null,
-  );
-  for (const invalid of ["", "HEAD", "abc1234", "A".repeat(40)]) {
+const sha = "a".repeat(40);
+const git = (dirty = false) => (...args: string[]) => {
+  assert(["rev-parse", "status"].includes(args[0]));
+  return args[0] === "rev-parse" ? sha : dirty ? " M api/worker.ts" : "";
+};
+
+Deno.test("a Worker release revision must match the exact clean checkout", () => {
+  assertEquals(sourceRevision(sha, git()), sha);
+  assertEquals(sourceRevision("", git()), sha);
+  assertEquals(sourceRevision("", git(true)), null);
+  for (const invalid of ["HEAD", "abc1234", "A".repeat(40), "b".repeat(40)]) {
     assertThrows(
-      () => readBuildRevision(() => invalid),
+      () => sourceRevision(invalid, git()),
       Error,
-      "build revision",
+      "exact clean GITHUB_SHA",
     );
   }
-  assertThrows(() =>
-    readBuildRevision(() => {
-      throw new Deno.errors.PermissionDenied();
-    }), Deno.errors.PermissionDenied);
+  assertThrows(
+    () => sourceRevision(sha, git(true)),
+    Error,
+    "exact clean GITHUB_SHA",
+  );
 });
 
-Deno.test("the Dockerfile requires source metadata and stores it outside runtime environment", async () => {
-  const dockerfile = await Deno.readTextFile("Dockerfile");
-  assertEquals(/^ARG SOURCE_COMMIT$/m.test(dockerfile), true);
-  assertEquals(dockerfile.includes('Deno.env.get("SOURCE_COMMIT")'), true);
-  assertEquals(
-    dockerfile.includes('Deno.writeTextFileSync("build-revision.txt"'),
-    true,
-  );
-  assertEquals(
-    /^ENV (SOURCE_COMMIT|BUILD_SHA|REVISION)=/m.test(dockerfile),
-    false,
-  );
-  const reader = await Deno.readTextFile("api/shared/revision.ts");
-  assertEquals(reader.includes("Deno.env"), false);
+Deno.test("Worker build identity stamps one compiler result, never a runtime label", async () => {
+  const builder = await Deno.readTextFile("scripts/build-worker.mjs");
+  assertEquals([...builder.matchAll(/await build\(/g)].length, 1);
+  assert(builder.includes('createHash("sha256").update(source).digest("hex")'));
+  assert(builder.includes("source.replace(placeholder, digest)"));
+  assert(builder.includes('resolve(root, "dist/build.json")'));
+  assert(builder.includes("JSON.stringify(metadata)"));
+  assert(builder.includes("sourceRevision() !== revision"));
+  assert(builder.includes("production Worker must not include"));
+  const reader = await Deno.readTextFile("api/shared/build.ts");
+  assert(reader.includes("__BUILD_METADATA__"));
+  assert(!reader.includes("Deno.env"));
+  assert(!reader.includes("process.env"));
+  assert(!reader.includes("readTextFile"));
 });

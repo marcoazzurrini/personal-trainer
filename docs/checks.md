@@ -1,6 +1,14 @@
 # Checks
 
-## Transaction and schema simplification
+Current commands are defined in `deno.json`, `package.json`,
+`db/d1/package.json` and `web/package.json`; CI runs the release gate in
+`.github/workflows/ci.yml`. Production transfer evidence is in
+[the Cloudflare cutover receipt](cloudflare-cutover.md).
+
+Dated implementation results below are historical evidence, not a description
+of the current hosting platform or proof that a later revision passed.
+
+## Transaction and schema simplification (before Cloudflare)
 
 Local verification on Deno 2.9.6: **232 tests / 555 steps passed** through the
 identity-verified disposable database harness. The pure and loopback-only stub
@@ -76,35 +84,28 @@ These are local results, not GitHub CI, deployment or installed-plugin proof.
 
 ## Test groups and coverage
 
-- `deno task test:pure`: selected arithmetic, property and document checks; no
-  network permission, no Docker, no destructive setup.
-- `deno task test:stubs`: loopback-only protocol/request checks. Mixed Withings
-  and GitHub files use explicit test-name filters; their destructive helpers
-  are imported only inside database tests. No disposable receipt is needed.
-- `deno task test [files...]`: the full suite (including database and mixed
-  modules), or named files, through the disposable identity gate. Other mixed
-  files such as dates, migrations and MCP belong here unless their imports and
-  selected cases have been checked explicitly. Never use a name filter as a
-  substitute for the database gate.
-- `deno task test:shutdown` and `deno task test:secrets`: separate Docker/tool
-  checks described below and in `hosting.md`.
+- `npm test`: API tests against a disposable local Worker and D1, D1 schema
+  tests, build/deployment tooling, operator scripts and shutdown checks.
+- `deno task test [files...]`: the Worker-backed HTTP suite, or named files,
+  through the disposable identity gate. A test-name filter never replaces
+  database isolation. `deno task test:stubs` selects the protocol-focused files
+  using that same harness.
+- `deno task test:pure`: arithmetic, property and document checks without a
+  server or destructive setup.
+- `npm run test:postgres-import`: one-time transfer compatibility against a
+  disposable PostgreSQL reference. Docker is needed for this test, not for
+  production or the ordinary API/D1 suite.
+- The web package separately checks types, unit tests, browser behavior and
+  the built artifact in the Worker runtime. CI runs all four.
+- `deno task secrets` and `deno task test:secrets`: index scanning and scanner
+  boundary checks; these still require Docker, as described below.
 
-`deno task coverage [files...]` uses the same disposable harness and collects
-raw profiles from both the HTTP API and the test process. The API must exit
-cleanly before reporting; a profile must show its HTTP handler actually ran.
-Each invocation gets its own ignored `.cache/coverage/<run>/` directory, with separate
-`api/` and `tests/` profiles and labeled `api.txt`, `tests.txt`, `combined.txt`
-reports filtered to API source (not dependencies, test helpers or generated
-artifacts). CI retains that directory as an artifact. Empty test-process API
-coverage is reported honestly, not treated as missing server coverage.
-These generated reports can be deleted at any time when no coverage run is active;
-the next coverage run recreates them. Ordinary test runs do not generate reports.
+### Historical coverage baseline (#69, before Workers)
 
-For a small proof, run `deno task coverage api/tests/coverage_http_test.ts`: it
-imports no handler and exercises the doubled-prefix branch over HTTP. For
-uncovered source lines use `deno coverage --detailed --include='.*/api/.*' --exclude='.*/api/tests/.*'
-.cache/coverage/<run>/api .cache/coverage/<run>/tests`. Profile offsets belong to that source
-revision; rerun after source edits rather than merging unrelated runs.
+The native-process `deno task coverage` command was retired with the Deno
+production server. Its old profiles do not measure the current Worker runtime;
+there is no replacement aggregate coverage claim. The percentages and gaps
+below describe that earlier revision only.
 
 Initial #69 local full run: **161 tests / 510 steps passed**. API-source line
 coverage was **88.3% in the HTTP process**, **68.8% in the test process**, and

@@ -1,6 +1,14 @@
 import { assert, assertEquals } from "@std/assert";
 import { handleRequest } from "../index.ts";
+import { database } from "./d1.ts";
 import { MAX_BODY_BYTES } from "../shared/body.ts";
+
+const request = (req: Request) =>
+  handleRequest(
+    req,
+    { DB: database, ALLOWED_SUBJECT: "user_test" },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
 
 Deno.test("body limits count streamed bytes before auth, normalization and webhooks", async () => {
   for (
@@ -29,7 +37,7 @@ Deno.test("body limits count streamed bytes before auth, normalization and webho
           cancelled = true;
         },
       }, { highWaterMark: 0 });
-      const response = await handleRequest(
+      const response = await request(
         new Request(`http://localhost${path}`, {
           method: "POST",
           headers: { "content-type": type, "content-length": "1" },
@@ -42,7 +50,7 @@ Deno.test("body limits count streamed bytes before auth, normalization and webho
       assert(cancelled);
     }
   }
-  const oversized = await handleRequest(
+  const oversized = await request(
     new Request("http://localhost/api/exercises", {
       method: "POST",
       body: "x".repeat(MAX_BODY_BYTES + 1),
@@ -50,7 +58,7 @@ Deno.test("body limits count streamed bytes before auth, normalization and webho
   );
   assertEquals(oversized.status, 413);
   await oversized.body?.cancel();
-  const small = await handleRequest(
+  const small = await request(
     new Request("http://localhost/api/exercises", {
       method: "POST",
       body: "not JSON",
@@ -58,7 +66,7 @@ Deno.test("body limits count streamed bytes before auth, normalization and webho
   );
   assertEquals(small.status, 401); // object refusal never precedes auth
   await small.body?.cancel();
-  const form = await handleRequest(
+  const form = await request(
     new Request("http://localhost/api/api/withings/notify", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },

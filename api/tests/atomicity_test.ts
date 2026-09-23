@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import d1 from "./d1.ts";
 import {
   api,
   ensureCatalogue,
@@ -129,6 +130,13 @@ Deno.test("a session whose sets break a rule is not created", async (t) => {
     // session's worth of work that never happened.
     const history = await api.get("/exercises/squat/history?limit=all");
     assertEquals(history.body.sets.length, 0);
+    const db = d1();
+    try {
+      assertEquals((await db`select count(*) as n from sessions`)[0].n, 0);
+      assertEquals((await db`select count(*) as n from sets`)[0].n, 0);
+    } finally {
+      await db.end();
+    }
   });
 });
 

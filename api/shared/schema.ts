@@ -219,7 +219,7 @@ export function optionalRequestId() {
 
 // --------------------------------------------------------------- responses
 
-// What shared/calendar.ts's romeClock returns, declared once because both
+// What the Rome clock conversion returns, declared once because both
 // state reads open with it.
 export function clock() {
   return z.object({

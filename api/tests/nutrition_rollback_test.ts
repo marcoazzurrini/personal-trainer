@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
-import { api, DB_URL, resetNutrition, today, uuid } from "./helpers.ts";
+import d1 from "./d1.ts";
+import { api, resetNutrition, today, uuid } from "./helpers.ts";
 
 async function foods() {
   await resetNutrition();
@@ -30,31 +30,28 @@ Deno.test("meal creation rolls back after a child insert, then the same request 
       grams: 50,
     }],
   };
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
-    await db`create function test_meal_create_failure() returns trigger language plpgsql as $$
-      begin
-        if new.grams = 50 then
-          if not exists (select 1 from meal_items where meal_id = new.meal_id and grams = 40)
-             or not exists (select 1 from meal_aliases where meal_id = new.meal_id) then
-            raise exception 'injection did not reach the second child';
-          end if;
-          raise exception 'injected child failure' using errcode = '23514', constraint = 'test_meal_create_failure';
-        end if;
-        return new;
-      end $$`;
+    // Native D1 storage keeps grams in tenths: 50 g = 500.
     await db`create trigger test_meal_create_failure before insert on meal_items
-      for each row execute function test_meal_create_failure()`;
+      for each row when new.grams = 500
+      begin
+        select case when
+          not exists (select 1 from meal_items where meal_id = new.meal_id and grams = 400)
+          or not exists (select 1 from meal_aliases where meal_id = new.meal_id)
+          then raise(abort, 'injection did not reach the second child') end;
+        select raise(abort, 'CHECK constraint failed: test_meal_create_failure');
+      end`;
     const failed = await api.post("/meals", input);
     assertEquals(failed.status, 422);
     assert(failed.body.error.includes("test_meal_create_failure"));
     for (const table of ["meals", "meal_aliases", "meal_items"]) {
       assertEquals(
-        (await db.unsafe(`select count(*)::int as n from ${table}`))[0].n,
+        (await db.unsafe(`select count(*) as n from ${table}`))[0].n,
         0,
       );
     }
-    await db`drop trigger test_meal_create_failure on meal_items`;
+    await db`drop trigger test_meal_create_failure`;
     const saved = await api.post("/meals", input);
     assertEquals(saved.status, 201);
     assertEquals(saved.body.meal.items.length, 2);
@@ -62,14 +59,13 @@ Deno.test("meal creation rolls back after a child insert, then the same request 
     assertEquals(replay.status, 200);
     assertEquals(replay.body, saved.body);
     assertEquals((await api.get("/meals")).body.meals.length, 1);
-    assertEquals((await db`select count(*)::int as n from meal_items`)[0].n, 2);
+    assertEquals((await db`select count(*) as n from meal_items`)[0].n, 2);
     assertEquals(
-      (await db`select count(*)::int as n from meal_aliases`)[0].n,
+      (await db`select count(*) as n from meal_aliases`)[0].n,
       1,
     );
   } finally {
-    await db`drop trigger if exists test_meal_create_failure on meal_items`;
-    await db`drop function if exists test_meal_create_failure()`;
+    await db`drop trigger if exists test_meal_create_failure`;
     await db.end();
   }
 });
@@ -92,28 +88,24 @@ Deno.test("meal replacement restores name, aliases and deleted items after a lat
       grams: 50,
     }],
   };
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
-    await db`create function test_meal_replace_failure() returns trigger language plpgsql as $$
-      begin
-        if new.grams = 50 then
-          if not exists (select 1 from meals where id = new.meal_id and name = 'Changed breakfast')
-             or not exists (select 1 from meal_items where meal_id = new.meal_id and grams = 40)
-             or exists (select 1 from meal_items where meal_id = new.meal_id and grams = 70) then
-            raise exception 'injection did not reach the replacement';
-          end if;
-          raise exception 'injected replacement failure' using errcode = '23514', constraint = 'test_meal_replace_failure';
-        end if;
-        return new;
-      end $$`;
     await db`create trigger test_meal_replace_failure before insert on meal_items
-      for each row execute function test_meal_replace_failure()`;
+      for each row when new.grams = 500
+      begin
+        select case when
+          not exists (select 1 from meals where id = new.meal_id and name = 'Changed breakfast')
+          or not exists (select 1 from meal_items where meal_id = new.meal_id and grams = 400)
+          or exists (select 1 from meal_items where meal_id = new.meal_id and grams = 700)
+          then raise(abort, 'injection did not reach the replacement') end;
+        select raise(abort, 'CHECK constraint failed: test_meal_replace_failure');
+      end`;
     const failed = await api.patch(path, input);
     assertEquals(failed.status, 422);
     assert(failed.body.error.includes("test_meal_replace_failure"));
     assertEquals((await api.get(path)).body, before);
     assertEquals((await api.get("/meals/changed breakfast alias")).status, 422);
-    await db`drop trigger test_meal_replace_failure on meal_items`;
+    await db`drop trigger test_meal_replace_failure`;
     const saved = await api.patch(path, input);
     assertEquals(saved.status, 200);
     assertEquals(saved.body.meal.name, input.name);
@@ -126,8 +118,7 @@ Deno.test("meal replacement restores name, aliases and deleted items after a lat
       created.body.meal.id,
     );
   } finally {
-    await db`drop trigger if exists test_meal_replace_failure on meal_items`;
-    await db`drop function if exists test_meal_replace_failure()`;
+    await db`drop trigger if exists test_meal_replace_failure`;
     await db.end();
   }
 });
@@ -145,17 +136,15 @@ Deno.test("food correction updates historical totals without writing intake", as
     );
   }
   const path = "/foods/Rollback oats";
-  const db = postgres(DB_URL);
+  const db = d1();
   const snapshot =
     async () => [...await db`select * from intake_entries order by id`];
   try {
     const intake = await snapshot();
-    await db`create function test_food_correct_failure() returns trigger language plpgsql as $$
-      begin
-        raise exception 'food corrections must not rewrite intake' using errcode = '23514', constraint = 'test_food_correct_failure';
-      end $$`;
     await db`create trigger test_food_correct_failure before update on intake_entries
-      for each row execute function test_food_correct_failure()`;
+      for each row begin
+        select raise(abort, 'CHECK constraint failed: test_food_correct_failure');
+      end`;
     const input = { kcal_100g: 360, carbs_100g: 80 };
     const saved = await api.patch(path, input);
     assertEquals(saved.status, 200);
@@ -175,8 +164,7 @@ Deno.test("food correction updates historical totals without writing intake", as
     assertEquals(replay.status, 200);
     assertEquals(replay.body.corrected_entries.count, 0);
   } finally {
-    await db`drop trigger if exists test_food_correct_failure on intake_entries`;
-    await db`drop function if exists test_food_correct_failure()`;
+    await db`drop trigger if exists test_food_correct_failure`;
     await db.end();
   }
 });

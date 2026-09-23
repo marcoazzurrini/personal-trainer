@@ -1,42 +1,48 @@
 # Personal trainer dashboard
 
-A read-only React/TanStack Start web client. It shows measurements and the trend
-returned by the existing API. It can be installed on an iPhone Home Screen and
-requires an internet connection. The design and authentication boundaries are in
+A read-only React/TanStack Start web client hosted on Cloudflare Workers with
+Workers Static Assets. It shows measurements and the trend returned by the API.
+There is no database binding, direct database access, or browser API token.
+WorkOS sessions remain encrypted HttpOnly cookies handled only on the server.
+The dashboard does not gain the coach's write permissions.
+
+The design and authentication boundaries are in
 [ADR-0009](../docs/adr/0009-the-dashboard-is-a-web-client-and-web-sessions-can-only-read.md).
 [ADR-0010](../docs/adr/0010-the-dashboard-is-installable-and-remains-online-only.md)
-adds installation without offline storage.
+defines installation without offline storage. The Workers build replaces
+ADR-0009's container deployment section, not its authentication policy.
+Production now runs on Workers; see
+[the cutover receipt](../docs/cloudflare-cutover.md) for data verification,
+integration checks and retained recovery copies.
 
 ## Install on iPhone
 
 Open the hosted HTTPS dashboard in Safari. Open Share, select **Add to Home
 Screen**, enable **Open as Web App** if shown, and tap **Add**. Launch the PT
-icon and sign in if asked. The dashboard opens without the usual browser
-controls. There is no App Store submission or native app build.
+icon and sign in if asked. There is no App Store submission or native build.
 
 Installation does not provide offline access. No service worker, offline record
-cache, or background sync is added. Private HTML and data responses remain
-`private, no-store`.
+cache, or background sync is added. Server responses, including authentication
+redirects, failures and health metadata, use `Cache-Control: private, no-store`.
+Only public static assets are eligible for static asset caching. There is no SPA
+fallback or prerendered private HTML.
 
-The manifest is `public/manifest.webmanifest`. The original PT artwork is
-`public/icons/pt.svg`, with letter outlines rather than a font dependency. The
-192×192, 512×512, and 180×180 PNG exports are committed, so production builds
-need no image generator. After changing the SVG, regenerate them with:
+The manifest is `public/manifest.webmanifest`. The original artwork is
+`public/icons/pt.svg`. The committed 192×192, 512×512, and 180×180 PNG exports
+need no image generator during production builds. To regenerate them:
 
 ```sh
 npm exec playwright install chromium
 npm run icons
 ```
 
-Before considering iPhone support verified, test installation on the hosted
-HTTPS site, sign-in from the Home Screen app, closing and reopening the app,
-refresh, and sign-out. Desktop browser tests verify the served metadata, icons,
-and lack of persistent record storage, not iOS installation or the real WorkOS
-flow.
+Desktop tests do not prove iOS installation or the real WorkOS flow. Verify
+installation, sign-in, reopening, refresh and sign-out on a hosted iPhone before
+claiming that those flows work in production.
 
 ## Local development
 
-Use Node 24. From this directory:
+Use Node 24. From `web/`:
 
 ```sh
 npm ci
@@ -45,113 +51,172 @@ npm run dev
 ```
 
 Fill the server-only values in `.env`. Register
-`http://localhost:3000/auth/callback` as a WorkOS redirect URI,
-`http://localhost:3000/auth/sign-in` as the sign-in URL, and
-`http://localhost:3000/` as the sign-out redirect. Use the same WorkOS user ID
-for `ALLOWED_SUBJECT` on the web app and API.
+`http://localhost:3000/auth/callback` as the WorkOS redirect URI,
+`http://localhost:3000/auth/sign-in` as its sign-in URL, and
+`http://localhost:3000/` as its sign-out redirect. Use the same WorkOS user ID
+for `ALLOWED_SUBJECT` in the web application and API.
 
-Run the API separately using the root `deno.json` tasks. Its `.env.example`
-names the three optional `WEB_AUTH_*` settings. The issuer must exactly match
-the web-session access token's `iss`; do not copy the MCP issuer by assumption.
-The client ID must match `WORKOS_CLIENT_ID` here. WorkOS publishes the web
-application's signing keys at `https://api.workos.com/sso/jwks/<client_id>`. The
-verifier requires `client_id` and `sid`, and refuses a token with `aud` or
-`act`. Confirm that contract against the configured tenant without printing or
-saving credentials. Leave web access disabled if it does not match.
-
-A web session is allowed only `GET /api/bodyweight`. Existing connector sign-in
-and minted coach tokens remain unchanged. Never paste a coach token into a
-frontend environment variable to make the chart work.
-
-## Checks
-
-```sh
-npm run build
-npm run check
-npm test
-npm exec playwright install chromium
-npm run test:browser
-npm run test:container
-```
-
-The build generates the ignored route tree, so build before type-checking a
-fresh checkout. Root `deno fmt` and `deno lint` cover the web source too.
-
-Browser tests start the production build with an isolated local provider and API
-stub. They use synthetic signing keys, encrypted sessions, and weight records,
-not `.env`, a real WorkOS account, or the training database. They test anonymous
-and wrong-account access, the compiled RPC surface, CSRF, SDK token refresh,
-logout, a narrow viewport, and empty/error screens. Proxy tests also cover an
-internal HTTP connection behind a public HTTPS address, forged host headers, and
-CSRF checks without browser fetch-metadata headers. API authentication tests use
-the root disposable-Postgres harness.
-
-The container check requires Docker. It builds the production image with a
-synthetic revision and runs it without a network, database, or real credentials.
-It checks image contents, non-root execution, health metadata, anonymous
-sign-in, configuration refusals, and shutdown. Its containers and image are
-removed after the run.
-
-## Production preparation
+For the built application in the local Workers runtime:
 
 ```sh
 npm run build
 npm start
 ```
 
-The Nitro Node build is in `.output/`. Bind this process behind an HTTPS reverse
-proxy as a separate application. Set the production callback, sign-in and
-sign-out URLs in WorkOS and provide this application's environment variables at
-runtime. The API and web application can use different origins: only Start's
-server calls the API, so no browser CORS configuration is needed. Keep the
-session cookie host-only and the callback HTTPS. Set an explicit cookie lifetime
-rather than relying on the SDK's long default.
+`npm start` explicitly loads `web/.env` and listens on port 3000. The generated
+Wrangler configuration lives in `.output/server/`, so implicit Wrangler dotenv
+lookup would look in the wrong directory. Do not copy credentials into build
+output. `.dev.vars*` and `.wrangler/` are ignored locally; the documented setup
+uses `.env` rather than a second secret file. Vite and Nitro dotenv loading are
+disabled during builds. The development command explicitly loads `.env`.
 
-`WORKOS_REDIRECT_URI` also defines the dashboard's public origin. Before Start
-handles a request, the server entry uses that configured origin while preserving
-the request path, query, method, headers, and body. Redirects and CSRF checks
-therefore use the public HTTPS address even when the proxy connects internally
-over HTTP. Request host and forwarded headers cannot override it. Missing or
-invalid configuration refuses requests; HTTP callbacks are allowed only on
-localhost. No additional origin variable or proxy-trust setting is needed.
+Run the API separately using its root configuration. A web session may read only
+`GET /api/bodyweight`. The API's `WEB_AUTH_*` settings must match this WorkOS
+application. Confirm its exact issuer, application client ID and signing-key
+URL, normally `https://api.workos.com/sso/jwks/<client_id>`. The verifier
+requires `client_id` and `sid` and refuses `aud` and `act`. Do not assume the
+connector issuer is correct or weaken validation to accept mismatched claims. Do
+not put a coach token into the web application.
 
-### Container and release
+## Build and checks
 
-The Docker build context is `web/`. In Coolify, use a separate GitHub App
-application with base directory `/web`, Dockerfile location `/Dockerfile`, and
-container port `3000`. Disable automatic and preview deployments. Enable source
-commit availability during the build and Dockerfile argument injection; leave
-build secrets disabled. Supply all dashboard credentials at runtime only, never
-as build arguments. Coolify currently mirrors environment variables into preview
-entries, so keep those runtime-only too and leave preview deployments disabled.
+```sh
+npm run build
+npm run check
+npm test
+npm run test:workers
+npm exec playwright install chromium
+npm run test:browser
+```
 
-The Dockerfile requires Coolify's full `SOURCE_COMMIT`, builds the standalone
-Nitro output, and writes its revision into that output. The final image contains
-no source tree or build dependencies and runs as an unprivileged user. Its
-files, including the revision, are root-owned. A runtime environment variable
-cannot replace the recorded revision. Native builds without that file report
-`null`.
+Build first on a fresh checkout to generate the ignored route tree. For a
+revision-aware release rehearsal, use a clean checkout and export
+`BUILD_REVISION` to its full lowercase 40-character commit before **both**
+building and running tests. Without an explicit value, a clean checkout
+identifies its Git commit; a dirty checkout honestly reports `revision: null`.
+An explicit value must match the exact clean checkout or the build refuses to
+label the artifact. Revision metadata is compiled into server code, not read
+from a filesystem or runtime variable. `GET /api/health` and `HEAD /api/health`
+do not create a session, read records, or contact WorkOS. Invalid origin
+configuration returns 503; other methods return 405.
 
-`GET /api/health` and `HEAD /api/health` are public, uncached process/build
-checks. They do not read training records, create sessions, or contact WorkOS.
-Invalid public-origin configuration or malformed revision metadata returns 503.
-These checks do not establish that a real WorkOS login or API read works.
+`test:workers` checks the generated configuration, assets, secret exclusion,
+Wrangler's deployment dry run, health, anonymous sign-in, private response
+headers and missing/invalid configuration in workerd. Tests use temporary
+configuration directories, an isolated HOME and synthetic runtime values; they
+do not load local credential files or deploy anything. Container-specific
+filesystem ownership, image layers and Docker shutdown checks no longer apply.
 
-CI tests the production web image, validates both release configurations before
-writing either commit pin, then deploys and verifies the API and dashboard in
-one serialized release job. Both must report the exact tested revision.
-Configure `COOLIFY_DASHBOARD_WEBHOOK` in GitHub secrets for the dashboard's
-deployment URL; the existing `COOLIFY_WEBHOOK` still selects the API, and
-`COOLIFY_TOKEN` is shared. A failed dashboard release does not roll back a
-successful API release.
+The existing browser suite runs the built Worker using Wrangler's local test
+harness and a transparent HTTP listener. Unlike `wrangler dev`'s convenience
+proxy, this listener does not rewrite HTTPS Location headers to local HTTP. It
+preserves checks for forged hosts, public-origin redirects, CSRF, compiled RPC
+helpers, anonymous/wrong-account access, SDK refresh, callback, sign-out, chart
+states, small screens and installation assets. The provider and API are local
+stubs with synthetic keys and records. No live authentication occurs.
 
-After DNS and hosting are configured, verify a real sign-in, authenticated chart
-read, token refresh, and sign-out before treating hosted authentication as
-complete. Locally signed-token tests do not prove the provider configuration.
-See [the hosting record](../docs/hosting.md#dashboard-preparation) for the
-prepared hosted settings and remaining verification.
+Root formatting and lint tasks also cover the web source. API authentication and
+persistence checks remain the API's responsibility.
 
-The access token stays out of browser JavaScript. The SDK cookie contains an
-encrypted session; logout clears it and redirects through WorkOS. JWT expiry
-bounds access-token revocation, rather than a new server-side session store.
-Private responses are not cached and no offline data is persisted.
+## Deployment configuration
+
+The pinned Nitro `3.0.260903-beta` supports the `cloudflare_module` preset and
+generates `.output/server/wrangler.json`, its ES modules and `.output/public`.
+The source configuration is `wrangler.jsonc`; do not edit generated files.
+`nodejs_compat` with compatibility date `2026-09-15` supports the pinned WorkOS
+SDK and its server-only `process.env` reads. No unrelated package is upgraded.
+The `ASSETS` binding is generated by Nitro and is not a database binding.
+
+Current guidance:
+
+- [Nitro's Cloudflare preset](https://v3.nitro.build/deploy/providers/cloudflare).
+- [Cloudflare's TanStack Start guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/),
+  which also offers the official Vite plugin. This application retains its
+  pinned Nitro integration rather than installing two deployment adapters.
+- [Workers fetch](https://developers.cloudflare.com/workers/runtime-apis/fetch/).
+  Workers does not implement `redirect: "error"`; the API read uses `manual` and
+  refuses non-2xx responses, never forwarding credentials to a redirect.
+
+Nitro warns that `assets` is overridden because it owns `directory` and
+`binding`. In this pinned version it merges the remaining asset policy fields;
+`test:workers` checks that the generated file retains them. API, authentication
+and RPC paths always run the Worker before asset matching.
+
+### Configuration types
+
+All application environment values are server-only strings, not `VITE_*`
+variables. `wrangler.jsonc` identifies the production Worker and its custom
+domain. Do not substitute another resource when recovering or deploying.
+
+- **Runtime secrets:** `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`. Store them
+  with Wrangler secrets, never in `vars`, build variables, Git or browser code.
+  The cookie password must have at least 32 characters; generate a random value.
+- **Runtime non-secret variables:** `WORKOS_CLIENT_ID`, `WORKOS_REDIRECT_URI`,
+  `ALLOWED_SUBJECT`, `TRAINER_API_ORIGIN`, `WORKOS_COOKIE_MAX_AGE` (seconds as a
+  string), and `WORKOS_COOKIE_SAMESITE` (`lax`). Only cookie policy defaults are
+  committed as `vars`. The other production values are stored as Worker secrets
+  alongside the credentials, so a normal deployment preserves them. Do not add
+  duplicate `vars` with the same names.
+- **Build metadata:** `BUILD_REVISION`, the tested full Git commit. It is not a
+  runtime secret or Cloudflare binding.
+- **Deployment credentials:** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
+  belong to the deployment environment, not the Worker. Scope the token to the
+  intended account and required Workers deployment permissions; domain setup may
+  require separate zone permissions.
+- **Platform binding:** Nitro supplies `ASSETS`. There are no D1, KV,
+  Hyperdrive, database, queue or service bindings in this dashboard.
+
+`WORKOS_REDIRECT_URI` defines the canonical public origin. Use HTTPS when
+hosted. The server replaces the incoming origin before redirects and CSRF
+checks; caller host/forwarded headers cannot override it. Keep the cookie
+host-only: do not set `WORKOS_COOKIE_DOMAIN`. The API and dashboard may have
+different origins because only the server calls the API; browser CORS is
+unnecessary.
+
+### Provisioning or replacing a hosted environment
+
+Production setup and the coordinated traffic switch are complete. These steps
+apply when provisioning a replacement; they are not instructions to overwrite
+existing credentials or move the production domain again.
+
+1. Select the Cloudflare account and Worker name. Add an actual custom-domain
+   route to `wrangler.jsonc` using the `routes` array and `custom_domain: true`.
+   Both `workers_dev` and preview URLs are disabled. Until a real domain is
+   configured, deployment has no public application address.
+2. Add the runtime non-secret variables above. The API origin must be the
+   separately prepared HTTPS API Worker, without `/api`. Do not point it at a
+   retired VPS. Rebuild after source configuration changes.
+3. Provision the two secrets in the chosen Worker. From `web/`, after a build,
+   use the following commands interactively. Do not put values in command-line
+   arguments or source files:
+
+   ```sh
+   npx wrangler secret put WORKOS_API_KEY --config .output/server/wrangler.json
+   npx wrangler secret put WORKOS_COOKIE_PASSWORD --config .output/server/wrangler.json
+   ```
+
+4. Register the selected HTTPS origin's `/auth/callback`, `/auth/sign-in`, and
+   `/` sign-out redirect in WorkOS. Verify the API's independent web-session
+   token contract and matching allowed subject.
+5. In an approved release job, check out the tested commit, export
+   `BUILD_REVISION` to that commit, run `npm ci`, build and all checks above,
+   then run `npm run deploy`. `npm run deploy:check` is a dry run only. The
+   deploy command intentionally uploads the already-tested generated output; it
+   does not silently rebuild another revision.
+6. Verify `/api/health` reports the exact tested commit, then explicitly verify
+   real sign-in, authenticated API read, refresh, sign-out and iPhone behavior.
+   A health response or local synthetic session does not prove hosted identity.
+
+A Worker rollback does not restore API records or rotated secrets. Keep the
+recovery copies described in the cutover receipt; the former VPS is shared with
+unrelated applications and must not be deleted.
+
+## Repository release integration
+
+`.github/workflows/ci.yml` checks the API, D1 transfer and dashboard, then runs
+one serialized Cloudflare release from the tested commit. It builds the
+dashboard before changing production, migrates and verifies the API, deploys the
+dashboard, and verifies its separate immutable health identity.
+`api/tests/deploy_test.ts` protects this release contract. The retired container
+commands, Coolify deployment hooks and obsolete repository secrets are removed.
+See [the hosting runbook](../docs/hosting.md) for provisioning and recovery.

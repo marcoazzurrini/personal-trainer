@@ -1,137 +1,77 @@
-// The goal, expressed as a rate of bodyweight change. Append-only: the latest
-// effective_from is active and the history is the record of the phase
-// structure. A target is never edited — a changed mind is a new row saying why.
-
-import { sql } from "../db.ts";
-import { ApiError } from "../shared/errors.ts";
-import { writeOnce } from "../shared/idempotency.ts";
+import {
+  batch,
+  type Clock,
+  type Database,
+  databaseError,
+  date,
+  decimal,
+  instant,
+  requestId,
+  romeDate,
+  rows,
+  statement,
+  systemClock,
+} from "../shared/d1.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
+import { bodyweightStore } from "../body/bodyweight.ts";
+import { bodyfatStore } from "../body/bodyfat.ts";
+import {
+  decodeTarget,
+  nutritionReadStore,
+  type StoredTarget,
+  targetColumns,
+} from "./read.ts";
+import type {
+  Computation,
+  SetTargetInput,
+  TargetRow,
+  TargetWritten,
+} from "./targets.types.ts";
 import {
   energyDensity,
-  type ExpenditureStatus,
   fatMassKg,
-  type Goal,
   MAX_LOSS_RATE_PCT_BW_WEEK,
   MAX_RECOMP_DEFICIT_KCAL,
   PROTEIN_G_PER_KG_BW_RANGE,
   PROTEIN_G_PER_KG_FFM_RANGE,
   type ProteinBasis,
-  type ProteinComputation,
   proteinFromMultiplier,
   targetFromRate,
 } from "./expenditure.ts";
-import { romeToday } from "../shared/calendar.ts";
-import { latestBodyfat } from "../body/bodyfat.ts";
-import { loadTrend } from "../body/bodyweight.ts";
-import { currentExpenditure } from "./read.ts";
 
-export const CLIP_REASONS = [
-  "rate",
-  "deficit",
-  "recomp_deficit",
-  "surplus",
-] as const;
-export type ClipReason = (typeof CLIP_REASONS)[number];
-
-export interface TargetRow {
-  id: number;
-  effective_from: string;
-  goal: Goal;
-  rate_pct_bw_week: number;
-  kcal_target: number;
-  protein_g_target: number;
-  decision: string;
-  clipped: boolean;
-  clipped_reasons: ClipReason[];
-  tdee_at_creation: number | null;
-  created_at: string;
-}
-
-/** The arithmetic, returned so the coach can quote it rather than redo it. */
-export interface Computation {
-  tdee_kcal: number;
-  band_kcal: number | null;
-  expenditure_status: ExpenditureStatus;
-  trend_weight_kg: number;
-  energy_density_kcal_per_kg: number;
-  rate_requested: number;
-  rate_used: number;
-  desired_slope_kg_per_day: number;
-  implied_deficit_kcal: number;
-  clipped: boolean;
-  clipped_reasons: ClipReason[];
-}
-
-export interface CreatedTarget {
-  target: TargetRow;
-  computation: Computation | null;
-  protein_computation: ProteinComputation | null;
-  phase_switch_registered: boolean;
-}
-
-// The eleven columns and their casts, written once. They were written twice —
-// here and in the reader that answers "which target governed this date" — and
-// two column lists over one row is how a field quietly stops being returned
-// on one of the two paths.
-function selectTarget() {
-  return sql`
-  select id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
-    protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
-    created_at
-  from nutrition_targets`;
-}
-
-/** Every target ever set, newest first. */
-export async function listTargets(): Promise<TargetRow[]> {
-  return await sql<TargetRow[]>`
-    ${selectTarget()} order by effective_from desc, id desc`;
-}
-
-/** The target governing a date: the latest one effective on or before it. */
-export async function activeTarget(asOf: string): Promise<TargetRow | null> {
-  const [row] = await sql<TargetRow[]>`
-    ${selectTarget()}
-    where effective_from <= ${asOf}
-    order by effective_from desc, id desc
-    limit 1`;
-  return row ?? null;
-}
-
-export interface SetTargetInput {
-  goal: Goal;
-  effective_from?: string | null;
-  kcal_target?: number | null;
-  protein_g_target?: number | null;
-  protein_g_per_kg_ffm?: number | null;
-  protein_g_per_kg_bw?: number | null;
-  rate_pct_bw_week: number;
-  decision: string;
-  request_id: string;
-}
-
-export type TargetWritten =
-  | { created: true; body: CreatedTarget }
-  | { created: false; body: { target: TargetRow } };
-
-export async function setTarget(
-  b: SetTargetInput,
-): Promise<TargetWritten> {
-  const { body, status } = await writeOnce<
-    { id: number },
-    { target: TargetRow },
-    CreatedTarget
-  >({
-    table: "nutrition_targets",
-    requestId: b.request_id,
-    select: sql`id`,
-    // A retry is answered with the row alone. The computation blocks explain
-    // a decision being made; replaying them would describe a reasoning that
-    // happened once, against numbers that have since moved on.
-    replay: async (seen) => {
-      const [row] = await sql<TargetRow[]>`
-          ${selectTarget()} where id = ${seen.id}`;
-      return { target: row };
-    },
-    write: async () => {
+export function targetStore(db: Database, clock: Clock = systemClock) {
+  const { loadTrend } = bodyweightStore(db, clock);
+  const { latestBodyfat } = bodyfatStore(db, clock);
+  const { currentExpenditure } = nutritionReadStore(db, clock);
+  async function listTargets(): Promise<TargetRow[]> {
+    return (
+      await rows<StoredTarget>(
+        db,
+        `SELECT ${targetColumns} FROM nutrition_targets ORDER BY effective_from DESC, id DESC`,
+      )
+    ).map(decodeTarget);
+  }
+  async function activeTarget(asOf: string): Promise<TargetRow | null> {
+    const [row] = await rows<StoredTarget>(
+      db,
+      `SELECT ${targetColumns} FROM nutrition_targets WHERE effective_from <= ? ORDER BY effective_from DESC, id DESC LIMIT 1`,
+      date(asOf),
+    );
+    return row ? decodeTarget(row) : null;
+  }
+  async function setTarget(b: SetTargetInput): Promise<TargetWritten> {
+    const uuid = requestId(b.request_id);
+    const seen = async () => {
+      const [row] = await rows<StoredTarget>(
+        db,
+        `SELECT ${targetColumns} FROM nutrition_targets WHERE request_id = ?`,
+        uuid,
+      );
+      return row ? decodeTarget(row) : undefined;
+    };
+    const replay = await seen();
+    if (replay) return { created: false, body: { target: replay } };
+    try {
       const goal = b.goal;
       const rate = b.rate_pct_bw_week;
 
@@ -149,23 +89,33 @@ export async function setTarget(
           ["protein_g_per_kg_bw", b.protein_g_per_kg_bw],
           ["protein_g_target", b.protein_g_target],
         ] as const
-      ).filter(([, v]) => v !== undefined && v !== null).map(([k]) => k);
+      )
+        .filter(([, v]) => v !== undefined && v !== null)
+        .map(([k]) => k);
       if (proteinInputs.length !== 1) {
         throw new ApiError(
           422,
           proteinInputs.length === 0
             ? `Send exactly one protein input: "protein_g_per_kg_ffm" (the deficit basis — ${
-              PROTEIN_G_PER_KG_FFM_RANGE.join(" to ")
+              PROTEIN_G_PER_KG_FFM_RANGE.join(
+                " to ",
+              )
             }; muscle retention scales with the mass being retained, not the fat being lost), "protein_g_per_kg_bw" (maintenance or surplus — ${
-              PROTEIN_G_PER_KG_BW_RANGE.join(" to ")
+              PROTEIN_G_PER_KG_BW_RANGE.join(
+                " to ",
+              )
             }), or "protein_g_target" as a finished number when neither basis fits.`
             : `Send exactly one protein input — got ${
-              proteinInputs.join(" and ")
+              proteinInputs.join(
+                " and ",
+              )
             }.`,
         );
       }
       const decision = b.decision;
-      const effectiveFrom = b.effective_from ?? await romeToday();
+      const effectiveFrom = date(
+        b.effective_from ?? romeDate(instant(clock().toISOString())),
+      );
       const explicitKcal = b.kcal_target ?? null;
 
       // The direction must match the goal. Catching this here rather than letting
@@ -228,15 +178,20 @@ export async function setTarget(
             b.protein_g_per_kg_ffm !== null
           ? "ffm"
           : "bodyweight";
-        const multiplier =
-          (basis === "ffm" ? b.protein_g_per_kg_ffm : b.protein_g_per_kg_bw)!;
+        const multiplier = (
+          basis === "ffm" ? b.protein_g_per_kg_ffm : b.protein_g_per_kg_bw
+        )!;
         if (multiplier <= 0 || multiplier > 5) {
           throw new ApiError(
             422,
             `A protein multiplier of ${multiplier} g/kg is outside anything defensible. Deficit: ${
-              PROTEIN_G_PER_KG_FFM_RANGE.join("–")
+              PROTEIN_G_PER_KG_FFM_RANGE.join(
+                "–",
+              )
             } g/kg fat-free mass. Maintenance or surplus: ${
-              PROTEIN_G_PER_KG_BW_RANGE.join("–")
+              PROTEIN_G_PER_KG_BW_RANGE.join(
+                "–",
+              )
             } g/kg bodyweight.`,
           );
         }
@@ -299,38 +254,59 @@ export async function setTarget(
         };
       }
 
-      return await sql.begin(async (tx) => {
-        const [row] = await tx<TargetRow[]>`
-      insert into nutrition_targets
-        (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target,
-         decision, tdee_at_creation, clipped, clipped_reasons, request_id)
-      values
-        (${effectiveFrom}, ${goal}, ${rate}, ${kcalTarget}, ${proteinTarget},
-         ${decision}, ${tdeeAtCreation}, ${clipped}, ${
-          sql.array(clippedReasons)
-        },
-         ${b.request_id})
-      returning id, effective_from, goal, rate_pct_bw_week::float8, kcal_target,
-        protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation,
-        created_at`;
-
-        // Keep the response key for callers, but derive its value from the same
-        // effective history as every event reader. No second fact is written.
-        // Backdating can also change the switch at a later target; this flag
-        // describes only the target just saved, at the time of this response.
-        const [phaseSwitch] = await tx<{ present: boolean }[]>`
-          select exists (
-            select 1 from nutrition_goal_switches where id = ${-row.id}
-          ) as present`;
-
-        return {
-          target: row,
+      // Insert, row readback and effective-history flag share one D1 transaction.
+      const result = await batch(db, [
+        statement(
+          db,
+          `INSERT INTO nutrition_targets (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target, decision,
+          tdee_at_creation, clipped, clipped_reasons, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (request_id) DO NOTHING RETURNING id`,
+          effectiveFrom,
+          goal,
+          decimal(rate, 4, 2),
+          kcalTarget,
+          proteinTarget,
+          decision,
+          tdeeAtCreation,
+          Number(clipped),
+          JSON.stringify(clippedReasons),
+          uuid,
+          instant(clock().toISOString()),
+        ),
+        statement(
+          db,
+          `SELECT ${targetColumns} FROM nutrition_targets WHERE request_id = ?`,
+          uuid,
+        ),
+        statement(
+          db,
+          `SELECT EXISTS (SELECT 1 FROM nutrition_goal_switches WHERE id = -(SELECT id FROM nutrition_targets WHERE request_id = ?)) AS present`,
+          uuid,
+        ),
+      ]);
+      const target = decodeTarget(
+        requireRow(
+          result[1].results as unknown as StoredTarget[],
+          "The nutrition target could not be read after saving.",
+        ),
+      );
+      if (!result[0].results.length) {
+        return { created: false, body: { target } };
+      }
+      return {
+        created: true,
+        body: {
+          target,
           computation,
           protein_computation: proteinComputation,
-          phase_switch_registered: phaseSwitch.present,
-        };
-      });
-    },
-  });
-  return status === 201 ? { created: true, body } : { created: false, body };
+          phase_switch_registered: Boolean(result[2].results[0].present),
+        },
+      };
+    } catch (error) {
+      const replay = await seen();
+      if (replay) return { created: false, body: { target: replay } };
+      throw databaseError(error);
+    }
+  }
+  return { listTargets, activeTarget, setTarget };
 }

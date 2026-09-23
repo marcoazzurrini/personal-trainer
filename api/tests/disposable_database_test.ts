@@ -1,7 +1,7 @@
-import { assertRejects } from "@std/assert";
-import { verifiedDatabase, verifyDatabase } from "./disposable.ts";
+import { assertEquals, assertRejects } from "@std/assert";
+import { management, verifiedDatabase, verifyDatabase } from "./disposable.ts";
 
-Deno.test("the network database must match the owned cluster receipt before setup", async () => {
+Deno.test("fixture access refuses inherited URLs and mismatched capabilities", async () => {
   const d = await verifiedDatabase();
   const previous = Deno.env.get("TEST_DATABASE_URL");
   Deno.env.set(
@@ -10,24 +10,32 @@ Deno.test("the network database must match the owned cluster receipt before setu
   );
   try {
     await assertRejects(
-      () => verifiedDatabase(),
+      verifiedDatabase,
       Error,
-      "TEST_DATABASE_URL does not match the receipt",
+      "TEST_DATABASE_URL must not be set",
     );
   } finally {
     if (previous === undefined) Deno.env.delete("TEST_DATABASE_URL");
     else Deno.env.set("TEST_DATABASE_URL", previous);
   }
-  // Only the newly owned disposable database is contacted, by read-only probes.
   await assertRejects(
-    () =>
-      verifyDatabase({ ...d, systemId: "0000000000000000000" }, d.databaseUrl),
+    () => verifyDatabase({ ...d, run: "0".repeat(64) }),
     Error,
-    "identity does not match",
+    "identity mismatch",
   );
   await assertRejects(
-    () => verifyDatabase({ ...d, database: "another_database" }, d.databaseUrl),
+    () => verifyDatabase({ ...d, secret: "0".repeat(64) }),
     Error,
-    "identity does not match",
+    "capability required",
   );
+  const res = await fetch(d.managementUrl, {
+    method: "POST",
+    body: JSON.stringify({
+      action: "batch",
+      statements: [{ sql: "DELETE FROM api_tokens" }],
+    }),
+  });
+  assertEquals(res.status, 403);
+  await res.body?.cancel();
+  assertEquals((await management<{ run: string }>(d, "identity")).run, d.run);
 });

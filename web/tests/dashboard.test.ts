@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { readDashboard } from "../src/dashboard.server";
+import { readDashboard } from "../src/dashboard.server.ts";
 import {
   measurementDay,
   trendSegments,
   WeightData,
   weightView,
-} from "../src/weight";
+} from "../src/weight.ts";
 
 const data = {
   bodyweight: [{
@@ -60,9 +60,25 @@ describe("the web/API boundary", () => {
     expect(String(url)).toBe("https://api.example.test/api/bodyweight");
     expect(options.headers.Authorization).toBe(`Bearer ${session.accessToken}`);
     expect(options.cache).toBe("no-store");
-    expect(options.redirect).toBe("error");
+    expect(options.redirect).toBe("manual");
     expect(options.signal).toBeInstanceOf(AbortSignal);
   });
+  it.each([301, 302, 303, 307, 308])(
+    "refuses an API redirect (%s) without another token-bearing request",
+    async (status) => {
+      const request = vi.fn().mockResolvedValue(
+        new Response(null, {
+          status,
+          headers: { Location: "https://untrusted.example.test/collect" },
+        }),
+      );
+      expect((await readDashboard(session, env, request)).status).toBe(
+        "unavailable",
+      );
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request.mock.calls[0][1].redirect).toBe("manual");
+    },
+  );
   it("rejects unsafe or path-bearing origins before sending credentials", async () => {
     const request = vi.fn();
     for (

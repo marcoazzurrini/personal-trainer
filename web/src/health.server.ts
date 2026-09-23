@@ -1,19 +1,19 @@
-import { readFileSync } from "node:fs";
-
 export function readBuildRevision(
-  path = ".output/build-revision.txt",
+  value: unknown = import.meta.env.TRAINER_BUILD_REVISION,
 ): string | null {
-  let value: string;
-  try {
-    value = readFileSync(path, "utf8").trim();
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return null;
-    }
-    throw new Error("The dashboard build revision cannot be read.");
-  }
-  if (!/^[a-f0-9]{40}$/.test(value)) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || !/^[a-f0-9]{40}$/.test(value)) {
     throw new Error("The dashboard build revision is invalid.");
+  }
+  return value;
+}
+
+export function readBuildDigest(
+  value: unknown = import.meta.env.TRAINER_BUILD_DIGEST,
+): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error("The dashboard build digest is invalid.");
   }
   return value;
 }
@@ -21,10 +21,11 @@ export function readBuildRevision(
 export function healthResponse(
   request: Request,
   loadRevision: () => string | null = readBuildRevision,
+  loadDigest: () => string | null = readBuildDigest,
 ): Response {
   const headers = {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
+    "Cache-Control": "private, no-store",
   };
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, {
@@ -33,7 +34,11 @@ export function healthResponse(
     });
   }
   try {
-    const body = JSON.stringify({ status: "ok", revision: loadRevision() });
+    const body = JSON.stringify({
+      status: "ok",
+      revision: loadRevision(),
+      build: loadDigest(),
+    });
     return new Response(request.method === "HEAD" ? null : body, { headers });
   } catch {
     return new Response(

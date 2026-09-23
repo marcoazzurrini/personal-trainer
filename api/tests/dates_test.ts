@@ -1,7 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import fc from "fast-check";
-import postgres from "postgres";
-import { verifiedDatabase } from "./disposable.ts";
+import d1 from "./d1.ts";
 import {
   addDays,
   daysBetween,
@@ -68,12 +67,12 @@ Deno.test("the JS week and the SQL week are the same week", async () => {
     days.push(new Date(n * 86_400_000).toISOString().slice(0, 10));
   }
 
-  const disposable = await verifiedDatabase();
-  const db = postgres(disposable.databaseUrl);
+  const db = d1();
   try {
     const rows = await db`
-      select d::text as day, date_trunc('week', d)::date::text as monday
-      from unnest(string_to_array(${days.join(",")}, ',')::date[]) as d`;
+      select value as day,
+        date(value, '-' || ((cast(strftime('%w', value) as integer) + 6) % 7) || ' days') as monday
+      from json_each(${JSON.stringify(days)})`;
     assertEquals(rows.length, days.length);
     for (const row of rows) {
       assertEquals(

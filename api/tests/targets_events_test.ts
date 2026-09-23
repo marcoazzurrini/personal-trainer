@@ -1,9 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
+import d1 from "./d1.ts";
 import {
   api,
   daysBefore,
-  DB_URL,
   lastFinishedSunday,
   resetNutrition,
   seedCut,
@@ -204,7 +203,7 @@ Deno.test("legacy-looking recorded switches are not guessed away", async () => {
   await saveTarget("cut", daysBefore(day, 1));
   const target = await saveTarget("maintain", day);
   // Historical rows permit null request_id, which is not proof of origin.
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
     const [legacy] = await db`
       insert into nutrition_events (day, kind, note)

@@ -109,3 +109,12 @@ has been verified. The tenant-claim check above still gates hosted API access.
 adds Home Screen installation for the iPhone. It supersedes the installability
 deferral above. The dashboard remains online-only, read-only, and free of
 service workers or persistent browser record caches.
+
+**Hosting epilogue.** [ADR-0015](0015-workers-and-d1-replace-the-managed-vps.md)
+replaces the Docker/Coolify deployment above with Cloudflare Workers and Static
+Assets. Health metadata is compiled into the artifact rather than read from an
+image file; it identifies both the source revision and the complete build.
+Worker, browser and release-boundary tests replace container-specific checks.
+The dashboard still has no database binding or coach write authority. The
+WorkOS credential policy, server-only session handling and API boundary above
+remain unchanged.

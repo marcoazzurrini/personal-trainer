@@ -1,11 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  createMesocycle,
-  decisionLog,
-  mesocycleByRef,
-  recordDecision,
-  renameMesocycle,
-} from "./mesocycles.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { DOSE_UNITS, ROLES, TRACKS } from "./rules.ts";
 import {
   body,
@@ -20,7 +14,7 @@ import {
   text,
 } from "../shared/schema.ts";
 
-export const mesocycles = new OpenAPIHono();
+export const mesocycles = new OpenAPIHono<AppEnv>();
 
 const selector = () =>
   z.string().min(1).meta({
@@ -153,7 +147,9 @@ mesocycles.openapi(
     },
   }),
   async (c) => {
-    const { mesocycle, created } = await createMesocycle(c.req.valid("json"));
+    const { mesocycle, created } = await services(c).plans.createMesocycle(
+      c.req.valid("json"),
+    );
     return created ? c.json({ mesocycle }, 201) : c.json({ mesocycle }, 200);
   },
 );
@@ -178,7 +174,11 @@ mesocycles.openapi(
     },
   }),
   async (c) =>
-    c.json({ mesocycle: await mesocycleByRef(c.req.valid("param").id) }),
+    c.json({
+      mesocycle: await services(c).plans.mesocycleByRef(
+        c.req.valid("param").id,
+      ),
+    }),
 );
 
 mesocycles.openapi(
@@ -225,7 +225,7 @@ mesocycles.openapi(
   }),
   async (c) =>
     c.json({
-      mesocycle: await renameMesocycle(
+      mesocycle: await services(c).plans.renameMesocycle(
         c.req.valid("param").id,
         c.req.valid("json"),
       ),
@@ -314,10 +314,11 @@ mesocycles.openapi(
     },
   }),
   async (c) => {
-    const { mesocycle, decision, created } = await recordDecision(
-      c.req.valid("param").id,
-      c.req.valid("json"),
-    );
+    const { mesocycle, decision, created } = await services(c).plans
+      .recordDecision(
+        c.req.valid("param").id,
+        c.req.valid("json"),
+      );
     return created
       ? c.json({ mesocycle, decision }, 201)
       : c.json({ mesocycle, decision }, 200);
@@ -347,5 +348,6 @@ mesocycles.openapi(
       },
     },
   }),
-  async (c) => c.json(await decisionLog(c.req.valid("param").id)),
+  async (c) =>
+    c.json(await services(c).plans.decisionLog(c.req.valid("param").id)),
 );

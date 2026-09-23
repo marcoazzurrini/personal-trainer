@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "personal-trainer-api",
+  "main": "dist/worker.js",
+  "compatibility_date": "2026-08-03",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "trainer.marcoazzurrini.com", "custom_domain": true }
+  ],
+  "build": { "command": "npm run build" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-trainer",
+      "database_id": "a229a9f7-287b-48fd-ba7a-e91fa9179a39",
+      "migrations_dir": "db/d1/migrations"
+    }
+  ],
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["0 */6 * * *"] }
+}

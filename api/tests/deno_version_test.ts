@@ -1,38 +1,49 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
 
-function assertDenoVersions(dockerfile: string, workflow: string): void {
-  const image = dockerfile.match(/^FROM denoland\/deno:(\d+\.\d+\.\d+)$/m);
-  assert(image, "Dockerfile must pin an exact production Deno version.");
+function assertDenoVersions(version: string, workflow: string): void {
+  assert(
+    /^\d+\.\d+\.\d+$/.test(version),
+    "Pin an exact Deno test-tool version.",
+  );
   const jobs = [...workflow.matchAll(/uses: denoland\/setup-deno@/g)];
   const versions = [...workflow.matchAll(/deno-version:\s*(\S+)/g)];
   assertEquals(
     jobs.length,
-    3,
-    "Check every native CI job, including deployment.",
+    2,
+    "Checks and HTTP tests use Deno, not deployment.",
   );
   assertEquals(
     versions.map((match) => match[1]),
-    [image[1], image[1], image[1]],
-    "Every CI runtime must match the authoritative Dockerfile pin.",
+    jobs.map(() => version),
+    "Every CI Deno test tool must match package.json engines.deno.",
   );
 }
 
-const dockerfile = await Deno.readTextFile("Dockerfile");
+const { engines } = JSON.parse(await Deno.readTextFile("package.json"));
 const workflow = await Deno.readTextFile(".github/workflows/ci.yml");
 
-Deno.test("all CI Deno versions match the production image", () => {
-  assertDenoVersions(dockerfile, workflow);
+Deno.test("CI pins the Deno test tool independently of the Worker runtime", () => {
+  assertDenoVersions(engines.deno, workflow);
+  const deploy = workflow.split("\n  deploy:\n")[1];
+  assert(deploy);
+  assert(!deploy.includes("setup-deno"));
+  assert(!deploy.includes("deno task"));
 });
 
-Deno.test("changing any one Deno declaration fails parity", () => {
-  const changedImage = dockerfile.replace(
-    /denoland\/deno:[\d.]+/,
-    "denoland/deno:0.0.0",
-  );
-  assertThrows(() => assertDenoVersions(changedImage, workflow));
+Deno.test("Deno checks exclude generated copies of other worktrees", async () => {
+  const config = JSON.parse(await Deno.readTextFile("deno.json"));
+  assert(config.exclude.includes(".delta"));
+});
+
+Deno.test("a floating, missing or mismatched Deno test-tool pin fails", () => {
+  for (const version of ["2", "2.x", "^2.9.6", "", "0.0.0"]) {
+    assertThrows(() => assertDenoVersions(version, workflow));
+  }
   for (const match of workflow.matchAll(/deno-version:\s*\S+/g)) {
-    const changedJob = workflow.slice(0, match.index) + "deno-version: 0.0.0" +
-      workflow.slice(match.index + match[0].length);
-    assertThrows(() => assertDenoVersions(dockerfile, changedJob));
+    for (const replacement of ["deno-version: 0.0.0", ""]) {
+      const changed = workflow.slice(0, match.index) + replacement +
+        workflow.slice(match.index + match[0].length);
+      assertThrows(() => assertDenoVersions(engines.deno, changed));
+    }
   }
 });

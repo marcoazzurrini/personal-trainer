@@ -10,12 +10,13 @@ import {
 
 // helpers verifies the disposable database before these modules can write.
 Deno.test("routine registry writes keep their atomic and historical boundaries", async (t) => {
-  const { sql } = await import("../db.ts");
-  const { addAliases } = await import("../shared/aliases.ts");
-  const { exerciseById } = await import("../training/exercises.ts");
-  const { hashToken, issueToken, verifyToken } = await import(
-    "../access/tokens.ts"
-  );
+  const { default: d1, database } = await import("./d1.ts");
+  const sql = d1();
+  const { aliasStore } = await import("../shared/aliases.ts");
+  const { exerciseStore } = await import("../training/exercises.ts");
+  const { exerciseById } = exerciseStore(database);
+  const { hashToken, tokenStore } = await import("../access/tokens.ts");
+  const { issueToken, verifyToken } = tokenStore(database);
 
   async function food(name: string, aliases: string[] = []) {
     const created = await api.post("/foods", {
@@ -39,16 +40,12 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
         const expiredHash = await hashToken(expired);
         await sql`
         insert into api_tokens (token_hash, subject, issued_at, expires_at)
-        values (${expiredHash}, 'expired-test', now() - interval '2 days', now() - interval '1 day')`;
+        values (${expiredHash}, 'expired-test', strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 days') || '000Z', strftime('%Y-%m-%dT%H:%M:%f', 'now', '-1 day') || '000Z')`;
         const messages: unknown[][] = [];
         const originalError = console.error;
         try {
-          await sql`create function test_token_cleanup_failure() returns trigger language plpgsql as $$
-          begin
-            raise exception 'sensitive database details must not be logged';
-          end $$`;
-          await sql`create trigger test_token_cleanup_failure before delete on api_tokens
-          for each statement execute function test_token_cleanup_failure()`;
+          await sql`CREATE TRIGGER test_token_cleanup_failure BEFORE DELETE ON api_tokens
+          BEGIN SELECT RAISE(ABORT, 'sensitive database details must not be logged'); END`;
           console.error = (...args: unknown[]) => {
             messages.push(args);
           };
@@ -64,7 +61,7 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
               .length,
             1,
           );
-          await sql`drop trigger test_token_cleanup_failure on api_tokens`;
+          await sql`drop trigger test_token_cleanup_failure`;
           await issueToken("user_test");
           assertEquals(
             (await sql`select token_hash from api_tokens where token_hash = ${expiredHash}`)
@@ -75,30 +72,24 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
             subject: "user_test",
           });
 
-          await sql`create function test_token_mint_failure() returns trigger language plpgsql as $$
-          begin
-            raise exception 'injected mint failure';
-          end $$`;
-          await sql`create trigger test_token_mint_failure before insert on api_tokens
-          for each statement execute function test_token_mint_failure()`;
+          await sql`CREATE TRIGGER test_token_mint_failure BEFORE INSERT ON api_tokens
+          BEGIN SELECT RAISE(ABORT, 'injected mint failure'); END`;
           const [{ n: before }] =
-            await sql`select count(*)::int as n from api_tokens`;
+            await sql`select count(*) as n from api_tokens`;
           await assertRejects(
             () => issueToken("user_test"),
             Error,
             "injected mint failure",
           );
           assertEquals(
-            (await sql`select count(*)::int as n from api_tokens`)[0].n,
+            (await sql`select count(*) as n from api_tokens`)[0].n,
             before,
           );
           assertEquals(messages.length, 1);
         } finally {
           console.error = originalError;
-          await sql`drop trigger if exists test_token_cleanup_failure on api_tokens`;
-          await sql`drop function if exists test_token_cleanup_failure()`;
-          await sql`drop trigger if exists test_token_mint_failure on api_tokens`;
-          await sql`drop function if exists test_token_mint_failure()`;
+          await sql`drop trigger if exists test_token_cleanup_failure`;
+          await sql`drop trigger if exists test_token_mint_failure`;
         }
       },
     );
@@ -121,28 +112,41 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
         });
         assertEquals(meal.status, 201);
         for (
-          const [table, foreignKey, id] of [
-            ["food_aliases", "food_id", foodId],
-            ["exercise_aliases", "exercise_id", exercise.body.exercise.id],
-            ["meal_aliases", "meal_id", meal.body.meal.id],
+          const [kind, table, foreignKey, id] of [
+            ["food", "food_aliases", "food_id", foodId],
+            [
+              "exercise",
+              "exercise_aliases",
+              "exercise_id",
+              exercise.body.exercise.id,
+            ],
+            ["meal", "meal_aliases", "meal_id", meal.body.meal.id],
           ] as const
         ) {
           const alias = `batch-${uuid()}`;
           await assertRejects(() =>
-            addAliases(table, foreignKey, id, [alias, alias.toUpperCase()])
+            aliasStore(database, kind).addAliases(id, [
+              alias,
+              alias.toUpperCase(),
+            ])
           );
           assertEquals(
-            (await sql`select id from ${sql(table)} where ${
-              sql(foreignKey)
-            } = ${id}`).length,
+            (await sql.unsafe(
+              `SELECT id FROM ${table} WHERE ${foreignKey} = ?`,
+              [id],
+            )).length,
             0,
           );
-          await addAliases(table, foreignKey, id, []);
-          await addAliases(table, foreignKey, id, [alias, `${alias}-second`]);
+          await aliasStore(database, kind).addAliases(id, []);
+          await aliasStore(database, kind).addAliases(id, [
+            alias,
+            `${alias}-second`,
+          ]);
           assertEquals(
-            (await sql`select id from ${sql(table)} where ${
-              sql(foreignKey)
-            } = ${id}`).length,
+            (await sql.unsafe(
+              `SELECT id FROM ${table} WHERE ${foreignKey} = ?`,
+              [id],
+            )).length,
             2,
           );
         }
@@ -176,9 +180,9 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
           0,
         );
         assertEquals(
-          (await sql`select id from exercise_aliases where alias in ${
-            sql(aliases)
-          }`).length,
+          (await sql`select id from exercise_aliases where alias in (select value from json_each(${
+            JSON.stringify(aliases)
+          }))`).length,
           0,
         );
         const unknown = await api.post("/exercises", {
@@ -274,7 +278,7 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
           const error = await assertRejects(async () => {
             await sql`delete from foods where id = ${id}`;
           });
-          assertEquals((error as { code: string }).code, "23503");
+          assert(String(error).includes("FOREIGN KEY constraint failed"));
           assertEquals(
             (await sql`select id from foods where id = ${id}`).length,
             1,
@@ -330,7 +334,7 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
         const error = await assertRejects(async () => {
           await sql`delete from exercises where id = ${id}`;
         });
-        assertEquals((error as { code: string }).code, "23503");
+        assert(String(error).includes("FOREIGN KEY constraint failed"));
         assertEquals([
           ...await sql`select * from sets where exercise_id = ${id}`,
         ], sets);
@@ -338,17 +342,28 @@ Deno.test("routine registry writes keep their atomic and historical boundaries",
           await exerciseById(id),
           created.body.exercise,
         );
-        const restrictions = await sql`
-        select conname, confdeltype from pg_constraint
-        where conname in ('sets_exercise_id_fkey', 'mesocycle_exercises_exercise_id_fkey',
-          'mesocycle_exercise_doses_exercise_id_fkey', 'meal_items_food_id_fkey',
-          'intake_entries_food_id_fkey') order by conname`;
-        assertEquals(restrictions.length, 5);
-        assert(
-          restrictions.every((row) =>
-            row.confdeltype === "a" || row.confdeltype === "r"
-          ),
-        );
+        for (
+          const table of [
+            "sets",
+            "mesocycle_exercises",
+            "mesocycle_exercise_doses",
+            "meal_items",
+            "intake_entries",
+          ]
+        ) {
+          const restrictions = await sql.unsafe(
+            `PRAGMA foreign_key_list(${table})`,
+          );
+          const parent = table.includes("food") || table === "meal_items" ||
+              table === "intake_entries"
+            ? "foods"
+            : "exercises";
+          const reference = restrictions.find((row: { table: string }) =>
+            row.table === parent
+          );
+          assert(reference, `${table} retains its parent constraint`);
+          assert(["NO ACTION", "RESTRICT"].includes(reference.on_delete));
+        }
       },
     );
   } finally {

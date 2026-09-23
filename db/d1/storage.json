@@ -1,0 +1,274 @@
+{
+  "version": 1,
+  "tables": {
+    "users": {
+      "decimals": { "height_cm": { "precision": 4, "scale": 1 } },
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "user_context": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["written_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "bodyweight": {
+      "decimals": { "value_kg": { "precision": 5, "scale": 2 } },
+      "booleans": [],
+      "json": [],
+      "timestamps": ["measured_at"],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "muscles": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "exercises": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": { "name_key": "name" },
+      "identity": "id"
+    },
+    "exercise_aliases": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": { "alias_key": "alias" },
+      "identity": "id"
+    },
+    "exercise_muscles": {
+      "decimals": { "volume_factor": { "precision": 2, "scale": 1 } },
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "blocks": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "mesocycles": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "mesocycle_exercises": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "mesocycle_decisions": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["made_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "sessions": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["started_at", "completed_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "sets": {
+      "decimals": {
+        "target_weight_kg": { "precision": 6, "scale": 2 },
+        "weight_kg": { "precision": 6, "scale": 2 },
+        "target_distance_m": { "precision": 7, "scale": 1 },
+        "distance_m": { "precision": 7, "scale": 1 },
+        "target_duration_s": { "precision": 8, "scale": 2 },
+        "duration_s": { "precision": 8, "scale": 2 }
+      },
+      "booleans": [],
+      "json": [],
+      "timestamps": ["performed_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "foods": {
+      "decimals": {
+        "kcal_100g": { "precision": 6, "scale": 1 },
+        "protein_100g": { "precision": 5, "scale": 1 },
+        "carbs_100g": { "precision": 5, "scale": 1 },
+        "fat_100g": { "precision": 5, "scale": 1 },
+        "fiber_100g": { "precision": 5, "scale": 1 },
+        "grams_per_unit": { "precision": 6, "scale": 1 }
+      },
+      "booleans": [],
+      "json": [],
+      "timestamps": ["created_at"],
+      "uuids": ["request_id"],
+      "caseKeys": { "name_key": "name" },
+      "identity": "id"
+    },
+    "food_aliases": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": { "alias_key": "alias" },
+      "identity": "id"
+    },
+    "meals": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["created_at"],
+      "uuids": ["request_id"],
+      "caseKeys": { "name_key": "name" },
+      "identity": "id"
+    },
+    "meal_aliases": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": { "alias_key": "alias" },
+      "identity": "id"
+    },
+    "meal_items": {
+      "decimals": { "grams": { "precision": 7, "scale": 1 } },
+      "booleans": [],
+      "json": [],
+      "timestamps": [],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "intake_entries": {
+      "decimals": {
+        "grams": { "precision": 7, "scale": 1 },
+        "kcal": { "precision": 7, "scale": 1 },
+        "protein_g": { "precision": 6, "scale": 1 },
+        "carbs_g": { "precision": 6, "scale": 1 },
+        "fat_g": { "precision": 6, "scale": 1 },
+        "fiber_g": { "precision": 6, "scale": 1 }
+      },
+      "booleans": [],
+      "json": [],
+      "timestamps": ["created_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "day_flags": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["created_at"],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "bodyfat_estimates": {
+      "decimals": { "percent": { "precision": 4, "scale": 1 } },
+      "booleans": [],
+      "json": [],
+      "timestamps": ["created_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "nutrition_targets": {
+      "decimals": { "rate_pct_bw_week": { "precision": 4, "scale": 2 } },
+      "booleans": ["clipped", "phase_switch_suppressed"],
+      "arrays": ["clipped_reasons"],
+      "timestamps": ["created_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "nutrition_events": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["created_at"],
+      "uuids": ["request_id"],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "week_schedules": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["written_at"],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "withings_auth": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": [
+        "access_token_expires_at",
+        "last_sync_at",
+        "last_sync_attempt_at",
+        "updated_at"
+      ],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": null
+    },
+    "mesocycle_exercise_doses": {
+      "decimals": { "weekly_dose": { "precision": 6, "scale": 1 } },
+      "booleans": [],
+      "json": [],
+      "timestamps": ["created_at"],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": "id"
+    },
+    "api_tokens": {
+      "decimals": {},
+      "booleans": [],
+      "json": [],
+      "timestamps": ["issued_at", "expires_at"],
+      "uuids": [],
+      "caseKeys": {},
+      "identity": null
+    }
+  }
+}

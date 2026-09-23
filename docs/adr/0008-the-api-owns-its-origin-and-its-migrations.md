@@ -63,3 +63,13 @@ one we choose, a page is a page, secrets live in two places instead of three,
 and the next project is a second application on the same server rather than
 a second platform account. Supabase serves the frozen last deploy until the
 cutover and is kept a week after it as the fallback, then deleted.
+
+## Epilogue: the next hosting move
+
+[ADR-0015](0015-workers-and-d1-replace-the-managed-vps.md) approves Workers and
+D1 as the replacement for the API's self-managed runtime and database. The
+reason is to trade infrastructure maintenance for a smaller, tested application
+maintenance burden, not to require the application code itself to become
+simpler. The port is in progress; the existing deployment stays active until a
+separately verified traffic switch. API ownership of the record remains
+unchanged.

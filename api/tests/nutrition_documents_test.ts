@@ -40,8 +40,9 @@ Deno.test("nutrition documents agree with food identity, corrections and target 
   );
   assertStringIncludes(ref, "No protein-only persisted target");
   const operation = await Deno.readTextFile("api/nutrition/targets.ts");
-  assert(
-    operation.indexOf("if (expenditure.tdee_kcal === null)") <
-      operation.indexOf("insert into nutrition_targets"),
+  const refusal = operation.indexOf("if (expenditure.tdee_kcal === null)");
+  const write = operation.toLowerCase().indexOf(
+    "insert into nutrition_targets",
   );
+  assert(refusal >= 0 && write >= 0 && refusal < write);
 });

@@ -1,9 +1,4 @@
-import {
-  assertEquals,
-  assertMatch,
-  assertRejects,
-  assertThrows,
-} from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   assertIdentity,
   disposable,
@@ -11,138 +6,90 @@ import {
   readyApiUrl,
   verifyApi,
 } from "./disposable.ts";
-
 const receipt = {
-  kind: "personal-trainer-disposable-v1",
-  containerId: "a".repeat(64),
-  systemId: "1234567890123456789",
-  database: `pt_test_${"a".repeat(32)}`,
-  databaseUrl: `postgresql://postgres:synthetic@127.0.0.1:5432/pt_test_${
-    "a".repeat(32)
-  }`,
+  kind: "personal-trainer-worker-d1-v1" as const,
+  run: "a".repeat(64),
+  secret: "b".repeat(64),
   apiUrl: "http://127.0.0.1:8000/api",
+  managementUrl: "http://127.0.0.1:8001/manage",
 };
-
-Deno.test("disposable Postgres readiness cannot use the initialization socket", async () => {
-  const source = await Deno.readTextFile("scripts/test.ts");
-  const command = source.match(/"(pg_isready [^"]+)"/)?.[1] ?? "";
-  const assertTcp = (value: string) =>
-    assertMatch(value, /\bpg_isready -h 127\.0\.0\.1 -U postgres\b/);
-  assertTcp(command);
-  assertThrows(() => assertTcp(command.replace("-h 127.0.0.1 ", "")));
-});
-
-Deno.test("coverage stays in the ignored cache and CI includes its hidden directory", async () => {
-  const source = await Deno.readTextFile("scripts/test.ts");
-  assertEquals(
-    source.includes(
-      "const coverageRoot = `${Deno.cwd()}/.cache/coverage/${run}`;",
-    ),
-    true,
-  );
-  assertMatch(await Deno.readTextFile(".gitignore"), /^\/\.cache\/$/m);
-  const workflow = await Deno.readTextFile(".github/workflows/ci.yml");
-  const upload =
-    workflow.split(/^ {6}- /m).find((step) =>
-      step.startsWith("uses: actions/upload-artifact@")
-    ) ?? "";
-  assertMatch(upload, /^\s+path: \.cache\/coverage\/$/m);
-  assertMatch(upload, /^\s+include-hidden-files: true$/m);
-});
-
-Deno.test("API readiness waits through empty and incomplete addresses", () => {
-  const url = "http://127.0.0.1:54321/api";
-  // Every possible partial write must keep polling; only the full value is ready.
-  for (let length = 0; length < url.length; length++) {
-    assertEquals(readyApiUrl(url.slice(0, length)), undefined);
-  }
-  assertEquals(readyApiUrl(url), url);
-  for (
-    const invalid of [
-      "http://127.0.0.1:0/api",
-      "http://127.0.0.1:65536/api",
-      "http://localhost:8000/api",
-      "https://127.0.0.1:8000/api",
-      "http://192.0.2.1:8000/api",
-      `${url}/extra`,
-      `${url}\n`,
-    ]
-  ) assertEquals(readyApiUrl(invalid), undefined);
-});
-
-Deno.test("disposable receipt refuses a URL or opt-in flag, even on loopback", () => {
+Deno.test("disposable receipt requires a random capability and local endpoints", () => {
   for (
     const bad of [
-      undefined,
       null,
       {},
-      receipt.databaseUrl,
-      { databaseUrl: receipt.databaseUrl, yesDelete: true },
+      receipt.apiUrl,
       { ...receipt, kind: "development" },
-      { ...receipt, systemId: undefined },
-      { ...receipt, containerId: "not-owned" },
-      {
-        ...receipt,
-        databaseUrl: "postgresql://postgres:synthetic@127.0.0.1:5432/postgres",
-      },
+      { ...receipt, run: "" },
+      { ...receipt, secret: "" },
+      { ...receipt, managementUrl: "https://example.com/manage" },
+      { ...receipt, apiUrl: "http://localhost:8000/api" },
+      { ...receipt, apiUrl: "http://user:password@127.0.0.1:8000/api" },
     ]
   ) {
     assertThrows(() => parseDisposable(bad), Error, "Unsafe test database");
   }
   assertEquals(parseDisposable(receipt), receipt);
 });
-
-Deno.test("missing receipt refuses before any network or setup work", async () => {
-  const previous = Deno.env.get("TEST_DISPOSABLE_FILE");
-  Deno.env.delete("TEST_DISPOSABLE_FILE");
-  try {
-    await assertRejects(() => disposable(), Error, "Unsafe test database");
-  } finally {
-    if (previous !== undefined) Deno.env.set("TEST_DISPOSABLE_FILE", previous);
+Deno.test("API readiness rejects partial, nonlocal and malformed addresses", () => {
+  const url = receipt.apiUrl;
+  for (let n = 0; n < url.length; n++) {
+    assertEquals(readyApiUrl(url.slice(0, n)), undefined);
   }
-});
-
-Deno.test("disposable identity requires both the fresh cluster and the database", () => {
+  assertEquals(readyApiUrl(url), url);
   for (
-    const actual of [
-      null,
-      {},
-      { ...receipt, systemId: "9876543210987654321" },
-      { ...receipt, database: "postgres" },
+    const bad of [
+      "http://127.0.0.1:0/api",
+      "http://127.0.0.1:65536/api",
+      `${url}/extra`,
+      `${url}\n`,
     ]
   ) {
+    assertEquals(readyApiUrl(bad), undefined);
+  }
+});
+Deno.test("missing receipt refuses before network or setup", async () => {
+  const old = Deno.env.get("TEST_DISPOSABLE_FILE");
+  Deno.env.delete("TEST_DISPOSABLE_FILE");
+  try {
+    await assertRejects(disposable, Error, "Unsafe test database");
+  } finally {
+    if (old !== undefined) Deno.env.set("TEST_DISPOSABLE_FILE", old);
+  }
+});
+Deno.test("identity requires the owned D1 run", () => {
+  for (
+    const bad of [null, {}, { ...receipt, run: "c".repeat(64) }, {
+      ...receipt,
+      kind: "other",
+    }]
+  ) {
     assertThrows(
-      () => assertIdentity(receipt, actual),
+      () => assertIdentity(receipt, bad),
       Error,
       "identity does not match",
     );
   }
   assertIdentity(receipt, receipt);
 });
-
-Deno.test("a loopback API with missing or mismatched identity is never sent a write", async () => {
+Deno.test("an unrecognized API receives only a read-only identity probe", async () => {
   const requests: string[] = [];
-  let reply: unknown = { status: "ok" };
+  let reply: unknown = {};
   let status = 200;
   const server = Deno.serve(
     { hostname: "127.0.0.1", port: 0, onListen() {} },
     (req) => {
       requests.push(`${req.method} ${new URL(req.url).pathname}`);
+      assertEquals(
+        req.headers.get("authorization"),
+        `Bearer ${receipt.secret}`,
+      );
       return Response.json(reply, { status });
     },
   );
-  const d = parseDisposable({
-    ...receipt,
-    apiUrl: `http://127.0.0.1:${server.addr.port}/api`,
-  });
+  const d = { ...receipt, apiUrl: `http://127.0.0.1:${server.addr.port}/api` };
   try {
-    for (
-      const bad of [
-        { status: "ok" },
-        { ...receipt, systemId: "9876543210987654321" },
-        { ...receipt, database: "postgres" },
-      ]
-    ) {
+    for (const bad of [{}, { ...receipt, run: "c".repeat(64) }]) {
       reply = bad;
       await assertRejects(() => verifyApi(d), Error, "identity does not match");
     }
@@ -155,8 +102,17 @@ Deno.test("a loopback API with missing or mismatched identity is never sent a wr
     status = 200;
     reply = receipt;
     await verifyApi(d);
-    assertEquals(requests, Array(5).fill("GET /api/__test_identity"));
+    assertEquals(requests, Array(4).fill("GET /api/__test_identity"));
   } finally {
     await server.shutdown();
   }
+});
+Deno.test("the runner fails closed instead of claiming client coverage is Worker coverage", async () => {
+  const source = await Deno.readTextFile("scripts/test-worker.mjs");
+  assertEquals(
+    source.includes("Deno client coverage is not Worker coverage"),
+    true,
+  );
+  assertEquals(source.includes("d1Persist: false"), true);
+  assertEquals(source.includes("outboundService()"), true);
 });

@@ -1,13 +1,14 @@
-// Wiring the Withings client to the database: where the credentials live, when
-// they are refreshed, and what happens to a reading between arriving and
-// becoming a row.
-//
-// Split from withings_client.ts so that file can stay import-free and testable
-// against a stub. What is here is the part that needs a database.
-
-import { sql } from "../db.ts";
-import { recordBodyweight } from "./bodyweight.ts";
+import {
+  type Clock,
+  type Database,
+  instant,
+  rows,
+  type Statement,
+  statement,
+  systemClock,
+} from "../shared/d1.ts";
 import { ApiError } from "../shared/errors.ts";
+import { bodyweightStore } from "./bodyweight.ts";
 import {
   getWeights,
   type MeasureRange,
@@ -19,253 +20,258 @@ import {
 } from "./withings_client.ts";
 
 export const WITHINGS_SOURCE = "withings";
-
-// Overridable the way GITHUB_API_BASE is: production never sets it, and the
-// sync tests point it at a local stub so this file's wiring — watermark,
-// refresh, refusal counting — can be exercised without touching Withings.
-const API_BASE = Deno.env.get("WITHINGS_API_BASE") ??
-  "https://wbsapi.withings.net";
-
-// Refresh a minute early rather than on the tick: a token that expires between
-// the check and the call would surface as a status 401 in the middle of a sync,
-// and the retry would not come until the next catch-up.
 const EXPIRY_MARGIN_MS = 60_000;
+const CATCH_UP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-// How stale the last attempt must be before the /health ping does a catch-up.
-// UptimeRobot hits /health every few minutes; without a throttle that would be
-// a Withings call every few minutes, all but one of them returning nothing.
-const CATCH_UP_INTERVAL_HOURS = 6;
-
-interface AuthRow {
-  withings_user_id: string;
-  access_token: string;
-  refresh_token: string;
-  access_token_expires_at: Date;
-  last_sync_at: Date | null;
+/** Server configuration only. Missing credentials fail when a sync is attempted. */
+export interface WithingsStoreConfig {
+  apiBase?: string;
+  clientId?: string;
+  clientSecret?: string;
 }
-
 export interface SyncSummary {
   range: string;
   fetched: number;
   written: number;
-  /** Already present and identical — a redelivery, which is free. */
   duplicate: number;
-  /** Not a weight measurement: an objective, or a group without one. */
   ignored: number;
-  /** Rejected by the bodyweight guards. Never fatal; see writeReadings. */
   refused: number;
 }
+interface AuthRow {
+  withings_user_id: string;
+  access_token: string;
+  refresh_token: string;
+  access_token_expires_at: string;
+  last_sync_at: string | null;
+}
 
-function config(): WithingsConfig {
-  const clientId = Deno.env.get("WITHINGS_CLIENT_ID");
-  const clientSecret = Deno.env.get("WITHINGS_CLIENT_SECRET");
-  if (!clientId || !clientSecret) {
-    throw new WithingsError(
-      "WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set on the server, so no call to Withings can be authenticated.",
+/** Request-bound persistence. The caller owns all work through await or waitUntil. */
+export function withingsStore(
+  db: Database,
+  config: WithingsStoreConfig,
+  clock: Clock = systemClock,
+) {
+  const now = () => instant(clock().toISOString());
+  function clientConfig(): WithingsConfig {
+    if (!config.clientId || !config.clientSecret) {
+      throw new WithingsError(
+        "WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set on the server, so no call to Withings can be authenticated.",
+      );
+    }
+    return {
+      apiBase: config.apiBase ?? "https://wbsapi.withings.net",
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+    };
+  }
+  async function readAuth(): Promise<AuthRow | null> {
+    return (
+      (
+        await rows<AuthRow>(
+          db,
+          `SELECT withings_user_id, access_token, refresh_token,
+      access_token_expires_at, last_sync_at FROM withings_auth WHERE id = 1`,
+        )
+      )[0] ?? null
     );
   }
-  return { apiBase: API_BASE, clientId, clientSecret };
-}
-
-async function readAuth(): Promise<AuthRow | null> {
-  const [row] = await sql<AuthRow[]>`
-    select withings_user_id, access_token, refresh_token,
-           access_token_expires_at, last_sync_at
-    from withings_auth where id = 1`;
-  return row ?? null;
-}
-
-/**
- * A live access token, refreshing first if the stored one is spent.
- *
- * The write persists everything the refresh returned in one statement, before
- * the token is used for anything.
- *
- * Two syncs racing here both refresh, and the second is refused: Withings
- * answers status 601, "Same arguments in less than 10 seconds", to a repeated
- * refresh — observed while testing this, not inferred. The loser's sync fails,
- * is logged, and is redone by the next catch-up, which is the right outcome and
- * needs no lock. A lock would be the wrong shape anyway: the contended resource
- * is at Withings, not in this database.
- */
-async function accessTokenFor(
-  cfg: WithingsConfig,
-  auth: AuthRow,
-): Promise<string> {
-  if (auth.access_token_expires_at.getTime() - Date.now() > EXPIRY_MARGIN_MS) {
-    return auth.access_token;
+  async function accessTokenFor(
+    cfg: WithingsConfig,
+    auth: AuthRow,
+  ): Promise<string> {
+    if (
+      new Date(auth.access_token_expires_at).getTime() - clock().getTime() >
+        EXPIRY_MARGIN_MS
+    ) {
+      return auth.access_token;
+    }
+    const tokens = await refreshTokens(
+      cfg,
+      auth.refresh_token,
+      () => clock().getTime(),
+    );
+    // Provider refreshes are never retried automatically. Do not overwrite a
+    // reseeded account or credentials another request has already rotated.
+    const changed = await rows(
+      db,
+      `UPDATE withings_auth SET access_token = ?, refresh_token = ?,
+      access_token_expires_at = ?, updated_at = ?
+      WHERE id = 1 AND withings_user_id = ? AND refresh_token = ? AND access_token = ? RETURNING id`,
+      tokens.accessToken,
+      tokens.refreshToken,
+      instant(tokens.expiresAt),
+      now(),
+      auth.withings_user_id,
+      auth.refresh_token,
+      auth.access_token,
+    );
+    if (!changed.length) {
+      throw new WithingsError(
+        "Withings credentials changed during refresh. The provider may already have rotated its token; check synchronization before retrying.",
+      );
+    }
+    return tokens.accessToken;
   }
-  const tokens = await refreshTokens(cfg, auth.refresh_token);
-  await sql`
-    update withings_auth
-    set access_token = ${tokens.accessToken},
-        refresh_token = ${tokens.refreshToken},
-        access_token_expires_at = ${tokens.expiresAt},
-        updated_at = now()
-    where id = 1`;
-  return tokens.accessToken;
-}
-
-/**
- * Writes the accepted readings, and refuses to let one bad one stop the rest.
- *
- * The 409 case is the one that matters. bodyweight rejects a second, different
- * value for an instant already recorded, on the principle that a measurement is
- * a fact — the right rule for a human correcting a typo. But the catch-up pass
- * asks Withings for everything *modified* since the watermark, so editing a
- * weigh-in in the Withings app delivers exactly that shape. Letting it throw
- * would abort the pass and, worse, leave the watermark unmoved so the same
- * conflict recurred every six hours forever. It is counted and logged instead.
- */
-async function writeReadings(
-  readings: { measuredAt: string; valueKg: number }[],
-): Promise<{ written: number; duplicate: number; refused: number }> {
-  let written = 0, duplicate = 0, refused = 0;
-  for (const reading of readings) {
+  async function sync(
+    range: MeasureRange,
+    label: string,
+    advanceWatermark: boolean,
+    auth: AuthRow,
+  ): Promise<SyncSummary> {
+    const cfg = clientConfig();
+    const token = await accessTokenFor(cfg, auth);
+    const { updatetime, groups } = await getWeights(cfg, token, range);
+    const { accepted, skipped } = selectWeights(groups);
+    // Every reading's write batch asserts account ownership atomically. An
+    // account reseed during provider I/O must never import the old account.
+    const guarded: Database = {
+      prepare: (sql) => db.prepare(sql),
+      async batch<T>(statements: Statement[]) {
+        const result = await db.batch<T>([
+          statement(
+            db,
+            `INSERT INTO api_write_assertions (id, rows_match)
+            VALUES (1, EXISTS (SELECT 1 FROM withings_auth WHERE id = 1 AND withings_user_id = ?))`,
+            auth.withings_user_id,
+          ),
+          ...statements,
+          statement(db, "DELETE FROM api_write_assertions WHERE id = 1"),
+        ]);
+        return result.slice(1, -1);
+      },
+    };
+    const weights = bodyweightStore(guarded, clock);
+    let written = 0,
+      duplicate = 0,
+      refused = 0;
+    for (const reading of accepted) {
+      try {
+        const { created } = await weights.recordBodyweight({
+          ...reading,
+          source: WITHINGS_SOURCE,
+        });
+        if (created) written++;
+        else duplicate++;
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        refused++;
+        console.error(`withings: reading refused (status ${error.status})`);
+      }
+    }
+    if ((await readAuth())?.withings_user_id !== auth.withings_user_id) {
+      throw new WithingsError(
+        "The Withings account changed during synchronization. The checkpoint is unchanged.",
+      );
+    }
+    if (advanceWatermark) {
+      // Only a complete lastupdate pass advances the provider-clock watermark.
+      // A slower concurrent pass must not move an already newer mark backwards.
+      const watermark = instant(new Date(updatetime * 1000).toISOString());
+      const changed = await rows(
+        db,
+        `UPDATE withings_auth SET
+        last_sync_at = CASE WHEN last_sync_at IS NULL OR last_sync_at < ? THEN ? ELSE last_sync_at END,
+        updated_at = ? WHERE id = 1 AND withings_user_id = ? RETURNING id`,
+        watermark,
+        watermark,
+        now(),
+        auth.withings_user_id,
+      );
+      if (!changed.length) {
+        throw new WithingsError(
+          "The Withings account changed during synchronization. The checkpoint is unchanged.",
+        );
+      }
+    }
+    return {
+      range: label,
+      fetched: groups.length,
+      ignored: skipped.length,
+      written,
+      duplicate,
+      refused,
+    };
+  }
+  async function requireAuth(expectedUserId?: string): Promise<AuthRow> {
+    const auth = await readAuth();
+    if (!auth) {
+      throw new WithingsError(
+        "No row in withings_auth, so there is no refresh token to authenticate with. Seed the Withings credentials before synchronizing.",
+      );
+    }
+    if (
+      expectedUserId !== undefined &&
+      auth.withings_user_id !== expectedUserId
+    ) {
+      throw new WithingsError(
+        "The notification does not belong to the configured Withings account.",
+      );
+    }
+    return auth;
+  }
+  async function syncNotifiedWindow(
+    startdate: number,
+    enddate: number,
+    expectedUserId?: string,
+  ): Promise<SyncSummary> {
+    return await sync(
+      {
+        startdate: startdate - NOTIFY_WINDOW_MARGIN_S,
+        enddate: enddate + NOTIFY_WINDOW_MARGIN_S,
+      },
+      `window ${startdate}–${enddate}`,
+      false,
+      await requireAuth(expectedUserId),
+    );
+  }
+  async function catchUp(
+    override?: number,
+    expectedUserId?: string,
+  ): Promise<SyncSummary> {
+    const auth = await requireAuth(expectedUserId);
+    const since = override ??
+      (auth.last_sync_at
+        ? Math.floor(new Date(auth.last_sync_at).getTime() / 1000)
+        : 0);
+    return await sync({ lastupdate: since }, `since ${since}`, true, auth);
+  }
+  async function catchUpIfDue(): Promise<
+    SyncSummary | { error: string } | null
+  > {
     try {
-      const { created } = await recordBodyweight({
-        valueKg: reading.valueKg,
-        measuredAt: reading.measuredAt,
-        source: WITHINGS_SOURCE,
-      });
-      if (created) written++;
-      else duplicate++;
-    } catch (err) {
-      if (!(err instanceof ApiError)) throw err;
-      refused++;
-      console.error(`withings: reading refused (status ${err.status})`);
+      const at = clock();
+      const claimed = await rows<{ withings_user_id: string }>(
+        db,
+        `UPDATE withings_auth
+        SET last_sync_attempt_at = ?, updated_at = ? WHERE id = 1
+        AND (last_sync_attempt_at IS NULL OR last_sync_attempt_at < ?) RETURNING withings_user_id`,
+        instant(at.toISOString()),
+        instant(at.toISOString()),
+        instant(new Date(at.getTime() - CATCH_UP_INTERVAL_MS).toISOString()),
+      );
+      if (!claimed.length) return null;
+      return await catchUp(undefined, claimed[0].withings_user_id);
+    } catch {
+      // Scheduled work never exposes provider text or database parameters.
+      const error =
+        "Withings catch-up failed; provider/error details withheld.";
+      console.error(error);
+      return { error };
     }
   }
-  return { written, duplicate, refused };
-}
-
-async function sync(
-  range: MeasureRange,
-  label: string,
-  advanceWatermark: boolean,
-): Promise<SyncSummary> {
-  const auth = await readAuth();
-  if (!auth) {
-    throw new WithingsError(
-      "No row in withings_auth, so there is no refresh token to authenticate with. Seed it with scripts/seed_withings.ts.",
-    );
+  async function configuredUserId(): Promise<string | null> {
+    return (await readAuth())?.withings_user_id ?? null;
   }
-  const cfg = config();
-  const token = await accessTokenFor(cfg, auth);
-  const { updatetime, groups } = await getWeights(cfg, token, range);
-  const { accepted, skipped } = selectWeights(groups);
-
-  if (skipped.length) console.log(`withings: ignored ${skipped.length} groups`);
-
-  const counts = await writeReadings(accepted);
-
-  // The watermark means one specific thing: everything up to this instant has
-  // been asked for by lastupdate. Only a lastupdate pass can establish that, so
-  // only a lastupdate pass moves it.
-  //
-  // A notification's window sync must not, even though it also succeeded and
-  // also has a fresh updatetime to hand. It asked about ninety seconds around
-  // one weigh-in and learned nothing about anything else — so advancing the
-  // watermark to now would declare a stretch of time examined that was never
-  // examined, and any reading that changed inside it would fall behind the mark
-  // and never be fetched again. The notification path would then be quietly
-  // sawing off the branch the catch-up sits on: the busier the scale, the more
-  // often the watermark jumps forward on evidence that does not support it.
-  //
-  // Only after the writes, and only from Withings' own clock: ours would open a
-  // gap the width of the clock difference.
-  if (advanceWatermark) {
-    await sql`
-      update withings_auth
-      set last_sync_at = to_timestamp(${updatetime}), updated_at = now()
-      where id = 1`;
+  /** Pass (promise) => ctx.waitUntil(promise), from fetch or scheduled. */
+  function startCatchUp(waitUntil: (promise: Promise<unknown>) => void): void {
+    waitUntil(catchUpIfDue());
   }
-
   return {
-    range: label,
-    fetched: groups.length,
-    ignored: skipped.length,
-    ...counts,
+    syncNotifiedWindow,
+    catchUp,
+    catchUpIfDue,
+    configuredUserId,
+    startCatchUp,
   };
 }
-
-/** The window a notification points at, widened at both ends. */
-export function syncNotifiedWindow(
-  startdate: number,
-  enddate: number,
-): Promise<SyncSummary> {
-  return sync(
-    {
-      startdate: startdate - NOTIFY_WINDOW_MARGIN_S,
-      enddate: enddate + NOTIFY_WINDOW_MARGIN_S,
-    },
-    `window ${startdate}–${enddate}`,
-    false,
-  );
-}
-
-/**
- * Everything created or modified since the watermark.
- *
- * lastupdate rather than a date window because that is what it is for: it
- * catches a reading whose notification was dropped, which a window keyed to a
- * notification we never received could not. A null watermark means this has
- * never run, and 0 asks for the whole history — which is correct, and is how
- * the first pass after seeding backfills.
- */
-export async function catchUp(override?: number): Promise<SyncSummary> {
-  const auth = await readAuth();
-  const since = override ??
-    (auth?.last_sync_at ? Math.floor(auth.last_sync_at.getTime() / 1000) : 0);
-  return await sync({ lastupdate: since }, `since ${since}`, true);
-}
-
-/**
- * The health-triggered catch-up: a single conditional UPDATE claims each
- * interval across processes. The topic tracks the background promise rather
- * than holding the health response open. Failures are logged and returned to
- * direct callers; a provider outage does not mark the API unhealthy.
- */
-export async function catchUpIfDue(): Promise<
-  SyncSummary | { error: string } | null
-> {
-  try {
-    const [claimed] = await sql`
-      update withings_auth
-      set last_sync_attempt_at = now(), updated_at = now()
-      where id = 1
-        and (last_sync_attempt_at is null
-             or last_sync_attempt_at
-                < now() - make_interval(hours => ${CATCH_UP_INTERVAL_HOURS}))
-      returning id`;
-    if (!claimed) return null;
-    return await catchUp();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("withings: catch-up failed; provider/error details withheld");
-    return { error: message };
-  }
-}
-
-let pendingCatchUp: Promise<unknown> | undefined;
-let stopping = false;
-
-/** Health triggers a tracked pass, never waits for the provider. */
-export function startCatchUp(): void {
-  if (stopping || pendingCatchUp) return;
-  pendingCatchUp = catchUpIfDue().finally(() => {
-    pendingCatchUp = undefined;
-  });
-}
-
-/** Stop scheduling before shutdown; the server drains this alongside HTTP. */
-export async function stopCatchUp(): Promise<void> {
-  stopping = true;
-  await pendingCatchUp;
-}
-
-/** The user id the notification must claim, or null when unconfigured. */
-export async function configuredUserId(): Promise<string | null> {
-  const auth = await readAuth();
-  return auth?.withings_user_id ?? null;
-}
+export type WithingsStore = ReturnType<typeof withingsStore>;

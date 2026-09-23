@@ -10,8 +10,8 @@ import {
 // The connector, in two halves. The dispatch is import-free and runs here
 // with a stub minter, so every branch of the protocol is exercised without a
 // sign-in. The route is probed live for what it does before a sign-in — the
-// refusal, the pointer to where to sign in, the discovery document — because
-// the local stack runs without the auth service. An in-process route check
+// refusal, the pointer to where to sign in, the discovery document — with
+// outbound Worker networking blocked. An in-process route check
 // below uses a test signing key for GET and POST, then a real minted token
 // against the disposable API. Hosted sign-in still needs a client smoke check.
 
@@ -225,8 +225,9 @@ Deno.test("what a client is told before it signs in", async (t) => {
 
 Deno.test("signed connector calls enforce identity and mint usable API tokens", async () => {
   const { BASE } = await import("./helpers.ts");
-  const { sql } = await import("../db.ts");
-  const { mcp } = await import("../access/mcp.routes.ts");
+  const { database } = await import("./d1.ts");
+  const { tokenStore } = await import("../access/tokens.ts");
+  const { createMcpRoutes } = await import("../access/mcp.routes.ts");
   const { forgetJwks } = await import("../access/jwt.ts");
   const issuer = "https://auth.example.test";
   const resource = "https://example.test/";
@@ -236,9 +237,12 @@ Deno.test("signed connector calls enforce identity and mint usable API tokens", 
     ALLOWED_SUBJECT: CALLER.subject,
     PUBLIC_ORIGIN: "",
   };
-  const previous = Object.keys(config).map((key) =>
-    [key, Deno.env.get(key)] as const
-  );
+  const mcp = createMcpRoutes({
+    issuer: config.AUTH_ISSUER,
+    jwksUrl: config.AUTH_JWKS_URL,
+    allowedSubject: config.ALLOWED_SUBJECT,
+    publicOrigin: config.PUBLIC_ORIGIN,
+  }, tokenStore(database));
   const fetch = globalThis.fetch;
   const pair = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
@@ -252,15 +256,14 @@ Deno.test("signed connector calls enforce identity and mint usable API tokens", 
   const json = (value: unknown) =>
     encode(new TextEncoder().encode(JSON.stringify(value)));
   try {
-    for (const [name, value] of Object.entries(config)) {
-      Deno.env.set(name, value);
-    }
     forgetJwks();
-    globalThis.fetch = (input) => {
-      assertEquals(input, config.AUTH_JWKS_URL);
-      return Promise.resolve(
-        Response.json({ keys: [{ ...key, kid: "test" }] }),
-      );
+    globalThis.fetch = (input, init) => {
+      if (String(input) === config.AUTH_JWKS_URL) {
+        return Promise.resolve(
+          Response.json({ keys: [{ ...key, kid: "test" }] }),
+        );
+      }
+      return fetch(input, init);
     };
     for (
       const [subject, status] of [[CALLER.subject, 405], [
@@ -318,13 +321,8 @@ Deno.test("signed connector calls enforce identity and mint usable API tokens", 
       assert(Array.isArray((await read.json()).exercises));
     }
   } finally {
-    await sql.end();
     globalThis.fetch = fetch;
     forgetJwks();
-    for (const [name, value] of previous) {
-      if (value === undefined) Deno.env.delete(name);
-      else Deno.env.set(name, value);
-    }
   }
 });
 
@@ -355,16 +353,19 @@ Deno.test("the connector before a sign-in", async (t) => {
         const challenge = res.headers.get("www-authenticate") ?? "";
         const match = challenge.match(/^Bearer resource_metadata="([^"]+)"$/);
         assert(match !== null, `unexpected challenge: ${challenge}`);
-        assertEquals(match[1], `${BASE}/mcp/oauth-protected-resource`);
+        assertEquals(
+          match[1],
+          "https://synthetic.invalid/api/mcp/oauth-protected-resource",
+        );
         const error = await envelope(res);
         assertStringIncludes(error, "Sign in first");
         replies.push({ challenge, error });
 
-        // Follow the address the client actually receives, not a guessed route.
-        const metadata = await fetch(match[1]);
+        // The Worker owns its public origin; only transport uses loopback.
+        const metadata = await fetch(new URL(new URL(match[1]).pathname, BASE));
         assertEquals(metadata.status, 200);
         const doc = await metadata.json();
-        assertEquals(doc.resource, `${BASE}/mcp`);
+        assertEquals(doc.resource, "https://synthetic.invalid/api/mcp");
         assertEquals(doc.authorization_servers.length, 1);
       }
       assertEquals(replies[0], replies[1]);
@@ -393,28 +394,48 @@ Deno.test("the connector before a sign-in", async (t) => {
   );
 
   await t.step(
-    "a well-formed token meets the sign-in server, or its absence",
+    "an unavailable sign-in provider returns 503 without a challenge",
     async () => {
-      // A real-looking RS256 token, signed by nobody. In CI and on the usual
-      // local stack the auth service is not running, so the keys cannot be
-      // read and the answer is 503 without a challenge; with the service up
-      // the same token is a plain 401. Either is the right answer to what was
-      // sent, and the test says which it saw.
+      // Provider I/O is stubbed in-process. The real Worker must never attempt
+      // outbound networking, even to a synthetic hostname.
+      const { createMcpRoutes } = await import("../access/mcp.routes.ts");
+      const { forgetJwks } = await import("../access/jwt.ts");
+      const route = createMcpRoutes({
+        issuer: "https://auth.example.test",
+        jwksUrl: "https://auth.example.test/unavailable",
+        allowedSubject: CALLER.subject,
+      }, {
+        issueToken: () => {
+          throw new Error("Must not mint during an outage");
+        },
+      });
       const segment = (value: unknown) =>
         btoa(JSON.stringify(value)).replace(/=+$/, "");
       const token = `${segment({ alg: "RS256", kid: "k" })}.${
         segment({ iss: "x" })
       }.AAAA`;
-      const res = await fetch(`${BASE}/mcp`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}` },
-        body: "{}",
-      });
-      assert([401, 503].includes(res.status), String(res.status));
-      if (res.status === 503) {
+      const originalFetch = globalThis.fetch;
+      let reads = 0;
+      forgetJwks();
+      globalThis.fetch = (input) => {
+        assertEquals(String(input), "https://auth.example.test/unavailable");
+        reads++;
+        return Promise.reject(new Error("Synthetic provider outage"));
+      };
+      try {
+        const res = await route.request("https://example.test/", {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+          body: "{}",
+        });
+        assertEquals(res.status, 503);
+        assertEquals(reads, 1);
         assertEquals(res.headers.get("www-authenticate"), null);
+        await envelope(res);
+      } finally {
+        globalThis.fetch = originalFetch;
+        forgetJwks();
       }
-      await envelope(res);
     },
   );
 

@@ -1,565 +1,582 @@
-// A session is what happened in a room on a day. It is written in one of two
-// shapes — upcoming, carrying targets, or retro-logged, carrying actuals —
-// and never both on one set, because a target written after the work would
-// always match what was done.
-//
-// Set rows are created with the session. Logging fills them in rather than
-// inserting, which is why targets are immutable afterwards: they are the
-// record of what was asked that day.
-
-import { sql, type Tx } from "../db.ts";
+// Session persistence uses atomic D1 batches with optimistic version checks.
 import {
+  batch,
+  type Clock,
+  type Database,
+  date,
+  decimal,
+  instant,
+  jsonChunks,
+  requestId,
+  type Result,
+  rows,
+  statement,
+  systemClock,
+  wireInstant,
+} from "../shared/d1.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
+import {
+  ACTUAL_FIELDS,
   type CorrectSetInput,
   prepareSetCorrection,
-  type SetForCorrection,
 } from "./set_correction.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
-import { writeOnce } from "../shared/idempotency.ts";
+import { assertEffort, assertSetMeasures } from "./rules.ts";
+import { type SetResolver, trainingResolver } from "./resolve.ts";
 import {
-  resolveExercise,
-  resolveMesocycle,
-  resolveSetMesocycleId,
-} from "./resolve.ts";
-import {
-  assertEffort,
-  assertSetMeasures,
-  type Effort,
-  type Kind,
-} from "./rules.ts";
+  affectedRows,
+  finishWrite,
+  retrySessionWrite,
+  sessionVersion,
+} from "./session_write.ts";
+import type {
+  AppendedSetRow,
+  CorrectSessionInput,
+  SessionDetailRow,
+  SessionHeaderRow,
+  SessionSetRow,
+  SetEntry,
+  WriteSessionInput,
+} from "./sessions.types.ts";
+import type { SetRow } from "./sets.types.ts";
 
-export interface SessionHeaderRow {
-  id: number;
-  date: string;
-  rationale: string | null;
-  notes: string | null;
-  overall_feel: string | null;
-  started_at: string | null;
-  completed_at: string | null;
+type Header = SessionHeaderRow & { write_version: number };
+type SetSnapshot = SessionSetRow & {
+  session_id: number;
+  stimulus_type: string;
+  request_id: string | null;
+};
+interface Snapshot {
+  header: Header;
+  sets: SetSnapshot[];
 }
 
-export interface SessionSetRow {
-  id: number;
-  exercise: string;
-  exercise_id: number;
-  measure: string;
-  mesocycle_id: number | null;
-  position: number;
-  kind: Kind;
-  target_weight_kg: number | null;
-  target_reps: number | null;
-  target_distance_m: number | null;
-  target_duration_s: number | null;
-  weight_kg: number | null;
-  reps: number | null;
-  distance_m: number | null;
-  duration_s: number | null;
-  effort: Effort | null;
-  performed_at: string | null;
-  notes: string | null;
-}
+const headerColumns =
+  "id, date, rationale, notes, overall_feel, started_at, completed_at, write_version";
+const setColumns =
+  `t.id, t.session_id, e.name AS exercise, t.exercise_id, e.measure, e.stimulus_type,
+  t.mesocycle_id, t.position, t.kind,
+  t.target_weight_kg / 100.0 AS target_weight_kg, t.target_reps,
+  t.target_distance_m / 10.0 AS target_distance_m, t.target_duration_s / 100.0 AS target_duration_s,
+  t.weight_kg / 100.0 AS weight_kg, t.reps,
+  t.distance_m / 10.0 AS distance_m, t.duration_s / 100.0 AS duration_s,
+  t.effort, t.performed_at, t.notes, t.request_id`;
+const sessionFields = [
+  "notes",
+  "overall_feel",
+  "rationale",
+  "started_at",
+  "completed_at",
+] as const;
+const scales: Record<string, [number, number]> = {
+  weight_kg: [6, 2],
+  target_weight_kg: [6, 2],
+  distance_m: [7, 1],
+  target_distance_m: [7, 1],
+  duration_s: [8, 2],
+  target_duration_s: [8, 2],
+};
+const insertSetFields = [
+  "exercise_id",
+  "mesocycle_id",
+  "kind",
+  "target_weight_kg",
+  "target_reps",
+  "target_distance_m",
+  "target_duration_s",
+  "weight_kg",
+  "reps",
+  "distance_m",
+  "duration_s",
+  "effort",
+  "performed_at",
+  "notes",
+] as const;
 
-export interface SessionDetailRow extends SessionHeaderRow {
-  sets: SessionSetRow[];
-}
-
-/** The row POST /sessions/{id}/sets answers with: no targets to show. */
-export type AppendedSetRow =
-  & Omit<
-    SessionSetRow,
-    | "exercise"
-    | "measure"
-    | "target_weight_kg"
-    | "target_reps"
-    | "target_distance_m"
-    | "target_duration_s"
-  >
-  & { session_id: number };
-
-/** An exercise or mesocycle by id, name, or alias — the resolver decides. */
-type Reference = string | number;
-
-export interface SetEntry {
-  exercise?: Reference;
-  kind: Kind;
-  mesocycle?: Reference;
-  target_weight_kg?: number | null;
-  target_reps?: number | null;
-  target_distance_m?: number | null;
-  target_duration_s?: number | null;
-  weight_kg?: number | null;
-  reps?: number | null;
-  distance_m?: number | null;
-  duration_s?: number | null;
-  effort?: Effort | null;
-  performed_at?: string | null;
-  notes?: string | null;
-}
-
-function appendedSetColumns() {
-  return sql`id, session_id, exercise_id, mesocycle_id, position, kind,
-    weight_kg::float8, reps, distance_m::float8, duration_s::float8,
-    effort, performed_at, notes`;
-}
-
-export function sessionDetail(id: number): Promise<SessionDetailRow> {
-  return readSessionDetail(sql, id);
-}
-
-// A session report reads its response before releasing the parent lock. Public
-// callers never receive a transaction handle; the operation owns that boundary.
-async function readSessionDetail(
-  on: typeof sql | Tx,
-  id: number,
-): Promise<SessionDetailRow> {
-  const session = requireRow(
-    await on<SessionHeaderRow[]>`
-    select id, date, rationale, notes,
-      overall_feel, started_at, completed_at
-    from sessions where id = ${id}`,
-    `No session with id ${id}.`,
-  );
-  // Each set says which plan it serves; the session says nothing, because a
-  // session that sprints and then squats serves two.
-  const sets = await on<SessionSetRow[]>`
-    select t.id, e.name as exercise, t.exercise_id, e.measure, t.mesocycle_id,
-      t.position, t.kind,
-      t.target_weight_kg::float8, t.target_reps,
-      t.target_distance_m::float8, t.target_duration_s::float8,
-      t.weight_kg::float8, t.reps,
-      t.distance_m::float8, t.duration_s::float8,
-      t.effort, t.performed_at, t.notes
-    from sets t join exercises e on e.id = t.exercise_id
-    where t.session_id = ${id}
-    order by t.position`;
-  return { ...session, sets };
-}
-
-/** Session headers, newest first. Sets are not included. */
-export async function listSessions(
-  limit: number,
-  mesocycle?: string,
-): Promise<SessionHeaderRow[]> {
-  const mesoId = mesocycle ? (await resolveMesocycle(mesocycle)).id : null;
-  // Filtering by plan asks which sessions contained work for it, because a
-  // session is no longer owned by one.
-  return await sql<SessionHeaderRow[]>`
-    select id, date, rationale, notes,
-      overall_feel, started_at, completed_at
-    from sessions s
-    ${
-    mesoId === null ? sql`` : sql`where exists (
-        select 1 from sets t
-        where t.session_id = s.id and t.mesocycle_id = ${mesoId})`
-  }
-    order by date desc, id desc
-    limit ${limit}`;
-}
-
-interface NewSet {
-  exerciseId: number;
-  mesocycleId: number | null;
-  kind: string;
-  targetWeightKg: number | null;
-  targetReps: number | null;
-  targetDistanceM: number | null;
-  targetDurationS: number | null;
-  weightKg: number | null;
-  reps: number | null;
-  distanceM: number | null;
-  durationS: number | null;
-  effort: string | null;
-  performedAt: string | null;
-  notes: string | null;
-}
-
-// Cache only reference resolution, never validation or set values. The maps
-// belong to one write: a later request must see changed plans and exercises.
-interface SetReferences {
-  exercises: Map<
-    Reference | undefined,
-    Awaited<ReturnType<typeof resolveExercise>>
-  >;
-  mesocycles: Map<number, Map<Reference | undefined, number | null>>;
-}
-
-// One set entry of POST /sessions. Targets only (upcoming) or actuals only
-// (retro) — a target written after the work would always match what was done.
-async function parseNewSet(
-  s: SetEntry,
-  references?: SetReferences,
-): Promise<NewSet> {
-  let exercise = references?.exercises.get(s.exercise);
-  if (exercise === undefined) {
-    exercise = await resolveExercise(s.exercise);
-    references?.exercises.set(s.exercise, exercise);
-  }
-  const kind = s.kind;
-
-  const target = {
-    weightKg: s.target_weight_kg ?? null,
-    reps: s.target_reps ?? null,
-    distanceM: s.target_distance_m ?? null,
-    durationS: s.target_duration_s ?? null,
-  };
-  const actual = {
-    weightKg: s.weight_kg ?? null,
-    reps: s.reps ?? null,
-    distanceM: s.distance_m ?? null,
-    durationS: s.duration_s ?? null,
-  };
-  // What a set of this exercise must carry is the exercise's business, so
-  // both sides are checked against its measure rather than against a rule
-  // that assumes every set is a weight and a rep count.
-  assertSetMeasures(exercise.measure, exercise.name, "target", target);
-  assertSetMeasures(exercise.measure, exercise.name, "actual", actual);
-
-  const performed = actual.reps !== null || actual.distanceM !== null ||
-    actual.durationS !== null;
-  const asked = target.reps !== null || target.distanceM !== null ||
-    target.durationS !== null;
-  if (asked && performed) {
-    throw new ApiError(
-      422,
-      "A new set carries targets (upcoming session) or actuals (retro-logged), never both: targets written after the fact would always match what was done.",
-    );
-  }
-  const effort = s.effort ?? null;
-  assertEffort(
-    exercise.stimulus_type,
-    exercise.name,
-    kind,
-    actual.reps,
-    effort,
-  );
-  let plans = references?.mesocycles.get(exercise.id);
-  if (plans === undefined && references !== undefined) {
-    plans = new Map();
-    references.mesocycles.set(exercise.id, plans);
-  }
-  let mesocycleId = plans?.get(s.mesocycle);
-  // null is a resolved off-plan result; undefined means it has not been read.
-  // The explicit plan reference is part of the key: two sets of the same
-  // exercise may intentionally serve different plans.
-  if (mesocycleId === undefined) {
-    mesocycleId = await resolveSetMesocycleId(exercise.id, s.mesocycle);
-    plans?.set(s.mesocycle, mesocycleId);
-  }
-  return {
-    exerciseId: exercise.id,
-    mesocycleId,
-    kind,
-    targetWeightKg: target.weightKg,
-    targetReps: target.reps,
-    targetDistanceM: target.distanceM,
-    targetDurationS: target.durationS,
-    weightKg: actual.weightKg,
-    reps: actual.reps,
-    distanceM: actual.distanceM,
-    durationS: actual.durationS,
-    effort,
-    performedAt: s.performed_at ?? null,
-    notes: s.notes ?? null,
-  };
-}
-
-export async function writeSession(b: {
-  date: string;
-  rationale: string;
-  sets: SetEntry[];
-  request_id: string;
-}): Promise<{ session: SessionDetailRow; created: boolean }> {
-  const { body: session, status } = await writeOnce<
-    { id: number },
-    SessionDetailRow,
-    SessionDetailRow
-  >({
-    table: "sessions",
-    requestId: b.request_id,
-    select: sql`id`,
-    replay: (seen) => sessionDetail(seen.id),
-    write: async () => {
-      const references: SetReferences = {
-        exercises: new Map(),
-        mesocycles: new Map(),
-      };
-      const sets: NewSet[] = [];
-      for (const entry of b.sets) {
-        sets.push(await parseNewSet(entry, references));
+function stored(fields: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([field, value]) => {
+      if (value === null) return [field, null];
+      if (scales[field]) {
+        return [field, decimal(value as number, ...scales[field])];
       }
-
-      const id = await sql.begin(async (tx) => {
-        const [session] = await tx`
-      insert into sessions (date, rationale, request_id)
-      values (${b.date}, ${b.rationale}, ${b.request_id})
-      returning id`;
-        // Sixteen parameters per row. Bound large inputs below Postgres's
-        // parameter limit without imposing a new limit on session size.
-        // Every batch remains in this transaction, including a failing last one.
-        const batchSize = 1000;
-        for (let offset = 0; offset < sets.length; offset += batchSize) {
-          const rows = sets.slice(offset, offset + batchSize).map((
-            s,
-            index,
-          ) => ({
-            session_id: session.id,
-            exercise_id: s.exerciseId,
-            mesocycle_id: s.mesocycleId,
-            position: offset + index + 1,
-            kind: s.kind,
-            target_weight_kg: s.targetWeightKg,
-            target_reps: s.targetReps,
-            target_distance_m: s.targetDistanceM,
-            target_duration_s: s.targetDurationS,
-            weight_kg: s.weightKg,
-            reps: s.reps,
-            distance_m: s.distanceM,
-            duration_s: s.durationS,
-            effort: s.effort,
-            performed_at: s.performedAt,
-            notes: s.notes,
-          }));
-          await tx`insert into sets ${tx(rows)}`;
-        }
-        return session.id as number;
-      });
-
-      return await sessionDetail(id);
-    },
-  });
-  return { session, created: status === 201 };
+      if (
+        field === "performed_at" || field === "started_at" ||
+        field === "completed_at"
+      ) {
+        return [field, instant(value as string)];
+      }
+      return [field, value];
+    }),
+  );
 }
 
-/**
- * Appends an unplanned set: the extra set, or the exercise swapped in on the
- * day, reported afterwards. It records what was done, so it carries actuals
- * and never targets.
- */
-export async function appendSet(
-  sessionId: number,
-  b: SetEntry & { request_id: string },
-): Promise<{ set: AppendedSetRow; created: boolean }> {
-  requireRow(
-    await sql`select id from sessions where id = ${sessionId}`,
-    `No session with id ${sessionId}.`,
-  );
+function snapshot(result: Result<unknown>[], id: number): Snapshot {
+  return {
+    header: requireRow(
+      result[0].results as Header[],
+      `No session with id ${id}.`,
+    ),
+    sets: result[1].results as SetSnapshot[],
+  };
+}
+function detail(current: Snapshot): SessionDetailRow {
+  const { write_version: _version, ...header } = current.header;
+  return {
+    ...header,
+    started_at: wireInstant(header.started_at),
+    completed_at: wireInstant(header.completed_at),
+    sets: current.sets.map((set) => {
+      const {
+        session_id: _session,
+        stimulus_type: _stimulus,
+        request_id: _request,
+        ...publicSet
+      } = set;
+      return {
+        ...publicSet,
+        performed_at: wireInstant(publicSet.performed_at),
+      };
+    }),
+  };
+}
+function appended(set: SetSnapshot): AppendedSetRow {
+  const {
+    exercise: _exercise,
+    measure: _measure,
+    stimulus_type: _stimulus,
+    request_id: _request,
+    target_weight_kg: _weight,
+    target_reps: _reps,
+    target_distance_m: _distance,
+    target_duration_s: _duration,
+    ...publicSet
+  } = set;
+  return { ...publicSet, performed_at: wireInstant(publicSet.performed_at) };
+}
+function readStatements(db: Database, id: number) {
+  return [
+    statement(db, `SELECT ${headerColumns} FROM sessions WHERE id = ?`, id),
+    statement(
+      db,
+      `SELECT ${setColumns} FROM sets t JOIN exercises e ON e.id = t.exercise_id
+      WHERE t.session_id = ? ORDER BY t.position`,
+      id,
+    ),
+  ];
+}
 
-  // Appends at max(position)+1, so there is no natural key to collide on:
-  // without the id a lost response becomes a duplicate set.
-  const { body: set, status } = await writeOnce<
-    AppendedSetRow,
-    AppendedSetRow,
-    AppendedSetRow
-  >({
-    table: "sets",
-    requestId: b.request_id,
-    select: appendedSetColumns(),
-    scope: sql`and session_id = ${sessionId}`,
-    replay: (duplicate) => duplicate,
-    write: async () => {
-      const s = await parseNewSet(b);
+export function sessionStore(db: Database, clock: Clock = systemClock) {
+  const resolver = trainingResolver(db);
+  async function read(id: number): Promise<Snapshot> {
+    return snapshot(await db.batch<unknown>(readStatements(db, id)), id);
+  }
+  async function sessionDetail(id: number): Promise<SessionDetailRow> {
+    return detail(await read(id));
+  }
+  async function listSessions(
+    limit: number,
+    mesocycle?: string,
+  ): Promise<SessionHeaderRow[]> {
+    const id = mesocycle
+      ? (await resolver.resolveMesocycle(mesocycle)).id
+      : null;
+    const found = await rows<SessionHeaderRow>(
+      db,
+      `SELECT id, date, rationale, notes, overall_feel, started_at, completed_at
+      FROM sessions s WHERE (? IS NULL OR EXISTS (SELECT 1 FROM sets t WHERE t.session_id = s.id AND t.mesocycle_id = ?))
+      ORDER BY date DESC, id DESC LIMIT ?`,
+      id,
+      id,
+      limit,
+    );
+    return found.map((row) => ({
+      ...row,
+      started_at: wireInstant(row.started_at),
+      completed_at: wireInstant(row.completed_at),
+    }));
+  }
+
+  // Resolution caches belong to one write attempt, never a request-global cache.
+  function parser(references: SetResolver = resolver) {
+    const exercises = new Map<
+      SetEntry["exercise"],
+      Awaited<ReturnType<typeof resolver.resolveExercise>>
+    >();
+    const plans = new Map<number, Map<SetEntry["mesocycle"], number | null>>();
+    return async (s: SetEntry) => {
+      let exercise = exercises.get(s.exercise);
+      if (exercise === undefined) {
+        exercise = await references.resolveExercise(s.exercise);
+        exercises.set(s.exercise, exercise);
+      }
+      const target = {
+        weightKg: s.target_weight_kg ?? null,
+        reps: s.target_reps ?? null,
+        distanceM: s.target_distance_m ?? null,
+        durationS: s.target_duration_s ?? null,
+      };
+      const actual = {
+        weightKg: s.weight_kg ?? null,
+        reps: s.reps ?? null,
+        distanceM: s.distance_m ?? null,
+        durationS: s.duration_s ?? null,
+      };
+      assertSetMeasures(exercise.measure, exercise.name, "target", target);
+      assertSetMeasures(exercise.measure, exercise.name, "actual", actual);
+      const asked = target.reps !== null || target.distanceM !== null ||
+        target.durationS !== null;
+      const performed = actual.reps !== null || actual.distanceM !== null ||
+        actual.durationS !== null;
+      if (asked && performed) {
+        throw new ApiError(
+          422,
+          "A new set carries targets (upcoming session) or actuals (retro-logged), never both: targets written after the fact would always match what was done.",
+        );
+      }
+      assertEffort(
+        exercise.stimulus_type,
+        exercise.name,
+        s.kind,
+        actual.reps,
+        s.effort ?? null,
+      );
+      let forExercise = plans.get(exercise.id);
+      if (!forExercise) {
+        forExercise = new Map();
+        plans.set(exercise.id, forExercise);
+      }
+      let mesocycleId = forExercise.get(s.mesocycle);
+      if (mesocycleId === undefined) {
+        mesocycleId = await references.resolveSetMesocycleId(
+          exercise.id,
+          s.mesocycle,
+        );
+        forExercise.set(s.mesocycle, mesocycleId);
+      }
+      return stored({
+        exercise_id: exercise.id,
+        // Recheck the identity used for validation inside the write batch.
+        // A registry edit must not race the first set logged for an exercise.
+        expected_measure: exercise.measure,
+        expected_stimulus_type: exercise.stimulus_type,
+        mesocycle_id: mesocycleId,
+        kind: s.kind,
+        target_weight_kg: target.weightKg,
+        target_reps: target.reps,
+        target_distance_m: target.distanceM,
+        target_duration_s: target.durationS,
+        weight_kg: actual.weightKg,
+        reps: actual.reps,
+        distance_m: actual.distanceM,
+        duration_s: actual.durationS,
+        effort: s.effort ?? null,
+        performed_at: s.performed_at ?? null,
+        notes: s.notes ?? null,
+      });
+    };
+  }
+
+  async function writeSession(
+    b: WriteSessionInput,
+  ): Promise<{ session: SessionDetailRow; created: boolean }> {
+    const uuid = requestId(b.request_id);
+    const [seen] = await rows<{ id: number }>(
+      db,
+      "SELECT id FROM sessions WHERE request_id = ?",
+      uuid,
+    );
+    if (seen) return { session: await sessionDetail(seen.id), created: false };
+    const parse = parser(await resolver.forSets(b.sets));
+    const sets = [];
+    for (const input of b.sets) sets.push(await parse(input));
+    // Parent lookup uses the unique request id, not last_insert_rowid(), which
+    // is fragile in multi-statement batches containing trigger writes.
+    const result = await batch(db, [
+      statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
+      statement(
+        db,
+        "INSERT INTO sessions (date, rationale, request_id) VALUES (?, ?, ?)",
+        date(b.date),
+        b.rationale,
+        uuid,
+      ),
+      affectedRows(db, 1),
+      ...jsonChunks(sets).flatMap((chunk) => [
+        statement(
+          db,
+          `INSERT INTO sets (session_id, position, ${
+            insertSetFields.join(", ")
+          })
+          SELECT s.id, CAST(v.key AS INTEGER) + ?, ${
+            insertSetFields.map((field) =>
+              `json_extract(v.value, '$.${field}')`
+            ).join(", ")
+          }
+          FROM json_each(?) v CROSS JOIN sessions s
+          JOIN exercises e ON e.id = json_extract(v.value, '$.exercise_id')
+            AND e.measure = json_extract(v.value, '$.expected_measure')
+            AND e.stimulus_type = json_extract(v.value, '$.expected_stimulus_type')
+          WHERE s.request_id = ?`,
+          chunk.offset + 1,
+          chunk.json,
+          uuid,
+        ),
+        affectedRows(db, chunk.count),
+      ]),
+      statement(
+        db,
+        `SELECT ${headerColumns} FROM sessions WHERE request_id = ?`,
+        uuid,
+      ),
+      statement(
+        db,
+        `SELECT ${setColumns} FROM sets t JOIN exercises e ON e.id = t.exercise_id
+        JOIN sessions s ON s.id = t.session_id WHERE s.request_id = ? ORDER BY t.position`,
+        uuid,
+      ),
+      finishWrite(db),
+    ]);
+    return {
+      session: detail(snapshot(result.slice(-3, -1), 0)),
+      created: true,
+    };
+  }
+
+  async function appendSet(
+    id: number,
+    b: SetEntry & { request_id: string },
+  ): Promise<{ set: AppendedSetRow; created: boolean }> {
+    const uuid = requestId(b.request_id);
+    return await retrySessionWrite(id, async () => {
+      const current = await read(id);
+      const seen = current.sets.find((set) => set.request_id === uuid);
+      if (seen) return { set: appended(seen), created: false };
+      const set = await parser()(b);
       if (
-        s.targetReps !== null || s.targetDistanceM !== null ||
-        s.targetDurationS !== null
+        set.target_reps !== null || set.target_distance_m !== null ||
+        set.target_duration_s !== null
       ) {
         throw new ApiError(
           422,
           "An unplanned set records what was done: send actuals, not targets.",
         );
       }
-      if (s.reps === null && s.distanceM === null && s.durationS === null) {
+      if (
+        set.reps === null && set.distance_m === null && set.duration_s === null
+      ) {
         throw new ApiError(
           422,
           "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured.",
         );
       }
-      return await sql.begin(async (tx) => {
-        requireRow(
-          await tx`select id from sessions where id = ${sessionId} for update`,
-          `No session with id ${sessionId}.`,
-        );
-        const [row] = await tx<AppendedSetRow[]>`
-    insert into sets
-      (session_id, exercise_id, mesocycle_id, position, kind, weight_kg, reps,
-       distance_m, duration_s, effort, performed_at, notes, request_id)
-    values
-      (${sessionId}, ${s.exerciseId}, ${s.mesocycleId},
-       (select coalesce(max(position), 0) + 1 from sets where session_id = ${sessionId}),
-       ${s.kind}, ${s.weightKg}, ${s.reps}, ${s.distanceM}, ${s.durationS},
-       ${s.effort}, ${s.performedAt ?? new Date().toISOString()}, ${s.notes},
-       ${b.request_id})
-    returning ${appendedSetColumns()}`;
-        return row;
-      });
-    },
-  });
-  return { set, created: status === 201 };
-}
-
-/**
- * One reported workout: session facts and partial corrections to known sets.
- * Nothing is appended or inferred. Every writer locks this session before
- * reading actuals, so a refused report cannot leave half a workout behind.
- */
-export async function correctSession(sessionId: number, b: {
-  started_at?: string | null;
-  completed_at?: string | null;
-  overall_feel?: string | null;
-  notes?: string | null;
-  rationale?: string;
-  sets?: (CorrectSetInput & { id: number })[];
-}): Promise<SessionDetailRow> {
-  return await sql.begin(async (tx) => {
-    requireRow(
-      await tx`select id from sessions where id = ${sessionId} for update`,
-      `No session with id ${sessionId}.`,
-    );
-    const fields: Record<string, unknown> = {};
-    for (
-      const f of [
-        "notes",
-        "overall_feel",
-        "rationale",
-        "started_at",
-        "completed_at",
-      ] as const
-    ) {
-      if (b[f] !== undefined) fields[f] = b[f];
-    }
-    if (Object.keys(fields).length === 0 && b.sets === undefined) {
-      throw new ApiError(
-        422,
-        'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at", or a non-empty "sets" array of corrections with set ids.',
+      set.performed_at ??= instant(clock().toISOString());
+      const fields = insertSetFields.filter((field) =>
+        !field.startsWith("target_")
       );
-    }
-    if (b.sets !== undefined) {
-      if (b.sets.length === 0) {
+      const result = await db.batch<unknown>([
+        sessionVersion(db, id, current.header.write_version),
+        statement(
+          db,
+          `INSERT INTO sets (session_id, position, request_id, ${
+            fields.join(", ")
+          })
+          SELECT ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM sets WHERE session_id = ?), ?,
+            ${
+            fields.map((field) => `json_extract(v.fields, '$.${field}')`).join(
+              ", ",
+            )
+          }
+          FROM (SELECT ? AS fields) v
+          JOIN exercises e ON e.id = json_extract(v.fields, '$.exercise_id')
+            AND e.measure = json_extract(v.fields, '$.expected_measure')
+            AND e.stimulus_type = json_extract(v.fields, '$.expected_stimulus_type')`,
+          id,
+          id,
+          uuid,
+          JSON.stringify(set),
+        ),
+        affectedRows(db, 1),
+        statement(
+          db,
+          `SELECT ${setColumns} FROM sets t JOIN exercises e ON e.id = t.exercise_id
+          WHERE t.session_id = ? AND t.request_id = ?`,
+          id,
+          uuid,
+        ),
+        finishWrite(db),
+      ]);
+      return {
+        set: appended(
+          requireRow(
+            result[3].results as SetSnapshot[],
+            "The appended set could not be read.",
+          ),
+        ),
+        created: true,
+      };
+    });
+  }
+
+  async function correctSession(
+    id: number,
+    b: CorrectSessionInput,
+  ): Promise<SessionDetailRow> {
+    return await retrySessionWrite(id, async () => {
+      const current = await read(id);
+      const facts = stored(
+        Object.fromEntries(
+          sessionFields.filter((field) => b[field] !== undefined).map((
+            field,
+          ) => [field, b[field]]),
+        ),
+      );
+      if (Object.keys(facts).length === 0 && b.sets === undefined) {
+        throw new ApiError(
+          422,
+          'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at", or a non-empty "sets" array of corrections with set ids.',
+        );
+      }
+      if (b.sets !== undefined && b.sets.length === 0) {
         throw new ApiError(
           422,
           '"sets" must be a non-empty array of corrections with set ids. Omit it when changing only session facts.',
         );
       }
-      const ids = b.sets.map((s) => s.id);
-      if (new Set(ids).size !== ids.length) {
+      if (new Set(b.sets?.map((s) => s.id)).size !== (b.sets?.length ?? 0)) {
         throw new ApiError(
           422,
           'Each set id may appear only once in "sets". Combine corrections for the same set into one entry. Nothing was written.',
         );
       }
-      const existing = await tx<SetForCorrection[]>`
-        select t.id, t.kind, t.performed_at, t.effort, t.weight_kg::float8, t.reps,
-          t.distance_m::float8, t.duration_s::float8, t.notes,
-          e.name as exercise, e.measure, e.stimulus_type
-        from sets t join exercises e on e.id = t.exercise_id
-        where t.session_id = ${sessionId} and t.id = any(${ids})`;
-      const byId = new Map(existing.map((s) => [s.id, s]));
-      const performedAt = new Date().toISOString();
-      const rows = b.sets.map((entry) => {
+      const byId = new Map(current.sets.map((set) => [set.id, set]));
+      const stamp = instant(clock().toISOString());
+      const changes = (b.sets ?? []).map((entry) => {
         const was = byId.get(entry.id);
-        if (was === undefined) {
+        if (!was) {
           throw new ApiError(
             404,
-            `No set with id ${entry.id} in session ${sessionId}. Read GET /sessions/${sessionId} for its set ids. Nothing was written.`,
+            `No set with id ${entry.id} in session ${id}. Read GET /sessions/${id} for its set ids. Nothing was written.`,
           );
         }
         return {
           id: entry.id,
-          fields: prepareSetCorrection(was, entry, performedAt),
+          fields: stored(prepareSetCorrection(was, entry, stamp)),
         };
       });
-      // One bounded HTTP payload, one JSON parameter: neither statement count
-      // nor bind count grows per set. Presence checks preserve omitted columns
-      // in Postgres itself, including precision a JS read cannot round-trip.
-      // Explicit JSON null becomes SQL null only when that field was supplied.
-      const updated = await tx`
-        update sets as t set
-          weight_kg = case when v.fields ? 'weight_kg'
-            then (v.fields ->> 'weight_kg')::numeric else t.weight_kg end,
-          reps = case when v.fields ? 'reps'
-            then (v.fields ->> 'reps')::integer else t.reps end,
-          distance_m = case when v.fields ? 'distance_m'
-            then (v.fields ->> 'distance_m')::numeric else t.distance_m end,
-          duration_s = case when v.fields ? 'duration_s'
-            then (v.fields ->> 'duration_s')::numeric else t.duration_s end,
-          effort = case when v.fields ? 'effort'
-            then v.fields ->> 'effort' else t.effort end,
-          performed_at = case when v.fields ? 'performed_at'
-            then (v.fields ->> 'performed_at')::timestamptz else t.performed_at end,
-          notes = case when v.fields ? 'notes'
-            then v.fields ->> 'notes' else t.notes end
-        from jsonb_to_recordset(${
-        tx.json(rows)
-      }::jsonb) as v(id bigint, fields jsonb)
-        where t.id = v.id and t.session_id = ${sessionId}
-        returning t.id`;
-      if (updated.length !== rows.length) {
+      const result = await db.batch<unknown>([
+        sessionVersion(db, id, current.header.write_version),
+        ...jsonChunks(changes).flatMap((chunk) => [
+          statement(
+            db,
+            `UPDATE sets AS t SET ${
+              ACTUAL_FIELDS.map((field) =>
+                `${field} = CASE
+            WHEN json_type(v.value, '$.fields.${field}') IS NOT NULL THEN json_extract(v.value, '$.fields.${field}') ELSE t.${field} END`
+              ).join(", ")
+            }
+            FROM json_each(?) v WHERE t.id = json_extract(v.value, '$.id') AND t.session_id = ?`,
+            chunk.json,
+            id,
+          ),
+          affectedRows(db, chunk.count),
+        ]),
+        statement(
+          db,
+          `UPDATE sessions SET ${
+            sessionFields.map((field) =>
+              `${field} = CASE
+          WHEN json_type(v.fields, '$.${field}') IS NOT NULL THEN json_extract(v.fields, '$.${field}') ELSE sessions.${field} END`
+            ).join(", ")
+          }
+          FROM (SELECT ? AS fields) v WHERE sessions.id = ?`,
+          JSON.stringify(facts),
+          id,
+        ),
+        affectedRows(db, 1),
+        ...readStatements(db, id),
+        finishWrite(db),
+      ]);
+      return detail(snapshot(result.slice(-3, -1), id));
+    });
+  }
+
+  async function correctSet(
+    setId: number,
+    input: CorrectSetInput,
+  ): Promise<SetRow> {
+    const owner = requireRow(
+      await rows<{ session_id: number }>(
+        db,
+        "SELECT session_id FROM sets WHERE id = ?",
+        setId,
+      ),
+      `No set with id ${setId}.`,
+    );
+    try {
+      const session = await correctSession(owner.session_id, {
+        sets: [{ ...input, id: setId }],
+      });
+      const set = requireRow(
+        session.sets.filter((s) => s.id === setId),
+        `No set with id ${setId}.`,
+      );
+      const { exercise: _exercise, measure: _measure, ...fields } = set;
+      return { ...fields, session_id: owner.session_id };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        throw new ApiError(404, `No set with id ${setId}.`);
+      }
+      throw error;
+    }
+  }
+
+  async function discardSession(
+    id: number,
+  ): Promise<{ id: number; date: string; sets: number }> {
+    return await retrySessionWrite(id, async () => {
+      const current = await read(id);
+      const total = current.sets.length;
+      const performed = current.sets.filter((s) =>
+        [
+          s.weight_kg,
+          s.reps,
+          s.distance_m,
+          s.duration_s,
+          s.effort,
+          s.performed_at,
+        ].some((v) => v !== null)
+      ).length;
+      if (
+        performed > 0 || current.header.started_at !== null ||
+        current.header.completed_at !== null
+      ) {
+        const why = performed > 0
+          ? `${performed} of its ${total} sets carry actuals`
+          : "it was started or finished";
         throw new ApiError(
           409,
-          `The session changed while recording it. Nothing was saved. Read GET /sessions/${sessionId} before retrying.`,
+          `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
         );
       }
-    }
-    if (Object.keys(fields).length > 0) {
-      requireRow(
-        await tx`update sessions set ${
-          tx(fields)
-        } where id = ${sessionId} returning id`,
-        `No session with id ${sessionId}.`,
-      );
-    }
-    return await readSessionDetail(tx, sessionId);
-  });
-}
+      await db.batch([
+        sessionVersion(db, id, current.header.write_version),
+        statement(db, "DELETE FROM sets WHERE session_id = ?", id),
+        affectedRows(db, total),
+        statement(db, "DELETE FROM sessions WHERE id = ?", id),
+        affectedRows(db, 1),
+        finishWrite(db),
+      ]);
+      return { id, date: current.header.date, sets: total };
+    });
+  }
 
-/**
- * Discards an untouched draft.
- *
- * A planned session nobody has touched is a proposal, not history. Iterating
- * on a plan means discarding the draft and writing a better one — without
- * this, the only path was superseding, which litters the record with dead
- * rows precisely because someone was careful about the plan. The moment any
- * set carries an actual, or the session was started or finished, it happened:
- * from then on it is history, and history is corrected, never deleted.
- */
-export async function discardSession(
-  sessionId: number,
-): Promise<{ id: number; date: string; sets: number }> {
-  return await sql.begin(async (tx) => {
-    // Every actual writer locks the session first. Eligibility is read only
-    // after acquiring that same lock; a transaction alone cannot prevent a race.
-    const session = requireRow(
-      await tx`
-    select id, date, started_at, completed_at
-    from sessions where id = ${sessionId} for update`,
-      `No session with id ${sessionId}.`,
-    );
-
-    const [{ total, performed }] = await tx`
-    select count(*)::int as total,
-      count(*) filter (where
-        weight_kg is not null or reps is not null or distance_m is not null
-        or duration_s is not null or effort is not null
-        or performed_at is not null)::int as performed
-    from sets where session_id = ${sessionId}`;
-
-    if (
-      performed > 0 || session.started_at !== null ||
-      session.completed_at !== null
-    ) {
-      const why = performed > 0
-        ? `${performed} of its ${total} sets carry actuals`
-        : "it was started or finished";
-      throw new ApiError(
-        409,
-        `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
-      );
-    }
-
-    await tx`delete from sets where session_id = ${sessionId}`;
-    await tx`delete from sessions where id = ${sessionId}`;
-    return {
-      id: session.id as number,
-      date: session.date as string,
-      sets: total as number,
-    };
-  });
+  return {
+    sessionDetail,
+    listSessions,
+    writeSession,
+    appendSet,
+    correctSession,
+    correctSet,
+    discardSession,
+  };
 }

@@ -1,63 +1,111 @@
-// The two writes behind the shared alias surface.
-//
-// Generic over the alias table on purpose. Exercises, foods and meals each
-// have their own — exercise_aliases, food_aliases, meal_aliases — and the
-// statement is the same statement in all three; what differs is the table
-// name and the column pointing back at the owner. Splitting the surface into
-// three copies to avoid two identifier parameters would restate one rule
-// three times, which is what #26 removed.
-//
-// Apart from aliases.routes.ts because that file declares HTTP routes and may
-// not reach the database (ADR-0006). It is the same split every topic makes,
-// on a surface that belongs to no topic.
+import { ApiError, requireRow } from "./errors.ts";
+import {
+  batch,
+  caseKey,
+  type Database,
+  jsonChunks,
+  rows,
+  statement,
+} from "./d1.ts";
 
-import { sql } from "../db.ts";
-import { requireRow } from "./errors.ts";
+const kinds = {
+  exercise: {
+    table: "exercises",
+    aliases: "exercise_aliases",
+    key: "exercise_id",
+    route: "/exercises",
+  },
+  food: {
+    table: "foods",
+    aliases: "food_aliases",
+    key: "food_id",
+    route: "/foods",
+  },
+  meal: {
+    table: "meals",
+    aliases: "meal_aliases",
+    key: "meal_id",
+    route: "/meals",
+  },
+} as const;
+export type AliasKind = keyof typeof kinds;
 
-/**
- * Adds every alias to one owner, or none of them.
- *
- * One bulk statement makes the list atomic: an invalid alias refuses the
- * whole list rather than leaving a half-added list behind.
- */
-export async function addAliases(
-  table: string,
-  foreignKey: string,
-  id: number,
-  aliases: readonly string[],
-): Promise<void> {
-  if (aliases.length === 0) return;
-  await sql`
-    insert into ${sql(table)}
-    ${
-    sql(
-      aliases.map((alias) => ({ [foreignKey]: id, alias })),
-      foreignKey,
-      "alias",
-    )
-  }`;
-}
+/** Identifiers come only from this trusted catalogue, never from request input. */
+export function aliasStore(db: Database, kind: AliasKind) {
+  if (!Object.hasOwn(kinds, kind)) throw new Error("Unknown alias kind.");
+  const spec = kinds[kind];
 
-/**
- * Removes one alias from one owner, or refuses 404 with the caller's sentence.
- *
- * Case-insensitive, because that is how the name was matched when it was
- * resolved and a caller that reached the entity by "Il Solito Yogurt" should
- * be able to release it by the same spelling.
- */
-export async function releaseAlias(spec: {
-  table: string;
-  foreignKey: string;
-  id: number;
-  alias: string;
-  notAnAlias: string;
-}): Promise<void> {
-  requireRow(
-    await sql`
-      delete from ${sql(spec.table)}
-      where ${sql(spec.foreignKey)} = ${spec.id}
-        and lower(alias) = lower(${spec.alias})
-      returning id`,
-    spec.notAnAlias,
-  );
+  async function assertAliasesFree(aliases: readonly string[]): Promise<void> {
+    const taken: { alias: string; id: number; name: string }[] = [];
+    for (
+      const chunk of jsonChunks([
+        ...new Set(aliases.map((a) => caseKey(a.trim()))),
+      ])
+    ) {
+      taken.push(
+        ...(await rows<{ alias: string; id: number; name: string }>(
+          db,
+          `SELECT a.alias, e.id, e.name FROM ${spec.aliases} a
+         JOIN ${spec.table} e ON e.id = a.${spec.key}
+         WHERE a.alias_key IN (SELECT value FROM json_each(?)) ORDER BY a.alias`,
+          chunk.json,
+        )),
+      );
+    }
+    if (!taken.length) return;
+    taken.sort((a, b) => (a.alias < b.alias ? -1 : a.alias > b.alias ? 1 : 0));
+    const clashes = taken
+      .map((t) => `"${t.alias}" already belongs to ${kind} ${t.id} (${t.name})`)
+      .join("; ");
+    const one = taken.length === 1;
+    throw new ApiError(
+      409,
+      `${clashes}. Aliases are case-insensitive and globally unique — one name points at one ${kind}. Nothing was written: resend without ${
+        one ? "that alias" : "those aliases"
+      }, which costs only ${
+        one ? "that word" : "those words"
+      } and keeps the rest of the call. If ${
+        one ? "the name belongs" : "a name belongs"
+      } on this row instead, release it first with DELETE ${spec.route}/${
+        taken[0].id
+      }/aliases/${encodeURIComponent(taken[0].alias)}.`,
+    );
+  }
+
+  async function addAliases(
+    id: number,
+    aliases: readonly string[],
+  ): Promise<void> {
+    if (!aliases.length) return;
+    await batch(
+      db,
+      jsonChunks(aliases.map((alias) => ({ alias, key: caseKey(alias) }))).map(
+        (chunk) =>
+          statement(
+            db,
+            `INSERT INTO ${spec.aliases} (${spec.key}, alias, alias_key)
+       SELECT ?, json_extract(value, '$.alias'), json_extract(value, '$.key') FROM json_each(?)`,
+            id,
+            chunk.json,
+          ),
+      ),
+    );
+  }
+
+  async function releaseAlias(input: {
+    id: number;
+    alias: string;
+    notAnAlias: string;
+  }): Promise<void> {
+    requireRow(
+      await rows(
+        db,
+        `DELETE FROM ${spec.aliases} WHERE ${spec.key} = ? AND alias_key = ? RETURNING id`,
+        input.id,
+        caseKey(input.alias),
+      ),
+      input.notAnAlias,
+    );
+  }
+  return { addAliases, releaseAlias, assertAliasesFree };
 }

@@ -1,12 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  appendSet,
-  correctSession,
-  discardSession,
-  listSessions,
-  sessionDetail,
-  writeSession,
-} from "./sessions.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { EFFORTS, KINDS } from "./rules.ts";
 import { setCorrectionShape } from "./set_correction.schema.ts";
 import {
@@ -25,7 +18,7 @@ import {
   text,
 } from "../shared/schema.ts";
 
-export const sessions = new OpenAPIHono();
+export const sessions = new OpenAPIHono<AppEnv>();
 
 // An exercise or mesocycle by id, name, or alias — the resolver decides.
 const reference = () => z.union([z.string().min(1), z.number()]).optional();
@@ -130,7 +123,9 @@ sessions.openapi(
   }),
   async (c) => {
     const { limit, mesocycle } = c.req.valid("query");
-    return c.json({ sessions: await listSessions(limit ?? 20, mesocycle) });
+    return c.json({
+      sessions: await services(c).sessions.listSessions(limit ?? 20, mesocycle),
+    });
   },
 );
 
@@ -154,7 +149,11 @@ sessions.openapi(
     },
   }),
   async (c) =>
-    c.json({ session: await sessionDetail(c.req.valid("param").id) }),
+    c.json({
+      session: await services(c).sessions.sessionDetail(
+        c.req.valid("param").id,
+      ),
+    }),
 );
 
 sessions.openapi(
@@ -211,7 +210,9 @@ sessions.openapi(
     },
   }),
   async (c) => {
-    const { session, created } = await writeSession(c.req.valid("json"));
+    const { session, created } = await services(c).sessions.writeSession(
+      c.req.valid("json"),
+    );
     return created ? c.json({ session }, 201) : c.json({ session }, 200);
   },
 );
@@ -254,7 +255,7 @@ sessions.openapi(
     },
   }),
   async (c) => {
-    const { set, created } = await appendSet(
+    const { set, created } = await services(c).sessions.appendSet(
       c.req.valid("param").id,
       c.req.valid("json"),
     );
@@ -323,7 +324,7 @@ sessions.openapi(
   }),
   async (c) =>
     c.json({
-      session: await correctSession(
+      session: await services(c).sessions.correctSession(
         c.req.valid("param").id,
         c.req.valid("json"),
       ),
@@ -362,5 +363,9 @@ sessions.openapi(
     },
   }),
   async (c) =>
-    c.json({ deleted: await discardSession(c.req.valid("param").id) }),
+    c.json({
+      deleted: await services(c).sessions.discardSession(
+        c.req.valid("param").id,
+      ),
+    }),
 );

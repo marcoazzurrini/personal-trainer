@@ -1,7 +1,7 @@
-import postgres from "postgres";
+import d1 from "./d1.ts";
 import { loadCatalogue } from "../../scripts/load_catalogue.ts";
 
-import { verifiedDatabase, verifyApi } from "./disposable.ts";
+import { management, verifiedDatabase, verifyApi } from "./disposable.ts";
 
 // Fail before even the import-time token mint. The test-only API proves its
 // actual operations use the same database, not merely the same configured URL.
@@ -9,7 +9,6 @@ const disposable = await verifiedDatabase();
 await verifyApi(disposable);
 export const BASE = disposable.apiUrl;
 export const TOKEN = crypto.randomUUID();
-export const DB_URL = disposable.databaseUrl;
 
 export interface ApiResponse {
   status: number;
@@ -353,18 +352,22 @@ export async function mintToken(opts: {
   expiresInMs?: number;
 } = {}): Promise<string> {
   const token = opts.token ?? crypto.randomUUID();
-  // Expiry is checked in PostgreSQL. A host clock slightly ahead of Docker
-  // must not turn a deliberately expired test token into a live one.
   const expiresInMs = opts.expiresInMs ?? 60 * 60 * 1000;
-  const db = postgres(DB_URL);
+  const expiresAt = new Date(Date.now() + expiresInMs).toISOString().replace(
+    /Z$/,
+    "000Z",
+  );
+  const issuedAt = new Date(Date.now() + expiresInMs - 3600000).toISOString()
+    .replace(/Z$/, "000Z");
+  const db = d1();
   try {
     await db`
       insert into api_tokens (token_hash, subject, issued_at, expires_at)
       values (
         ${await sha256Hex(token)},
         ${opts.subject ?? "user_test"},
-        now() + ${expiresInMs} * interval '1 millisecond' - interval '1 hour',
-        now() + ${expiresInMs} * interval '1 millisecond'
+        ${issuedAt},
+        ${expiresAt}
       )
       on conflict (token_hash) do update
         set subject = excluded.subject,
@@ -379,7 +382,7 @@ export async function mintToken(opts: {
 // Revocation is deleting the row; the API has no endpoint for it, and a test
 // of that property goes straight to the table like an operator would.
 export async function revokeToken(token: string): Promise<void> {
-  const db = postgres(DB_URL);
+  const db = d1();
   try {
     await db`delete from api_tokens where token_hash = ${await sha256Hex(
       token,
@@ -405,48 +408,43 @@ async function sha256Hex(text: string): Promise<string> {
 // alone: importing helpers is what guarantees it.
 await mintToken({ token: TOKEN });
 
-// Wipes the training record and plan, keeping the exercise catalogue.
-// Listing every table in one statement lets Postgres order the FK deletes.
-export async function resetTraining() {
-  const db = postgres(DB_URL);
-  try {
-    await db`
-      truncate table sets, sessions, mesocycle_decisions,
-        mesocycle_exercise_doses, mesocycle_exercises, mesocycles, blocks,
-        user_context, bodyweight, week_schedules
-      restart identity`;
-  } finally {
-    await db.end();
-  }
+// Delete children before parents inside one real D1 batch. Tokens and catalogue
+// survive resets; no inherited provider credentials can exist in this binding.
+async function resetTables(tables: string[]): Promise<void> {
+  const { batch } = await import("./d1.ts");
+  await batch(tables.map((table) => ({ sql: `DELETE FROM ${table}` })));
 }
-
-// Wipes the food registry and everything eaten. Separate from resetTraining:
-// the two halves of the coach share a database but not a test fixture.
-export async function resetNutrition() {
-  const db = postgres(DB_URL);
-  try {
-    await db`
-      truncate table intake_entries, meal_items, meal_aliases, meals,
-        food_aliases, foods, day_flags, bodyfat_estimates, bodyweight,
-        nutrition_targets, nutrition_events
-      restart identity`;
-  } finally {
-    await db.end();
-  }
+export function resetTraining() {
+  return resetTables([
+    "sets",
+    "sessions",
+    "mesocycle_decisions",
+    "mesocycle_exercise_doses",
+    "mesocycle_exercises",
+    "mesocycles",
+    "blocks",
+    "user_context",
+    "bodyweight",
+    "week_schedules",
+  ]);
 }
-
-// Empties the Withings credentials. The route suite asserts what an
-// unconfigured install does, and an empty table is precisely that state — but
-// the more important reason is that a seeded row would make those tests place
-// real calls to Withings with a live token. A test run must not be able to
-// touch the outside world by inheriting local state.
-export async function resetWithings() {
-  const db = postgres(DB_URL);
-  try {
-    await db`truncate table withings_auth`;
-  } finally {
-    await db.end();
-  }
+export function resetNutrition() {
+  return resetTables([
+    "intake_entries",
+    "meal_items",
+    "meal_aliases",
+    "meals",
+    "food_aliases",
+    "foods",
+    "day_flags",
+    "bodyfat_estimates",
+    "bodyweight",
+    "nutrition_targets",
+    "nutrition_events",
+  ]);
+}
+export function resetWithings() {
+  return resetTables(["withings_auth"]);
 }
 
 /** The Sunday that ended the most recent finished Rome week. */
@@ -657,29 +655,8 @@ export async function ensureCatalogue() {
 
 // --- Date helpers. All calendar logic is Europe/Rome, like the API. ---
 
-// Rome's today, read once from the clock the API itself uses.
-//
-// Computing it here with Intl instead looked equivalent and was not: the API
-// asks Postgres for `now() at time zone 'Europe/Rome'`, so two clocks had to
-// agree, and they disagree for the moments either side of midnight and
-// whenever the container's zone data differs. A suite that seeds relative to
-// "today" would then fail for reasons nothing to do with the code, rarely
-// enough to be dismissed as flakiness and often enough to erode trust in a
-// red run. One clock cannot disagree with itself.
-//
-// Read once at module load rather than per call, so every file in a run shares
-// the same "today" even if the run straddles midnight — a suite that changed
-// its mind halfway through would be worse than either answer.
-const ROME_TODAY: string = await (async () => {
-  const db = postgres(DB_URL);
-  try {
-    const [row] = await db`
-      select (now() at time zone 'Europe/Rome')::date::text as today`;
-    return row.today as string;
-  } finally {
-    await db.end();
-  }
-})();
+// Use the runner's Rome clock once, so fixtures agree across the suite.
+const ROME_TODAY: string = await management(disposable, "today");
 
 // The arithmetic on top of that anchor comes from shared/dates.ts — the same
 // functions the API's own code uses, so the suite cannot disagree with the

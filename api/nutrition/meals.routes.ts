@@ -1,12 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  editMeal,
-  listMeals,
-  mealByRef,
-  mealDetail,
-  saveMeal,
-} from "./meals.ts";
-import { resolveMealId } from "./resolve.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import {
   aliasList,
   body,
@@ -18,7 +11,7 @@ import {
 } from "../shared/schema.ts";
 import { releaseAliasRoute } from "../shared/aliases.routes.ts";
 
-export const meals = new OpenAPIHono();
+export const meals = new OpenAPIHono<AppEnv>();
 
 const Macros = z.object({
   kcal: z.number(),
@@ -92,7 +85,7 @@ meals.openapi(
       },
     },
   }),
-  async (c) => c.json({ meals: await listMeals() }),
+  async (c) => c.json({ meals: await services(c).meals.listMeals() }),
 );
 
 meals.openapi(
@@ -136,7 +129,9 @@ meals.openapi(
     },
   }),
   async (c) => {
-    const { meal, created } = await saveMeal(c.req.valid("json"));
+    const { meal, created } = await services(c).meals.saveMeal(
+      c.req.valid("json"),
+    );
     return created ? c.json({ meal }, 201) : c.json({ meal }, 200);
   },
 );
@@ -158,7 +153,10 @@ meals.openapi(
       404: { description: "Nothing resolves to that reference." },
     },
   }),
-  async (c) => c.json({ meal: await mealByRef(c.req.valid("param").ref) }),
+  async (c) =>
+    c.json({
+      meal: await services(c).meals.mealByRef(c.req.valid("param").ref),
+    }),
 );
 
 meals.openapi(
@@ -201,7 +199,12 @@ meals.openapi(
     },
   }),
   async (c) =>
-    c.json(await editMeal(c.req.valid("param").ref, c.req.valid("json"))),
+    c.json(
+      await services(c).meals.editMeal(
+        c.req.valid("param").ref,
+        c.req.valid("json"),
+      ),
+    ),
 );
 
 // Meals are never deleted: a logged meal is what its intake rows point at, and
@@ -210,11 +213,12 @@ meals.openapi(
 // answering to the word Marco says out loud.
 releaseAliasRoute(meals, {
   tag: "Nutrition",
-  aliasTable: "meal_aliases",
-  foreignKey: "meal_id",
+  kind: "meal",
   ref,
-  resolve: async (r: string) => ({ id: await resolveMealId(r) }),
-  respond: async (id: number) => ({ meal: await mealDetail(id) }),
+  resolve: async (c, reference) => ({
+    id: await services(c).nutritionResolver.resolveMealId(reference),
+  }),
+  respond: async (c, id) => ({ meal: await services(c).meals.mealDetail(id) }),
   responseSchema: z.object({ meal: MealDetail }),
   summary: "Retire a meal's spoken name",
   description:

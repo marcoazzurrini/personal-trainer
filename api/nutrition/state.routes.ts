@@ -1,12 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { nutritionState as readState } from "./state.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { Entry } from "./intake.routes.ts";
 import { Target } from "./targets.routes.ts";
 import { clock, macroTotals, query } from "../shared/schema.ts";
 
 // The declaration only; state.ts holds what it answers with.
 
-export const nutritionState = new OpenAPIHono();
+export const nutritionState = new OpenAPIHono<AppEnv>();
 
 // Every unmet condition, not just the first — three separate things can block
 // an estimate, and reporting them one at a time means the coach fixes logging
@@ -150,5 +150,5 @@ nutritionState.openapi(
       },
     },
   }),
-  async (c) => c.json(await readState()),
+  async (c) => c.json(await services(c).nutritionState.nutritionState()),
 );

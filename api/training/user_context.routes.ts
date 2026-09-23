@@ -1,12 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  appendContext,
-  contextHistory,
-  currentContext,
-} from "./user_context.ts";
+import { type AppEnv, services } from "../shared/services.ts";
 import { body, query, requestId, text } from "../shared/schema.ts";
 
-export const userContext = new OpenAPIHono();
+export const userContext = new OpenAPIHono<AppEnv>();
 
 // Exported: training state answers with the same rows, and used to declare a
 // copy of this without `id` over a second copy of the query.
@@ -48,8 +44,8 @@ userContext.openapi(
   }),
   async (c) =>
     c.req.valid("query").history === "true"
-      ? c.json({ history: await contextHistory() })
-      : c.json({ context: await currentContext() }),
+      ? c.json({ history: await services(c).context.contextHistory() })
+      : c.json({ context: await services(c).context.currentContext() }),
 );
 
 // Append only. Correcting or retiring a fact means writing a new row on the
@@ -91,7 +87,9 @@ userContext.openapi(
     },
   }),
   async (c) => {
-    const { row, created } = await appendContext(c.req.valid("json"));
+    const { row, created } = await services(c).context.appendContext(
+      c.req.valid("json"),
+    );
     return created ? c.json({ entry: row }, 201) : c.json({ entry: row }, 200);
   },
 );

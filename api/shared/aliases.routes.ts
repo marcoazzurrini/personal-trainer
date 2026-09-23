@@ -1,6 +1,8 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { ApiError } from "./errors.ts";
-import { addAliases, releaseAlias } from "./aliases.ts";
+import type { Context } from "@hono/hono";
+import { type AppEnv, services } from "./services.ts";
+import type { Services } from "../services.ts";
 import { aliasList, body, query, text } from "./schema.ts";
 
 // Exercises, foods and meals all answer to more than one name, and the rule
@@ -31,15 +33,14 @@ interface Aliased {
 // responses in the first place.
 interface AliasSurface<Body> {
   tag: string;
-  aliasTable: string;
-  foreignKey: string;
+  kind: keyof Services["aliases"];
   // The entity's own {ref} parameter, carrying its description and example.
   ref: () => z.ZodString;
-  resolve: (ref: string) => Promise<Aliased>;
+  resolve: (c: Context<AppEnv>, ref: string) => Promise<Aliased>;
   // The whole response body, reloaded after the write — { exercise: … },
   // { food: … }, { meal: … }. The key is the caller's to choose, which is
   // why it hands back the envelope rather than the row.
-  respond: (id: number) => Promise<Body>;
+  respond: (c: Context<AppEnv>, id: number) => Promise<Body>;
   responseSchema: z.ZodType<Body>;
 }
 
@@ -48,7 +49,7 @@ interface AliasSurface<Body> {
 // and a second GET to discover it is a round trip the model should not have
 // to spend.
 export function addAliasRoute<Body>(
-  router: OpenAPIHono,
+  router: OpenAPIHono<AppEnv>,
   surface: AliasSurface<Body> & {
     created: string;
     // Refused when neither field arrives. Foods and exercises do not phrase
@@ -56,7 +57,10 @@ export function addAliasRoute<Body>(
     neither: string;
     // Refuses the call naming the alias and its current owner, before the
     // insert reaches a constraint that knows neither.
-    assertFree: (aliases: readonly string[]) => Promise<void>;
+    assertFree: (
+      c: Context<AppEnv>,
+      aliases: readonly string[],
+    ) => Promise<void>;
   },
 ) {
   router.openapi(
@@ -88,13 +92,13 @@ export function addAliasRoute<Body>(
       },
     }),
     async (c) => {
-      const { id } = await surface.resolve(c.req.valid("param").ref);
+      const { id } = await surface.resolve(c, c.req.valid("param").ref);
       const b = c.req.valid("json");
       const aliases = b.alias !== undefined ? [b.alias] : (b.aliases ?? []);
       if (aliases.length === 0) throw new ApiError(422, surface.neither);
-      await surface.assertFree(aliases);
-      await addAliases(surface.aliasTable, surface.foreignKey, id, aliases);
-      return c.json(await surface.respond(id), 201);
+      await surface.assertFree(c, aliases);
+      await services(c).aliases[surface.kind].addAliases(id, aliases);
+      return c.json(await surface.respond(c, id), 201);
     },
   );
 }
@@ -104,7 +108,7 @@ export function addAliasRoute<Body>(
 // globally unique, so without this a retired food would hold "il solito
 // yogurt" forever and no replacement could ever claim it.
 export function releaseAliasRoute<Body>(
-  router: OpenAPIHono,
+  router: OpenAPIHono<AppEnv>,
   surface: AliasSurface<Body> & {
     summary: string;
     description?: string;
@@ -138,16 +142,14 @@ export function releaseAliasRoute<Body>(
     }),
     async (c) => {
       const { ref: reference, alias: rawAlias } = c.req.valid("param");
-      const entity = await surface.resolve(reference);
+      const entity = await surface.resolve(c, reference);
       const alias = decodeURIComponent(rawAlias);
-      await releaseAlias({
-        table: surface.aliasTable,
-        foreignKey: surface.foreignKey,
+      await services(c).aliases[surface.kind].releaseAlias({
         id: entity.id,
         alias,
         notAnAlias: surface.notAnAlias(alias, entity),
       });
-      return c.json(await surface.respond(entity.id));
+      return c.json(await surface.respond(c, entity.id));
     },
   );
 }

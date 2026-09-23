@@ -1,0 +1,29 @@
+# Copy to .dev.vars for Wrangler's local Worker. Never commit .dev.vars.
+# D1 is the DB binding in wrangler.jsonc; there is no DATABASE_URL.
+# Production values are Cloudflare Worker secrets, not values in this file.
+
+# Required for connector sign-in and the allowed owner.
+AUTH_ISSUER=https://your-tenant.authkit.app
+ALLOWED_SUBJECT=user_xxx
+
+# Optional issuer key-set override and canonical public discovery origin.
+# AUTH_JWKS_URL=
+# PUBLIC_ORIGIN=https://trainer.marcoazzurrini.com
+
+# Optional Withings integration. Account tokens live in D1, not these bindings.
+# WITHINGS_CLIENT_ID=
+# WITHINGS_CLIENT_SECRET=
+
+# Optional GitHub issue reporting.
+# GITHUB_TOKEN=
+# GITHUB_REPO=marcoazzurrini/personal-trainer
+
+# Dashboard sessions use a separate policy. These credentials permit only the
+# configured read endpoint; they never grant the coach's write access.
+# WEB_AUTH_ISSUER=https://api.workos.com
+# WEB_AUTH_CLIENT_ID=client_xxx
+# WEB_AUTH_JWKS_URL=https://api.workos.com/sso/jwks/client_xxx
+
+# Provider URL overrides exist only for explicitly isolated local testing.
+# WITHINGS_API_BASE=
+# GITHUB_API_BASE=

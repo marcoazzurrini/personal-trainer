@@ -3,7 +3,7 @@ import { publicRequest } from "./public-request.server.ts";
 import { healthResponse } from "./health.server.ts";
 
 export default createServerEntry({
-  fetch(request, options) {
+  async fetch(request, options) {
     let incoming: Request;
     try {
       incoming = publicRequest(request, process.env.WORKOS_REDIRECT_URI);
@@ -22,6 +22,22 @@ export default createServerEntry({
     if (new URL(incoming.url).pathname === "/api/health") {
       return healthResponse(incoming);
     }
-    return handler.fetch(incoming, options);
+    let response: Response;
+    try {
+      response = await handler.fetch(incoming, options);
+    } catch {
+      response = new Response("The dashboard could not handle this request.", {
+        status: 500,
+      });
+    }
+    // Redirect responses can bypass Start's response-header middleware. Enforce
+    // privacy at the entry boundary too, including auth redirects and errors.
+    const headers = new Headers(response.headers);
+    headers.set("Cache-Control", "private, no-store");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   },
 });

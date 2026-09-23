@@ -1,24 +1,28 @@
 import { assert, assertEquals } from "@std/assert";
-import postgres from "postgres";
-import { DB_URL, today, TOKEN, uuid } from "./helpers.ts";
+import d1, { database } from "./d1.ts";
+import { today, TOKEN, uuid } from "./helpers.ts";
 import { handleRequest } from "../index.ts";
 import { internalError } from "../shared/errors.ts";
 
 Deno.test("diagnostic IDs correlate safe records without exporting input or internal exceptions", async () => {
-  const db = postgres(DB_URL);
+  const db = d1();
+  const request = (req: Request) =>
+    handleRequest(req, { DB: database, ALLOWED_SUBJECT: "user_test" }, {
+      waitUntil() {},
+      passThroughOnException() {},
+    });
   const logs: string[] = [];
   const log = console.log, error = console.error;
   const privateValue = "synthetic-personal-body-path-query-cookie";
   const requestId = uuid();
   try {
-    await db`create function test_private_error() returns trigger language plpgsql as $$
-      begin raise exception 'synthetic-personal-body-path-query-cookie Authorization: Bearer synthetic-private-token'; end $$`;
-    await db`create trigger test_private_error before insert on blocks for each row execute function test_private_error()`;
+    await db`CREATE TRIGGER test_private_error BEFORE INSERT ON blocks
+      BEGIN SELECT RAISE(ABORT, 'synthetic-personal-body-path-query-cookie Authorization: Bearer synthetic-private-token'); END`;
     console.log = console.error = (...args: unknown[]) =>
       logs.push(args.join(" "));
     const ids: string[] = [];
     for (let i = 0; i < 2; i++) {
-      const response = await handleRequest(
+      const response = await request(
         new Request("http://localhost/api/api/blocks", {
           method: "POST",
           headers: {
@@ -60,7 +64,7 @@ Deno.test("diagnostic IDs correlate safe records without exporting input or inte
         `/api/no-such-route/${privateValue}?q=${privateValue}`,
       ]
     ) {
-      const response = await handleRequest(
+      const response = await request(
         new Request("http://localhost" + path, {
           headers: { authorization: `Bearer ${TOKEN}` },
         }),
@@ -72,7 +76,7 @@ Deno.test("diagnostic IDs correlate safe records without exporting input or inte
         path.includes("foods") ? "/api/foods/:ref" : "unmatched",
       );
     }
-    const webhook = await handleRequest(
+    const webhook = await request(
       new Request("http://localhost/api/withings/notify", {
         method: "POST",
         body: `appli=${privateValue}`,
@@ -95,10 +99,7 @@ Deno.test("diagnostic IDs correlate safe records without exporting input or inte
   } finally {
     console.log = log;
     console.error = error;
-    await db`drop trigger if exists test_private_error on blocks`;
-    await db`drop function if exists test_private_error()`;
+    await db`drop trigger if exists test_private_error`;
     await db.end();
-    const { sql } = await import("../db.ts");
-    await sql.end();
   }
 });
