@@ -41,16 +41,23 @@ changed.
 
 ## Private evidence and recovery
 
-The owner-only, ignored `.cache/cloudflare-transfer/` directory contains:
+The owner-only recovery archive is stored outside the repository at
+`~/Downloads/personal-trainer-recovery-20260926T215553Z/`. Its
+`cloudflare-transfer/` directory contains:
 
 - `final-20260922.snapshot.json`: the frozen, consistent source snapshot.
 - `final-verification.json`: the complete hosted comparison.
 - `final-d1-portable.sql`: the independently restored portable export.
+- `final.pg.dump`: the original PostgreSQL logical backup.
 - `final-recovery-verification.json`: verification of the separate restoration.
 - `final-recovery-manifest.json`: hashes, database identities and retention policy.
 - `production-readiness.json`: public and authenticated API checks.
 - `production-withings-ready.json`: provider synchronization and subscription checks.
 - `temporary-resources-retired.json`: scoped cleanup and retained recovery copies.
+
+The archive's `SHA256SUMS` records the hashes of all retained files. Every copy
+was verified before the repository's `.cache/` directory was removed. These are
+migration-time backups, not a new export of subsequent production writes.
 
 The original PostgreSQL dump and matching portable D1 backup also exist on the
 previous host in `/root/trainer-migration-20260922/`. Backup checksums were
