@@ -35,6 +35,7 @@ web/playwright-report/
 # Logs
 *.log
 
-# Ai
+# AI tool workspaces
+/.delta/
 .pi/
 
