@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 
 import { afterEach, expect, it } from "vitest";
 
-import { placeholder, stampOutput } from "../scripts/build.mjs";
+import { placeholder, stampOutput } from "../scripts/build.ts";
 
 const { join, resolve } = path;
 const directories: string[] = [];
@@ -39,12 +39,12 @@ it("loads the dashboard builder without installing the API's dependencies", asyn
   directories.push(directory);
   await mkdir(join(directory, "web/scripts"), { recursive: true });
   await mkdir(join(directory, "scripts"));
-  await copyFile("scripts/build.mjs", join(directory, "web/scripts/build.mjs"));
+  await copyFile("scripts/build.ts", join(directory, "web/scripts/build.ts"));
   await copyFile(
-    "../scripts/source-revision.mjs",
-    join(directory, "scripts/source-revision.mjs")
+    "../scripts/source-revision.ts",
+    join(directory, "scripts/source-revision.ts")
   );
-  const url = pathToFileURL(resolve(directory, "web/scripts/build.mjs")).href;
+  const url = pathToFileURL(resolve(directory, "web/scripts/build.ts")).href;
   const child = spawnSync(
     process.execPath,
     ["--input-type=module", "-e", `await import(${JSON.stringify(url)})`],
@@ -88,10 +88,10 @@ it("keeps the Vite compiler on Node when Bun runs the builder", async () => {
   await mkdir(join(web, "scripts"), { recursive: true });
   await mkdir(join(web, "node_modules/vite/bin"), { recursive: true });
   await mkdir(join(directory, "scripts"));
-  await copyFile("scripts/build.mjs", join(web, "scripts/build.mjs"));
+  await copyFile("scripts/build.ts", join(web, "scripts/build.ts"));
   await copyFile(
-    "../scripts/source-revision.mjs",
-    join(directory, "scripts/source-revision.mjs")
+    "../scripts/source-revision.ts",
+    join(directory, "scripts/source-revision.ts")
   );
   await writeFile(
     join(web, "node_modules/vite/bin/vite.js"),
@@ -101,7 +101,7 @@ fs.mkdirSync(".output/server", { recursive: true });
 fs.writeFileSync(".output/server/index.mjs", ${JSON.stringify(placeholder)});
 `
   );
-  const child = spawnSync("bun", ["--no-env-file", "scripts/build.mjs"], {
+  const child = spawnSync("bun", ["--no-env-file", "scripts/build.ts"], {
     cwd: web,
     env: environment,
     encoding: "utf-8",

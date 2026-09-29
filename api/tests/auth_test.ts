@@ -1,7 +1,7 @@
 import { test } from "node:test";
 
-import { loadCatalogue } from "../../scripts/load_catalogue.ts";
 import { assert, assertEquals, assertRejects } from "./assertions.ts";
+import { loadCatalogue } from "./fixtures/catalogue.ts";
 import { api, BASE, mintToken, revokeToken, TOKEN } from "./helpers.ts";
 
 test("catalogue loading requires a credential before reads or requests", async () => {

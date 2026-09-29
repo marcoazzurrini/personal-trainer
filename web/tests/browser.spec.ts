@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test";
 import type { BrowserContext } from "@playwright/test";
 import { sessionEncryption } from "@workos/authkit-session";
 
-import { stopWorker, workerFixture } from "./worker-fixture.mts";
+import { stopWorker, workerFixture } from "./worker-fixture.ts";
 
 const password = "synthetic-browser-test-cookie-secret-not-a-real-credential";
 const user = {

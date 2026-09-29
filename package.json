@@ -9,8 +9,8 @@
   "scripts": {
     "prepare": "lefthook install",
     "dev": "bun run db:migrate:local && wrangler dev --local",
-    "build": "bun scripts/build-worker.mjs",
-    "deploy": "bun scripts/deploy-worker.mjs",
+    "build": "bun scripts/build-worker.ts",
+    "deploy": "bun scripts/deploy-worker.ts",
     "fmt": "oxfmt",
     "lint": "oxlint --deny-warnings",
     "check": "tsc --noEmit",
@@ -19,13 +19,10 @@
     "secrets": "bun --no-env-file scripts/secrets.ts",
     "db:migrate:local": "wrangler d1 migrations apply personal-trainer --local",
     "db:migrate:remote": "wrangler d1 migrations apply personal-trainer --remote",
-    "test": "bun run test:api && bun run test:d1 && bun run test:tooling && bun run test:operators && bun run test:shutdown",
-    "test:api": "bun --no-env-file scripts/test-worker.mjs",
+    "test": "bun run test:api && bun run test:d1 && bun run test:tooling",
+    "test:api": "bun --no-env-file api/tests/run.ts",
     "test:d1": "bun run --cwd db/d1 test",
-    "test:tooling": "bun --no-env-file test ./scripts/build-worker.test.mjs ./scripts/deploy-worker.test.mjs ./scripts/hooks.test.mjs ./scripts/toolchain.test.mjs",
-    "test:operators": "bun --no-env-file test ./scripts/seed_withings_test.ts",
-    "test:shutdown": "bun --no-env-file test ./scripts/shutdown_test.ts --timeout 60000",
-    "test:secrets": "bun --no-env-file test ./scripts/secrets_test.ts",
+    "test:tooling": "bun --no-env-file test ./tests/tooling/ --timeout 60000",
     "test:postgres-import": "bun run --cwd db/d1 test:postgres"
   },
   "dependencies": {

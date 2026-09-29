@@ -66,6 +66,20 @@ is for the operator's session, not a credential to copy into CI. The dashboard's
 cookie-encryption secret must survive a hosting change if existing sessions are
 to remain readable.
 
+## Local scripts and generated output
+
+The root `scripts/` directory holds four TypeScript files: the API builder,
+API deployment command, shared Git-revision helper and secret scanner. The API
+test runner and catalogue fixtures live in `api/tests/`; script tests live in
+`tests/tooling/`. Web and D1 tooling stay beside their respective packages.
+The one-time Withings setup commands are retired, not part of normal operation.
+
+A local build creates `dist/worker.js` and `dist/build.json`. These generated,
+ignored files contain application code and build identity, not database records.
+They can be removed when no development/build process is using them; a future
+build recreates them. GitHub Actions creates its own output on its runner and
+does not use a developer's local `dist/` directory.
+
 ## Release ownership and evidence
 
 CI serializes the complete release: apply compatible database migrations,

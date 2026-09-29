@@ -25,9 +25,23 @@ Node remains available for tools that target it. Installing with Bun does not
 mean forcing every executable to use Bun with `--bun`. Wrangler, Vite, Nitro,
 Vitest and Playwright keep their supported execution paths.
 
+## Script ownership
+
+First-party scripts use TypeScript throughout. The root `scripts/` directory
+contains only the API builder, deployment command, shared source-revision helper
+and secret scanner. API fixtures and the disposable runner live with API tests;
+script checks live in `tests/tooling/`. Duplicate checks are consolidated rather
+than retained in both suites. The one-time Withings setup commands are retired;
+Git history preserves them without retaining an active credential-writing tool.
+Normal Withings synchronization is unchanged.
+
+Build output remains generated and ignored. Removing a local `dist/` directory
+does not remove the builder or weaken the immutable release verification required
+by ADR-0015. A future build regenerates its output when needed.
+
 ## Tests exercise the real runtime
 
-Bun runs API assertions and the local tooling, operator and D1 suites. Miniflare
+Bun runs API assertions and the local tooling and D1 suites. Miniflare
 still supplies an isolated Worker and ephemeral D1; workerd executes the API.
 Tests must establish the harness identity before destructive setup, refuse
 remote bindings and discard all temporary state after success or failure.

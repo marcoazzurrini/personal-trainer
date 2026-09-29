@@ -1,7 +1,6 @@
 import { Ajv } from "ajv";
 import type { ValidateFunction } from "ajv";
 
-import { loadCatalogue } from "../../scripts/load_catalogue.ts";
 import { DEFAULT_WINDOW_DAYS as WINDOW_DAYS } from "../nutrition/expenditure.ts";
 import {
   addDays,
@@ -10,6 +9,7 @@ import {
 } from "../shared/dates.ts";
 import d1 from "./d1.ts";
 import { management, verifiedDatabase, verifyApi } from "./disposable.ts";
+import { loadCatalogue } from "./fixtures/catalogue.ts";
 
 // Fail before even the import-time token mint. The test-only API proves its
 // actual operations use the same database, not merely the same configured URL.

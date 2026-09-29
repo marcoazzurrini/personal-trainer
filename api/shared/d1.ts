@@ -4,7 +4,7 @@ import {
   canonicalUuid,
   romeDate as canonicalRomeDate,
   scaledInteger,
-} from "../../db/d1/codec.mjs";
+} from "../../db/d1/codec.ts";
 // Narrow structural types for Cloudflare's native binding. No SQL translation,
 // connection pool, transaction emulation, or process-global database handle.
 import { ApiError, constraintMessages } from "./errors.ts";
@@ -296,7 +296,7 @@ export function romeDate(value: string): string {
   return canonicalRomeDate(instant(value));
 }
 
-export { caseKey } from "../../db/d1/codec.mjs";
+export { caseKey } from "../../db/d1/codec.ts";
 
 /** The clock is injectable only at construction, not supplied by API callers. */
 export type Clock = () => Date;

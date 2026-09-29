@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "WRANGLER_SEND_METRICS=false bun --no-env-file test --timeout 120000 codec.test.mjs schema.test.mjs api.test.mjs access.test.mjs nutrition.test.mjs nutrition-summary.test.mjs runtime.test.mjs training.test.mjs withings.test.mjs",
-    "test:postgres": "WRANGLER_SEND_METRICS=false bun --no-env-file test --timeout 120000 postgres.test.mjs"
+    "test": "WRANGLER_SEND_METRICS=false bun --no-env-file test --timeout 120000 codec.test.ts schema.test.ts api.test.ts access.test.ts nutrition.test.ts nutrition-summary.test.ts runtime.test.ts training.test.ts withings.test.ts",
+    "test:postgres": "WRANGLER_SEND_METRICS=false bun --no-env-file test --timeout 120000 postgres.test.ts"
   },
   "devDependencies": {
     "esbuild": "0.28.1",

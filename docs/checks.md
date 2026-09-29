@@ -8,6 +8,35 @@ Current commands are defined in `package.json`, `db/d1/package.json` and
 Dated implementation results below are historical evidence, not a description
 of the current hosting platform or proof that a later revision passed.
 
+## TypeScript script cleanup (30 September 2026)
+
+The root `scripts/` directory now contains four TypeScript files: the Worker
+builder, deployment command, shared source-revision helper and secret scanner.
+The builder and immutable deployment checks remain in place. The API test runner
+and exercise catalogue moved into `api/tests/`; the catalogue bytes are unchanged.
+Tooling tests moved into `tests/tooling/`, with duplicate build and release checks
+consolidated. One-time Withings setup commands and their setup-only tests were
+removed; the application’s Withings synchronization code is unchanged.
+
+All first-party `.mjs` tooling is now TypeScript. Redundant `.mts` declarations
+were removed, and the Worker test fixture also uses `.ts`. Generated framework
+output and third-party dependencies retain their own formats. Regression tests
+hold the four-file script boundary and reject new first-party `.mjs`/`.mts` files.
+
+Local verification passed:
+
+- **220 API tests**, **95 local D1 tests**, **21 consolidated tooling tests** and
+  **11 disposable PostgreSQL import tests**.
+- Dashboard: **54 Vitest tests**, **14 browser tests** and **3 built-Worker tests**.
+- Root and dashboard type checks, Ultracite formatting/lint checks, both production
+  builds and `git diff --check`.
+
+API test counts changed because build and deployment checks moved into the
+consolidated tooling suite, not because the release checks were removed. Root
+`dist/` was removed after verification; future builds can recreate it. Database
+migrations and production records were not changed. No production access,
+commit or deployment was involved; these are local results, not CI evidence.
+
 ## Local environment cleanup (29 September 2026)
 
 The root `.env.example` replaces `.dev.vars.example`. The private root `.env`
@@ -140,7 +169,8 @@ These are local results, not GitHub CI, deployment or installed-plugin proof.
 ## Test groups and coverage
 
 - `bun run test`: API tests against a disposable local Worker and D1, D1 schema
-  tests, build/deployment tooling, operator scripts and shutdown checks.
+  tests and the tooling suite, including build/deployment, shutdown and secret
+  scanner checks. The scanner checks require Docker.
 - `bun run test:api [files...]`: the Worker-backed suite, or named API test
   files, through the disposable identity gate. A test-name filter never replaces
   database isolation. Bun runs assertions; Miniflare runs the application in
@@ -153,8 +183,8 @@ These are local results, not GitHub CI, deployment or installed-plugin proof.
   tests, browser behavior and the built artifact in workerd. CI runs all four.
 - `bun run check:style`: Oxfmt and Oxlint through Ultracite, including its
   bundled anti-slop preset. `bun run check` checks TypeScript types.
-- `bun run secrets` and `bun run test:secrets`: index scanning and scanner
-  boundary checks; these still require Docker, as described below.
+- `bun run secrets`: scans the Git index. `bun run test:tooling` includes its
+  boundary checks alongside the other script tests; both require Docker.
 
 Install all three workspaces from the root with `bun install --frozen-lockfile`.
 The root `bun.lock` owns dependency resolution. Bun does not replace workerd or
@@ -204,7 +234,8 @@ not source lines or matched credentials. No current fixtures need allowances.
 If a new synthetic fixture genuinely needs an exception, use an exact value AND
 exact path in a reviewed `.gitleaks.toml` allowance extending the default rules.
 Never exempt all tests, disable default rules, or use inline bypass comments.
-`bun run test:secrets` checks refusal, index-versus-working-file behavior,
+`tests/tooling/secrets.test.ts`, run by `bun run test:tooling`, checks refusal,
+index-versus-working-file behavior,
 protected filenames, redaction and narrowly scoped fixture allowances in a
 temporary repository. CI runs that check too; bypassing local hooks does not
 bypass the CI scan. Neither check uploads findings.

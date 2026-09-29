@@ -1,6 +1,6 @@
 import { test } from "node:test";
 
-import { scaledInteger } from "../../db/d1/codec.mjs";
+import { scaledInteger } from "../../db/d1/codec.ts";
 import storage from "../../db/d1/storage.json" with { type: "json" };
 import { assert, assertEquals } from "./assertions.ts";
 import d1 from "./d1.ts";

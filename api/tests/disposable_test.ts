@@ -117,7 +117,7 @@ test("an unrecognized API receives only a read-only identity probe", async () =>
   }
 });
 test("the runner fails closed instead of claiming client coverage is Worker coverage", async () => {
-  const source = await readFile("scripts/test-worker.mjs", "utf-8");
+  const source = await readFile("api/tests/run.ts", "utf-8");
   assertEquals(
     source.includes("Bun client coverage is not Worker coverage"),
     true
