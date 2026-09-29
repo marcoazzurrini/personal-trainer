@@ -1,33 +1,30 @@
 import {
   batch,
   caseKey,
-  type Clock,
-  type Database,
   databaseError,
   decimal,
   instant,
   jsonChunks,
-  type Parameter,
   requestId,
-  type Result,
   rows,
   statement,
   systemClock,
 } from "../shared/d1.ts";
+import type { Clock, Database, Parameter, Result } from "../shared/d1.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
-import { checkEnergy, checkMacroMass } from "./rules.ts";
-import {
-  beginNutritionWrite,
-  finishNutritionWrite,
-  nutritionResolver,
-  nutritionRows,
-} from "./resolve.ts";
 import type {
   CorrectedFood,
   CorrectFoodInput,
   FoodRow,
   SaveFoodInput,
 } from "./foods.types.ts";
+import {
+  beginNutritionWrite,
+  finishNutritionWrite,
+  nutritionResolver,
+  nutritionRows,
+} from "./resolve.ts";
+import { checkEnergy, checkMacroMass } from "./rules.ts";
 
 const macros = [
   "kcal_100g",
@@ -44,9 +41,9 @@ const fields = [
   "source",
   "source_note",
 ] as const;
-const columns = `f.id, f.name, f.brand, ${
-  macros.map((k) => `f.${k} / 10.0 AS ${k}`).join(", ")
-},
+const columns = `f.id, f.name, f.brand, ${macros
+  .map((k) => `f.${k} / 10.0 AS ${k}`)
+  .join(", ")},
  f.grams_per_unit / 10.0 AS grams_per_unit, f.source, f.source_note,
  substr(f.created_at, 1, 23) || 'Z' AS created_at,
  (SELECT json_group_array(alias) FROM (SELECT alias FROM food_aliases WHERE food_id = f.id ORDER BY alias)) AS aliases`;
@@ -56,27 +53,41 @@ const decode = (r: StoredFood): FoodRow => ({
   aliases: JSON.parse(r.aliases),
 });
 
+const readResult = (result: Result<StoredFood>): FoodRow =>
+  decode(
+    requireRow(result.results, "The food could not be read after saving.")
+  );
+
+function isMacro(key: (typeof fields)[number]): key is (typeof macros)[number] {
+  return macros.some((macro) => macro === key);
+}
+
+function encoded(b: CorrectFoodInput, key: (typeof fields)[number]): Parameter {
+  if (isMacro(key) || key === "grams_per_unit") {
+    return decimal(
+      b[key] ?? null,
+      key === "kcal_100g" || key === "grams_per_unit" ? 6 : 5,
+      1
+    );
+  }
+  // Only keys whose values are defined reach this encoder.
+  return b[key] ?? null;
+}
+
 export function foodStore(db: Database, clock: Clock = systemClock) {
   const resolver = nutritionResolver(db);
   const select = (where = "", ...values: Parameter[]) =>
     statement(
       db,
       `SELECT ${columns} FROM foods f ${where} ORDER BY f.name`,
-      ...values,
-    );
-  const readResult = (result: Result): FoodRow =>
-    decode(
-      requireRow(
-        result.results as unknown as StoredFood[],
-        "The food could not be read after saving.",
-      ),
+      ...values
     );
   async function foodById(id: number): Promise<FoodRow> {
     return decode(
       requireRow(
         (await select("WHERE f.id = ?", id).all<StoredFood>()).results,
-        `No food with id ${id}. GET /foods?q=<search> lists them.`,
-      ),
+        `No food with id ${id}. GET /foods?q=<search> lists them.`
+      )
     );
   }
   async function foodByRef(ref: string) {
@@ -87,39 +98,42 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
     // SQLite LIKE cannot fold Unicode. Names and aliases already carry Unicode keys;
     // brand matching is done in JS so its casing follows the same contract.
     const all = (await select().all<StoredFood>()).results.map(decode);
-    if (!term) return all;
+    if (!term) {
+      return all;
+    }
     const pattern = new RegExp(
-      caseKey(term)
-        .split("")
-        .map((c) =>
-          c === "%"
-            ? ".*"
-            : c === "_"
-            ? "."
-            : c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-        )
+      [...caseKey(term)]
+        .map((c) => {
+          if (c === "%") {
+            return ".*";
+          }
+          if (c === "_") {
+            return ".";
+          }
+          return c.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+        })
         .join(""),
-      "su",
+      "su"
     );
     return all.filter((f) =>
       [f.name, f.brand, ...f.aliases].some(
-        (v) => v !== null && pattern.test(caseKey(v)),
+        (v) => v !== null && pattern.test(caseKey(v))
       )
     );
   }
   function aliases(key: Parameter, values: string[], byRequest = false) {
     return jsonChunks(
-      values.map((alias) => ({ alias, key: caseKey(alias) })),
+      values.map((alias) => ({ alias, key: caseKey(alias) }))
     ).flatMap((chunk) => [
       statement(
         db,
         `INSERT INTO food_aliases (food_id, alias, alias_key)
        SELECT f.id, json_extract(v.value, '$.alias'), json_extract(v.value, '$.key')
        FROM json_each(?) v CROSS JOIN foods f WHERE f.${
-          byRequest ? "request_id" : "id"
-        } = ? ORDER BY CAST(v.key AS INTEGER)`,
+         byRequest ? "request_id" : "id"
+       } = ? ORDER BY CAST(v.key AS INTEGER)`,
         chunk.json,
-        key,
+        key
       ),
       nutritionRows(db, chunk.count),
     ]);
@@ -131,11 +145,13 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
     return found[0] ? decode(found[0]) : undefined;
   }
   async function saveFood(
-    b: SaveFoodInput,
+    b: SaveFoodInput
   ): Promise<{ row: FoodRow; created: boolean }> {
     const uuid = requestId(b.request_id);
     const replay = await seen(uuid);
-    if (replay) return { row: replay, created: false };
+    if (replay) {
+      return { row: replay, created: false };
+    }
     try {
       await resolver.assertFoodAliasesFree(b.aliases ?? []);
       checkMacroMass(b.protein_100g, b.carbs_100g, b.fat_100g);
@@ -145,9 +161,9 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
         b.carbs_100g,
         b.fat_100g,
         b.energy_check === "override",
-        b.source_note ?? null,
+        b.source_note ?? null
       );
-      const result = await batch(db, [
+      const result = await batch<StoredFood>(db, [
         beginNutritionWrite(db),
         statement(
           db,
@@ -165,38 +181,42 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
           b.source,
           b.source_note ?? null,
           uuid,
-          instant(clock().toISOString()),
+          instant(clock().toISOString())
         ),
         nutritionRows(db, 1),
         ...aliases(uuid, b.aliases ?? [], true),
         select("WHERE f.request_id = ?", uuid),
         finishNutritionWrite(db),
       ]);
-      return { row: readResult(result.at(-2)!), created: true };
+      // SAFETY: the batch ends with the food SELECT and then finishNutritionWrite.
+      const selected = result.at(-2) as Result<StoredFood>;
+      return { row: readResult(selected), created: true };
     } catch (error) {
-      const replay = await seen(uuid);
-      if (replay) return { row: replay, created: false };
+      const recovered = await seen(uuid);
+      if (recovered) {
+        return { row: recovered, created: false };
+      }
       throw databaseError(error);
     }
   }
   async function correctFood(
     ref: string,
-    b: CorrectFoodInput,
+    b: CorrectFoodInput
   ): Promise<CorrectedFood> {
     const id = await resolver.resolveFoodId(ref);
     const before = requireRow(
-      await rows<FoodRow & { macro_revision: number }>(
+      await rows<StoredFood & { macro_revision: number }>(
         db,
         `SELECT ${columns}, f.macro_revision FROM foods f WHERE f.id = ?`,
-        id,
+        id
       ),
-      `No food with id ${id}.`,
+      `No food with id ${id}.`
     );
     const keys = fields.filter((k) => b[k] !== undefined);
     if (!keys.length) {
       throw new ApiError(
         422,
-        "Send at least one of: name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note. A different product is not an edit — save it as a new food with POST /foods.",
+        "Send at least one of: name, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note. A different product is not an edit — save it as a new food with POST /foods."
       );
     }
     const merged = {
@@ -206,7 +226,7 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
     checkMacroMass(
       Number(merged.protein_100g),
       Number(merged.carbs_100g),
-      Number(merged.fat_100g),
+      Number(merged.fat_100g)
     );
     checkEnergy(
       Number(merged.kcal_100g),
@@ -214,37 +234,24 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
       Number(merged.carbs_100g),
       Number(merged.fat_100g),
       b.energy_check === "override",
-      merged.source_note,
+      merged.source_note
     );
-    const encoded = (k: (typeof fields)[number]): Parameter => {
-      const v = b[k]!;
-      return macros.includes(k as (typeof macros)[number]) ||
-          k === "grams_per_unit"
-        ? decimal(
-          v as number | null,
-          k === "kcal_100g" || k === "grams_per_unit" ? 6 : 5,
-          1,
-        )
-        : v;
-    };
-    const changed = keys.filter((k) =>
-      macros.includes(k as (typeof macros)[number])
-    );
+    const changed = keys.filter(isMacro);
     const changeSQL = changed.map((k) => `${k} IS NOT ?`).join(" OR ") || "0";
     const result = await batch(db, [
       beginNutritionWrite(db),
       statement(
         db,
         `UPDATE foods SET ${keys.map((k) => `${k} = ?`).join(", ")}${
-          b.name !== undefined ? ", name_key = ?" : ""
+          b.name === undefined ? "" : ", name_key = ?"
         },
        macro_revision = macro_revision + CASE WHEN ${changeSQL} THEN 1 ELSE 0 END
        WHERE id = ? AND macro_revision = ? RETURNING macro_revision`,
-        ...keys.map(encoded),
-        ...(b.name !== undefined ? [caseKey(b.name)] : []),
-        ...changed.map(encoded),
+        ...keys.map((key) => encoded(b, key)),
+        ...(b.name === undefined ? [] : [caseKey(b.name)]),
+        ...changed.map((key) => encoded(b, key)),
         id,
-        before.macro_revision,
+        before.macro_revision
       ),
       nutritionRows(db, 1),
       select("WHERE f.id = ?", id),
@@ -253,7 +260,7 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
         `SELECT count(*) AS count, min(day) AS "from", max(day) AS "to" FROM intake_entries WHERE food_id = ? AND EXISTS (SELECT 1 FROM foods WHERE id = ? AND macro_revision <> ?)`,
         id,
         id,
-        before.macro_revision,
+        before.macro_revision
       ),
       finishNutritionWrite(db),
     ]).catch((error) => {
@@ -264,22 +271,24 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
       ) {
         throw new ApiError(
           409,
-          "That food changed while this correction was being checked. Read GET /foods/:ref again, then resend the correction against its current values.",
+          "That food changed while this correction was being checked. Read GET /foods/:ref again, then resend the correction against its current values."
         );
       }
       throw error;
     });
     const macrosChanged =
-      (result[1].results[0].macro_revision as number) !== before.macro_revision;
-    const affected = result.at(-2)!
-      .results[0] as unknown as CorrectedFood["corrected_entries"];
+      result[1].results[0].macro_revision !== before.macro_revision;
+    // SAFETY: statement 4 selects count/min(day)/max(day), with the corrected_entries aliases.
+    const affected = result[4].results[0] as CorrectedFood["corrected_entries"];
+    // SAFETY: statement 3 uses select(), which returns the same StoredFood columns as foodById.
+    const food = readResult(result[3] as Result<StoredFood>);
     return {
-      food: readResult(result.at(-3)!),
+      food,
       corrected_entries: affected,
       note: macrosChanged
         ? `Corrected ${affected.count} logged ${
-          affected.count === 1 ? "entry" : "entries"
-        }: their totals now use the corrected food values, without changing what was eaten. Meals containing this food update on their own — their totals are computed, never stored.`
+            affected.count === 1 ? "entry" : "entries"
+          }: their totals now use the corrected food values, without changing what was eaten. Meals containing this food update on their own — their totals are computed, never stored.`
         : "No macros changed, so nothing logged was affected.",
     };
   }
@@ -291,7 +300,7 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
       (SELECT count(*) FROM intake_entries WHERE food_id = ?) AS entries,
       (SELECT count(*) FROM meal_items WHERE food_id = ?) AS items`,
       id,
-      id,
+      id
     );
     if (entries || items) {
       throw new ApiError(
@@ -300,16 +309,16 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
           entries === 1 ? "entry" : "entries"
         } and ${items} meal ${
           items === 1 ? "item" : "items"
-        } — so deleting it would orphan the record. If its numbers are wrong, PATCH /foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`,
+        } — so deleting it would orphan the record. If its numbers are wrong, PATCH /foods/:ref fixes them and every entry logged against them. If it is a duplicate, move its aliases to the food you are keeping.`
       );
     }
     return requireRow(
       await rows<{ name: string }>(
         db,
         "DELETE FROM foods WHERE id = ? RETURNING name",
-        id,
+        id
       ),
-      `No food with id ${id}.`,
+      `No food with id ${id}.`
     ).name;
   }
   return {

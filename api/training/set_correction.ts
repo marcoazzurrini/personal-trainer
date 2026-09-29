@@ -2,12 +2,8 @@
 // The caller supplies the current row under the session lock and one timestamp.
 // No database access or clock read belongs in this rule.
 import { ApiError } from "../shared/errors.ts";
-import {
-  assertEffort,
-  assertSetMeasures,
-  type Effort,
-  type Kind,
-} from "./rules.ts";
+import { assertEffort, assertSetMeasures } from "./rules.ts";
+import type { Effort, Kind } from "./rules.ts";
 
 export const TARGET_FIELDS = [
   "target_weight_kg",
@@ -63,26 +59,27 @@ type SetChanges = Pick<CorrectSetInput, (typeof ACTUAL_FIELDS)[number]>;
 export function prepareSetCorrection(
   existing: SetForCorrection,
   input: CorrectSetInput,
-  performedAt: string,
+  performedAt: string
 ): SetChanges {
   const target = TARGET_FIELDS.find((f) => input[f] !== undefined);
   if (target) {
     throw new ApiError(
       422,
-      `Targets are immutable once the session exists: they are the record of what was asked that day, and "${target}" is one of them. Only actuals (weight_kg, reps, distance_m, duration_s, effort), performed_at, and notes can change. If the whole session was mis-planned and nothing has been performed yet, DELETE /sessions/:id discards the draft — then write it again.`,
+      `Targets are immutable once the session exists: they are the record of what was asked that day, and "${target}" is one of them. Only actuals (weight_kg, reps, distance_m, duration_s, effort), performed_at, and notes can change. If the whole session was mis-planned and nothing has been performed yet, DELETE /sessions/:id discards the draft — then write it again.`
     );
   }
   // Omission leaves a value untouched; explicit null clears it. Only these
   // fields are writable, even when the caller passes a row with other keys.
   const fields: SetChanges = Object.fromEntries(
-    ACTUAL_FIELDS.filter((f) => input[f] !== undefined).map((
+    ACTUAL_FIELDS.filter((f) => input[f] !== undefined).map((f) => [
       f,
-    ) => [f, input[f]]),
+      input[f],
+    ])
   );
   if (Object.keys(fields).length === 0) {
     throw new ApiError(
       422,
-      'Send at least one of "weight_kg", "reps", "distance_m", "duration_s", "effort", "performed_at", "notes".',
+      'Send at least one of "weight_kg", "reps", "distance_m", "duration_s", "effort", "performed_at", "notes".'
     );
   }
   const merged = { ...existing, ...fields };
@@ -97,13 +94,16 @@ export function prepareSetCorrection(
     existing.exercise,
     existing.kind,
     merged.reps,
-    merged.effort,
+    merged.effort
   );
 
-  const nowMeasured = fields.reps != null || fields.distance_m != null ||
-    fields.duration_s != null;
+  const nowMeasured =
+    (fields.reps !== null && fields.reps !== undefined) ||
+    (fields.distance_m !== null && fields.distance_m !== undefined) ||
+    (fields.duration_s !== null && fields.duration_s !== undefined);
   if (
-    fields.performed_at === undefined && existing.performed_at === null &&
+    fields.performed_at === undefined &&
+    existing.performed_at === null &&
     nowMeasured
   ) {
     fields.performed_at = performedAt;

@@ -39,7 +39,7 @@ const INSTRUCTIONS =
   "This connector only signs the coach in. Everything else — logging, planning, every read and write of the record — goes through the coach API with curl, using the token get_api_token returns. The coaching documents are files in the skill, read from disk; the API serves none.";
 
 export interface McpDeps {
-  issue(subject: string): Promise<{ token: string; expires_at: string }>;
+  issue: (subject: string) => Promise<{ token: string; expires_at: string }>;
   baseUrl: string;
   version: string;
 }
@@ -49,39 +49,39 @@ export type McpOutcome =
   | { status: 202 }
   | { status: 400; body: unknown };
 
+// eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- JSON-RPC fields remain untrusted until handleMcp checks each supported method.
 type Message = Record<string, unknown>;
 
-function record(value: unknown): Message | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Message // checked: the guard above
-    : null;
+function isMessage(value: unknown): value is Message {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function result(id: unknown, value: unknown): McpOutcome {
+function result<T>(id: Message["id"], value: T): McpOutcome {
   return { status: 200, body: { jsonrpc: "2.0", id, result: value } };
 }
 
 function failure(
-  id: unknown,
+  id: Message["id"],
   code: number,
   message: string,
-  status: 200 | 400 = 200,
+  status: 200 | 400 = 200
 ): McpOutcome {
   return { status, body: { jsonrpc: "2.0", id, error: { code, message } } };
 }
 
 export async function handleMcp(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- This dispatcher is the parser boundary for the raw JSON-RPC request body.
   message: unknown,
   caller: { subject: string },
-  deps: McpDeps,
+  deps: McpDeps
 ): Promise<McpOutcome> {
-  const m = record(message);
+  const m = isMessage(message) ? message : null;
   if (m === null || m.jsonrpc !== "2.0") {
     return failure(
       null,
-      -32600,
+      -32_600,
       'The body must be one JSON-RPC 2.0 message: an object with "jsonrpc": "2.0". Batches are not accepted.',
-      400,
+      400
     );
   }
 
@@ -90,15 +90,18 @@ export async function handleMcp(
   // notification — but both are accepted, because the specification says a
   // server accepts them with a 202 and no body, and the client sends
   // notifications/initialized before its first real request.
-  if (!("id" in m) || "result" in m || "error" in m) return { status: 202 };
+  if (!("id" in m) || "result" in m || "error" in m) {
+    return { status: 202 };
+  }
 
-  const id = m.id;
-  const params = record(m.params) ?? {};
+  const { id } = m;
+  const params = isMessage(m.params) ? m.params : {};
   switch (m.method) {
     case "initialize": {
       const asked = params.protocolVersion;
-      const protocolVersion = typeof asked === "string" &&
-          (PROTOCOL_VERSIONS as readonly string[]).includes(asked)
+      const protocolVersion = PROTOCOL_VERSIONS.some(
+        (version) => version === asked
+      )
         ? asked
         : LATEST_PROTOCOL_VERSION;
       return result(id, {
@@ -108,46 +111,53 @@ export async function handleMcp(
         instructions: INSTRUCTIONS,
       });
     }
-    case "ping":
+    case "ping": {
       return result(id, {});
-    case "tools/list":
+    }
+    case "tools/list": {
       return result(id, {
-        tools: [{
-          name: TOOL_NAME,
-          description: TOOL_DESCRIPTION,
-          inputSchema: { type: "object", properties: {} },
-        }],
+        tools: [
+          {
+            name: TOOL_NAME,
+            description: TOOL_DESCRIPTION,
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
       });
+    }
     case "tools/call": {
       if (params.name !== TOOL_NAME) {
         return failure(
           id,
-          -32602,
-          `No tool named "${
-            String(params.name)
-          }". The only tool is ${TOOL_NAME}.`,
+          -32_602,
+          `No tool named "${String(
+            params.name
+          )}". The only tool is ${TOOL_NAME}.`
         );
       }
       const minted = await deps.issue(caller.subject);
       return result(id, {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            token: minted.token,
-            base_url: deps.baseUrl,
-            expires_at: minted.expires_at,
-          }),
-        }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              token: minted.token,
+              base_url: deps.baseUrl,
+              expires_at: minted.expires_at,
+            }),
+          },
+        ],
       });
     }
-    default:
+    default: {
       return failure(
         id,
-        -32601,
-        `No method "${
-          String(m.method)
-        }". This server answers initialize, ping, tools/list and tools/call.`,
+        -32_601,
+        `No method "${String(
+          m.method
+        )}". This server answers initialize, ping, tools/list and tools/call.`
       );
+    }
   }
 }
 
@@ -159,11 +169,7 @@ export async function handleMcp(
 // that does not exist. The proxy's own word (x-forwarded-proto) wins; with no
 // word, https is assumed for any host that is not the local one, whose
 // addresses really are plain http.
-const LOCAL_HOSTS = new Set([
-  "127.0.0.1",
-  "localhost",
-  "host.docker.internal",
-]);
+const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "host.docker.internal"]);
 
 export function publicOrigin(seen: {
   protocol: string;
@@ -171,9 +177,10 @@ export function publicOrigin(seen: {
   host: string;
   forwardedProto: string | null;
 }): string {
-  const scheme = seen.forwardedProto?.split(",")[0].trim() ||
+  const scheme =
+    seen.forwardedProto?.split(",")[0].trim() ||
     (LOCAL_HOSTS.has(seen.hostname)
-      ? seen.protocol.replace(/:$/, "")
+      ? seen.protocol.replace(/:$/u, "")
       : "https");
   return `${scheme}://${seen.host}`;
 }
@@ -189,14 +196,7 @@ export function publicOrigin(seen: {
 // Three fields and no scopes: the authorization server hosts its own consent
 // screen and the token carries no email, so there is nothing to ask the
 // person for beyond the sign-in itself.
-export function protectedResourceMetadata(
-  resource: string,
-  issuer: string,
-): {
-  resource: string;
-  authorization_servers: string[];
-  bearer_methods_supported: string[];
-} {
+export function protectedResourceMetadata(resource: string, issuer: string) {
   return {
     resource,
     authorization_servers: [issuer],
@@ -214,7 +214,7 @@ export function protectedResourceMetadata(
 // header, adding those two parameters is a change to this line alone.
 export function challengeHeader(
   metadataUrl: string,
-  invalidToken: boolean,
+  invalidToken: boolean
 ): string {
   const reason = invalidToken ? ', error="invalid_token"' : "";
   return `Bearer resource_metadata="${metadataUrl}"${reason}`;

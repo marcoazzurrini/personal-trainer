@@ -6,6 +6,8 @@ declare const __BUILD_METADATA__: {
   digest: string;
 };
 
-export const buildMetadata = typeof __BUILD_METADATA__ === "undefined"
-  ? { revision: null, digest: "local-development" }
-  : __BUILD_METADATA__;
+export const buildMetadata =
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof, unicorn/no-typeof-undefined -- The bundler declaration has no runtime binding in unstamped builds; only typeof can read an absent global safely.
+  typeof __BUILD_METADATA__ === "undefined"
+    ? { revision: null, digest: "local-development" }
+    : __BUILD_METADATA__;

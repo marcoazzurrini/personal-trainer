@@ -1,27 +1,40 @@
+import { z } from "zod";
+
+const buildRevision = z.string().regex(/^[a-f0-9]{40}$/u);
+const buildDigest = z.string().regex(/^[a-f0-9]{64}$/u);
+
 export function readBuildRevision(
-  value: unknown = import.meta.env.TRAINER_BUILD_REVISION,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Compiled metadata is untrusted input validated by buildRevision below.
+  value: unknown = import.meta.env.TRAINER_BUILD_REVISION
 ): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== "string" || !/^[a-f0-9]{40}$/.test(value)) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = buildRevision.safeParse(value);
+  if (!parsed.success) {
     throw new Error("The dashboard build revision is invalid.");
   }
-  return value;
+  return parsed.data;
 }
 
 export function readBuildDigest(
-  value: unknown = import.meta.env.TRAINER_BUILD_DIGEST,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Compiled metadata is untrusted input validated by buildDigest below.
+  value: unknown = import.meta.env.TRAINER_BUILD_DIGEST
 ): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = buildDigest.safeParse(value);
+  if (!parsed.success) {
     throw new Error("The dashboard build digest is invalid.");
   }
-  return value;
+  return parsed.data;
 }
 
 export function healthResponse(
   request: Request,
   loadRevision: () => string | null = readBuildRevision,
-  loadDigest: () => string | null = readBuildDigest,
+  loadDigest: () => string | null = readBuildDigest
 ): Response {
   const headers = {
     "Content-Type": "application/json; charset=utf-8",
@@ -43,7 +56,7 @@ export function healthResponse(
   } catch {
     return new Response(
       request.method === "HEAD" ? null : JSON.stringify({ status: "error" }),
-      { status: 503, headers },
+      { status: 503, headers }
     );
   }
 }

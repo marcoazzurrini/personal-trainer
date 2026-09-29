@@ -1,0 +1,3 @@
+# Bun reads config from the selected working directory, not the workspace root.
+# Only the development/start scripts may load web/.env explicitly.
+env = false

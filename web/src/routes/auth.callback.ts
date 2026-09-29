@@ -15,7 +15,7 @@ export const Route = createFileRoute("/auth/callback")({
                 "Content-Type": "text/plain; charset=utf-8",
                 "Cache-Control": "no-store",
               },
-            },
+            }
           ),
       }),
     },

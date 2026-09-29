@@ -1,4 +1,8 @@
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { test } from "node:test";
+
+import { z } from "zod";
+
+import type { McpOutcome } from "../access/mcp.ts";
 import {
   challengeHeader,
   handleMcp,
@@ -6,7 +10,7 @@ import {
   publicOrigin,
   TOOL_NAME,
 } from "../access/mcp.ts";
-
+import { assert, assertEquals, assertStringIncludes } from "./assertions.ts";
 // The connector, in two halves. The dispatch is import-free and runs here
 // with a stub minter, so every branch of the protocol is exercised without a
 // sign-in. The route is probed live for what it does before a sign-in — the
@@ -14,7 +18,6 @@ import {
 // outbound Worker networking blocked. An in-process route check
 // below uses a test signing key for GET and POST, then a real minted token
 // against the disposable API. Hosted sign-in still needs a client smoke check.
-
 const CALLER = { subject: "user_01TEST" };
 const deps = {
   issue: (subject: string) =>
@@ -25,15 +28,58 @@ const deps = {
   baseUrl: "https://example.test/api",
   version: "1",
 };
-
-// deno-lint-ignore no-explicit-any
-function body(outcome: { status: number; body?: unknown }): any {
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- Each caller validates this raw protocol payload with its response-specific Zod schema.
+function body(outcome: McpOutcome): unknown {
   assert("body" in outcome, `a ${outcome.status} carries no body`);
   return outcome.body;
 }
+const initialized = z.object({
+  id: z.union([z.string(), z.number(), z.null()]),
+  result: z.object({
+    protocolVersion: z.string(),
+    capabilities: z.unknown(),
+    serverInfo: z.object({ name: z.string() }),
+    instructions: z.string(),
+  }),
+});
+const failure = z.object({
+  error: z.object({ code: z.number(), message: z.string() }),
+});
+const toolList = z.object({
+  result: z.object({
+    tools: z.array(
+      z.object({
+        name: z.string(),
+        inputSchema: z.unknown(),
+        description: z.string(),
+      })
+    ),
+  }),
+});
+const toolReply = z.object({
+  result: z.object({
+    content: z.array(
+      z.object({
+        type: z.string(),
+        text: z.string(),
+      })
+    ),
+  }),
+});
 
-Deno.test("the protocol, one message at a time", async (t) => {
-  await t.step(
+const encode = (bytes: Uint8Array) =>
+  btoa(String.fromCodePoint(...bytes))
+    .replaceAll("=", "")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_");
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Serialize synthetic JWT segments without enforcing the verifier's claim policy in the fixture.
+const json = (value: unknown) =>
+  encode(new TextEncoder().encode(JSON.stringify(value)));
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The outage probe intentionally encodes incomplete claims rather than validating a JWT.
+const segment = (value: unknown) =>
+  btoa(JSON.stringify(value)).replace(/=+$/u, "");
+test("the protocol, one message at a time", async (t) => {
+  await t.test(
     "initialize answers in the client's version when known",
     async () => {
       const out = await handleMcp(
@@ -44,19 +90,18 @@ Deno.test("the protocol, one message at a time", async (t) => {
           params: { protocolVersion: "2025-03-26", capabilities: {} },
         },
         CALLER,
-        deps,
+        deps
       );
       assertEquals(out.status, 200);
-      const b = body(out);
+      const b = initialized.parse(body(out));
       assertEquals(b.id, 1);
       assertEquals(b.result.protocolVersion, "2025-03-26");
       assertEquals(b.result.capabilities, { tools: {} });
       assertEquals(b.result.serverInfo.name, "personal-trainer");
       assert(typeof b.result.instructions === "string");
-    },
+    }
   );
-
-  await t.step("and in the latest it knows when not", async () => {
+  await t.test("and in the latest it knows when not", async () => {
     const out = await handleMcp(
       {
         jsonrpc: "2.0",
@@ -65,44 +110,43 @@ Deno.test("the protocol, one message at a time", async (t) => {
         params: { protocolVersion: "2031-01-01" },
       },
       CALLER,
-      deps,
+      deps
     );
-    assertEquals(body(out).result.protocolVersion, "2025-06-18");
+    assertEquals(
+      initialized.parse(body(out)).result.protocolVersion,
+      "2025-06-18"
+    );
   });
-
-  await t.step("a notification is accepted with nothing to say", async () => {
+  await t.test("a notification is accepted with nothing to say", async () => {
     const out = await handleMcp(
       { jsonrpc: "2.0", method: "notifications/initialized" },
       CALLER,
-      deps,
+      deps
     );
     assertEquals(out.status, 202);
     assert(!("body" in out));
   });
-
-  await t.step("ping", async () => {
+  await t.test("ping", async () => {
     const out = await handleMcp(
       { jsonrpc: "2.0", id: "p", method: "ping" },
       CALLER,
-      deps,
+      deps
     );
     assertEquals(body(out), { jsonrpc: "2.0", id: "p", result: {} });
   });
-
-  await t.step("tools/list names the one tool, taking no input", async () => {
+  await t.test("tools/list names the one tool, taking no input", async () => {
     const out = await handleMcp(
       { jsonrpc: "2.0", id: 3, method: "tools/list" },
       CALLER,
-      deps,
+      deps
     );
-    const tools = body(out).result.tools;
+    const { tools } = toolList.parse(body(out)).result;
     assertEquals(tools.length, 1);
     assertEquals(tools[0].name, TOOL_NAME);
     assertEquals(tools[0].inputSchema, { type: "object", properties: {} });
     assertStringIncludes(tools[0].description, "curl");
   });
-
-  await t.step(
+  await t.test(
     "tools/call mints for the caller and says where to use it",
     async () => {
       const out = await handleMcp(
@@ -113,9 +157,9 @@ Deno.test("the protocol, one message at a time", async (t) => {
           params: { name: TOOL_NAME, arguments: {} },
         },
         CALLER,
-        deps,
+        deps
       );
-      const content = body(out).result.content;
+      const { content } = toolReply.parse(body(out)).result;
       assertEquals(content.length, 1);
       assertEquals(content[0].type, "text");
       assertEquals(JSON.parse(content[0].text), {
@@ -123,10 +167,9 @@ Deno.test("the protocol, one message at a time", async (t) => {
         base_url: "https://example.test/api",
         expires_at: "2026-09-04T12:00:00.000Z",
       });
-    },
+    }
   );
-
-  await t.step("another tool name is a JSON-RPC error, in a 200", async () => {
+  await t.test("another tool name is a JSON-RPC error, in a 200", async () => {
     const out = await handleMcp(
       {
         jsonrpc: "2.0",
@@ -135,47 +178,43 @@ Deno.test("the protocol, one message at a time", async (t) => {
         params: { name: "log_set" },
       },
       CALLER,
-      deps,
+      deps
     );
     assertEquals(out.status, 200);
-    assertEquals(body(out).error.code, -32602);
-    assertStringIncludes(body(out).error.message, TOOL_NAME);
+    assertEquals(failure.parse(body(out)).error.code, -32_602);
+    assertStringIncludes(failure.parse(body(out)).error.message, TOOL_NAME);
   });
-
-  await t.step("an unknown method is -32601", async () => {
+  await t.test("an unknown method is -32601", async () => {
     const out = await handleMcp(
       { jsonrpc: "2.0", id: 6, method: "resources/list" },
       CALLER,
-      deps,
+      deps
     );
-    assertEquals(body(out).error.code, -32601);
+    assertEquals(failure.parse(body(out)).error.code, -32_601);
   });
-
-  await t.step("not a message at all is a 400", async () => {
+  await t.test("not a message at all is a 400", async () => {
     for (const bad of [null, 42, "hi", [], { id: 1, method: "ping" }]) {
       const out = await handleMcp(bad, CALLER, deps);
       assertEquals(out.status, 400, JSON.stringify(bad));
-      assertEquals(body(out).error.code, -32600);
+      assertEquals(failure.parse(body(out)).error.code, -32_600);
     }
   });
 });
-
-Deno.test("what a client is told before it signs in", async (t) => {
-  await t.step("the discovery document", () => {
+test("what a client is told before it signs in", async (t) => {
+  await t.test("the discovery document", () => {
     assertEquals(
       protectedResourceMetadata(
         "https://x.example/api/mcp",
-        "https://x.example/auth/v1",
+        "https://x.example/auth/v1"
       ),
       {
         resource: "https://x.example/api/mcp",
         authorization_servers: ["https://x.example/auth/v1"],
         bearer_methods_supported: ["header"],
-      },
+      }
     );
   });
-
-  await t.step("the origin is the one callers used, not the one seen", () => {
+  await t.test("the origin is the one callers used, not the one seen", () => {
     // Behind the proxy the runtime sees http; the outside world said https.
     const hosted = {
       protocol: "http:",
@@ -184,16 +223,16 @@ Deno.test("what a client is told before it signs in", async (t) => {
     };
     assertEquals(
       publicOrigin({ ...hosted, forwardedProto: null }),
-      "https://trainer.marcoazzurrini.com",
+      "https://trainer.marcoazzurrini.com"
     );
     // Traefik's word, and it may be a list when proxies stack.
     assertEquals(
       publicOrigin({ ...hosted, forwardedProto: "https" }),
-      "https://trainer.marcoazzurrini.com",
+      "https://trainer.marcoazzurrini.com"
     );
     assertEquals(
       publicOrigin({ ...hosted, forwardedProto: "https, http" }),
-      "https://trainer.marcoazzurrini.com",
+      "https://trainer.marcoazzurrini.com"
     );
     // The local server really is plain http, and says so.
     const local = {
@@ -203,27 +242,25 @@ Deno.test("what a client is told before it signs in", async (t) => {
     };
     assertEquals(
       publicOrigin({ ...local, forwardedProto: null }),
-      "http://127.0.0.1:8000",
+      "http://127.0.0.1:8000"
     );
     assertEquals(
       publicOrigin({ ...local, forwardedProto: "http" }),
-      "http://127.0.0.1:8000",
+      "http://127.0.0.1:8000"
     );
   });
-
-  await t.step("the challenge", () => {
+  await t.test("the challenge", () => {
     assertEquals(
       challengeHeader("https://x.example/m", false),
-      'Bearer resource_metadata="https://x.example/m"',
+      'Bearer resource_metadata="https://x.example/m"'
     );
     assertEquals(
       challengeHeader("https://x.example/m", true),
-      'Bearer resource_metadata="https://x.example/m", error="invalid_token"',
+      'Bearer resource_metadata="https://x.example/m", error="invalid_token"'
     );
   });
 });
-
-Deno.test("signed connector calls enforce identity and mint usable API tokens", async () => {
+test("signed connector calls enforce identity and mint usable API tokens", async () => {
   const { BASE } = await import("./helpers.ts");
   const { database } = await import("./d1.ts");
   const { tokenStore } = await import("../access/tokens.ts");
@@ -237,52 +274,52 @@ Deno.test("signed connector calls enforce identity and mint usable API tokens", 
     ALLOWED_SUBJECT: CALLER.subject,
     PUBLIC_ORIGIN: "",
   };
-  const mcp = createMcpRoutes({
-    issuer: config.AUTH_ISSUER,
-    jwksUrl: config.AUTH_JWKS_URL,
-    allowedSubject: config.ALLOWED_SUBJECT,
-    publicOrigin: config.PUBLIC_ORIGIN,
-  }, tokenStore(database));
-  const fetch = globalThis.fetch;
+  const mcp = createMcpRoutes(
+    {
+      issuer: config.AUTH_ISSUER,
+      jwksUrl: config.AUTH_JWKS_URL,
+      allowedSubject: config.ALLOWED_SUBJECT,
+      publicOrigin: config.PUBLIC_ORIGIN,
+    },
+    tokenStore(database)
+  );
+  const { fetch } = globalThis;
   const pair = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
-    ["sign", "verify"],
+    ["sign", "verify"]
   );
   const key = await crypto.subtle.exportKey("jwk", pair.publicKey);
-  const encode = (bytes: Uint8Array) =>
-    btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-")
-      .replace(/\//g, "_");
-  const json = (value: unknown) =>
-    encode(new TextEncoder().encode(JSON.stringify(value)));
   try {
     forgetJwks();
-    globalThis.fetch = (input, init) => {
-      if (String(input) === config.AUTH_JWKS_URL) {
-        return Promise.resolve(
-          Response.json({ keys: [{ ...key, kid: "test" }] }),
-        );
-      }
-      return fetch(input, init);
-    };
-    for (
-      const [subject, status] of [[CALLER.subject, 405], [
-        "someone-else",
-        403,
-      ]] as const
-    ) {
-      const payload = `${json({ alg: "ES256", kid: "test" })}.${
-        json({
-          iss: issuer,
-          aud: resource,
-          sub: subject,
-          exp: Math.floor(Date.now() / 1000) + 60,
-        })
-      }`;
+    globalThis.fetch = Object.assign(
+      (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1]
+      ) => {
+        if (String(input) === config.AUTH_JWKS_URL) {
+          return Promise.resolve(
+            Response.json({ keys: [{ ...key, kid: "test" }] })
+          );
+        }
+        return fetch(input, init);
+      },
+      { preconnect: fetch.preconnect }
+    );
+    for (const [subject, status] of [
+      [CALLER.subject, 405],
+      ["someone-else", 403],
+    ] as const) {
+      const payload = `${json({ alg: "ES256", kid: "test" })}.${json({
+        iss: issuer,
+        aud: resource,
+        sub: subject,
+        exp: Math.floor(Date.now() / 1000) + 60,
+      })}`;
       const signature = await crypto.subtle.sign(
         { name: "ECDSA", hash: "SHA-256" },
         pair.privateKey,
-        new TextEncoder().encode(payload),
+        new TextEncoder().encode(payload)
       );
       const headers = {
         authorization: `Bearer ${payload}.${encode(new Uint8Array(signature))}`,
@@ -293,7 +330,7 @@ Deno.test("signed connector calls enforce identity and mint usable API tokens", 
       assertEquals(res.headers.get("www-authenticate"), null);
       assertStringIncludes(
         await envelope(res),
-        status === 405 ? "no event stream" : "not them",
+        status === 405 ? "no event stream" : "not them"
       );
       const called = await mcp.request(resource, {
         method: "POST",
@@ -325,19 +362,16 @@ Deno.test("signed connector calls enforce identity and mint usable API tokens", 
     forgetJwks();
   }
 });
-
 // --- Live: the route, up to the point a sign-in would be needed --------------
-
 async function envelope(res: Response): Promise<string> {
   const parsed = await res.json();
   assertEquals(Object.keys(parsed), ["error"], JSON.stringify(parsed));
   assertEquals(typeof parsed.error, "string");
   return parsed.error;
 }
-
-Deno.test("the connector before a sign-in", async (t) => {
+test("the connector before a sign-in", async (t) => {
   const { BASE } = await import("./helpers.ts");
-  await t.step(
+  await t.test(
     "GET discovery and POST calls give the same sign-in directions",
     async () => {
       const replies = [];
@@ -345,22 +379,24 @@ Deno.test("the connector before a sign-in", async (t) => {
         const res = await fetch(`${BASE}/mcp`, {
           method,
           headers: { "Content-Type": "application/json" },
-          body: method === "POST"
-            ? JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })
-            : undefined,
+          body:
+            method === "POST"
+              ? JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })
+              : undefined,
         });
         assertEquals(res.status, 401, method);
         const challenge = res.headers.get("www-authenticate") ?? "";
-        const match = challenge.match(/^Bearer resource_metadata="([^"]+)"$/);
+        const match = challenge.match(
+          /^Bearer resource_metadata="(?<resource>[^"]+)"$/u
+        );
         assert(match !== null, `unexpected challenge: ${challenge}`);
         assertEquals(
           match[1],
-          "https://synthetic.invalid/api/mcp/oauth-protected-resource",
+          "https://synthetic.invalid/api/mcp/oauth-protected-resource"
         );
         const error = await envelope(res);
         assertStringIncludes(error, "Sign in first");
         replies.push({ challenge, error });
-
         // The Worker owns its public origin; only transport uses loopback.
         const metadata = await fetch(new URL(new URL(match[1]).pathname, BASE));
         assertEquals(metadata.status, 200);
@@ -369,10 +405,9 @@ Deno.test("the connector before a sign-in", async (t) => {
         assertEquals(doc.authorization_servers.length, 1);
       }
       assertEquals(replies[0], replies[1]);
-    },
+    }
   );
-
-  await t.step(
+  await t.test(
     "a token that is not a token is refused without a round trip",
     async () => {
       // Nothing here could have been checked against the sign-in server, which
@@ -386,42 +421,43 @@ Deno.test("the connector before a sign-in", async (t) => {
         assertEquals(res.status, 401, method);
         assertStringIncludes(
           res.headers.get("www-authenticate") ?? "",
-          'error="invalid_token"',
+          'error="invalid_token"'
         );
         await envelope(res);
       }
-    },
+    }
   );
-
-  await t.step(
+  await t.test(
     "an unavailable sign-in provider returns 503 without a challenge",
     async () => {
       // Provider I/O is stubbed in-process. The real Worker must never attempt
       // outbound networking, even to a synthetic hostname.
       const { createMcpRoutes } = await import("../access/mcp.routes.ts");
       const { forgetJwks } = await import("../access/jwt.ts");
-      const route = createMcpRoutes({
-        issuer: "https://auth.example.test",
-        jwksUrl: "https://auth.example.test/unavailable",
-        allowedSubject: CALLER.subject,
-      }, {
-        issueToken: () => {
-          throw new Error("Must not mint during an outage");
+      const route = createMcpRoutes(
+        {
+          issuer: "https://auth.example.test",
+          jwksUrl: "https://auth.example.test/unavailable",
+          allowedSubject: CALLER.subject,
         },
-      });
-      const segment = (value: unknown) =>
-        btoa(JSON.stringify(value)).replace(/=+$/, "");
-      const token = `${segment({ alg: "RS256", kid: "k" })}.${
-        segment({ iss: "x" })
-      }.AAAA`;
+        {
+          issueToken: () => {
+            throw new Error("Must not mint during an outage");
+          },
+        }
+      );
+      const token = `${segment({ alg: "RS256", kid: "k" })}.${segment({ iss: "x" })}.AAAA`;
       const originalFetch = globalThis.fetch;
       let reads = 0;
       forgetJwks();
-      globalThis.fetch = (input) => {
-        assertEquals(String(input), "https://auth.example.test/unavailable");
-        reads++;
-        return Promise.reject(new Error("Synthetic provider outage"));
-      };
+      globalThis.fetch = Object.assign(
+        (input: Parameters<typeof fetch>[0]) => {
+          assertEquals(String(input), "https://auth.example.test/unavailable");
+          reads += 1;
+          return Promise.reject(new Error("Synthetic provider outage"));
+        },
+        { preconnect: originalFetch.preconnect }
+      );
       try {
         const res = await route.request("https://example.test/", {
           method: "POST",
@@ -436,24 +472,19 @@ Deno.test("the connector before a sign-in", async (t) => {
         globalThis.fetch = originalFetch;
         forgetJwks();
       }
-    },
+    }
   );
-
-  await t.step("there is no session to end", async () => {
+  await t.test("there is no session to end", async () => {
     const res = await fetch(`${BASE}/mcp`, { method: "DELETE" });
     assertEquals(res.status, 405);
     await envelope(res);
   });
-
-  await t.step("the discovery document opens without credentials", async () => {
+  await t.test("the discovery document opens without credentials", async () => {
     const res = await fetch(`${BASE}/mcp/oauth-protected-resource`);
     assertEquals(res.status, 200);
     const doc = await res.json();
-    assert(
-      String(doc.resource).endsWith("/api/mcp"),
-      doc.resource,
-    );
-    assertEquals(Object.keys(doc).sort(), [
+    assert(String(doc.resource).endsWith("/api/mcp"), doc.resource);
+    assertEquals(Object.keys(doc).toSorted(), [
       "authorization_servers",
       "bearer_methods_supported",
       "resource",
@@ -461,7 +492,8 @@ Deno.test("the connector before a sign-in", async (t) => {
     assertEquals(doc.authorization_servers.length, 1);
     // Whatever the issuer is configured as, it must be an address a client
     // can go and read metadata from.
-    new URL(doc.authorization_servers[0]);
+    const issuerUrl = new URL(doc.authorization_servers[0]);
+    assert(issuerUrl.href);
     assertEquals(doc.bearer_methods_supported, ["header"]);
   });
 });

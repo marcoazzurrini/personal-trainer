@@ -1,8 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Context } from "@hono/hono";
-import { type AppEnv, services } from "../shared/services.ts";
-import { SYSTEMIC_FATIGUE_LEVELS } from "./constants.ts";
-import { MEASURES, STIMULUS_TYPES } from "./rules.ts";
+import type { Context } from "hono";
+
+import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 import {
   aliasList,
   body,
@@ -11,7 +10,10 @@ import {
   query,
   text,
 } from "../shared/schema.ts";
-import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { SYSTEMIC_FATIGUE_LEVELS } from "./constants.ts";
+import { MEASURES, STIMULUS_TYPES } from "./rules.ts";
 
 export const exercises = new OpenAPIHono<AppEnv>();
 
@@ -49,21 +51,22 @@ const musclesError = () =>
   '"muscles" must be an array of {muscle, volume_factor} objects, e.g. {"muscle": "quads", "volume_factor": 1.0}.';
 
 const muscleEntry = () =>
-  body({
-    muscle: text(),
-    volume_factor: z.union([
-      z.literal(0),
-      z.literal(0.5),
-      z.literal(1),
-    ], { error: volumeFactorError }),
-    counts: z.unknown().optional().meta({
-      description: 'Refused. Replaced by "volume_factor".',
-    }),
-    fatigue: z.unknown().optional().meta({
-      description:
-        'Refused. Systemic fatigue is a property of the exercise, not of a muscle: send "systemic_fatigue" at the top level.',
-    }),
-  }, 'an entry in "muscles"');
+  body(
+    {
+      muscle: text(),
+      volume_factor: z.union([z.literal(0), z.literal(0.5), z.literal(1)], {
+        error: volumeFactorError,
+      }),
+      counts: z.unknown().optional().meta({
+        description: 'Refused. Replaced by "volume_factor".',
+      }),
+      fatigue: z.unknown().optional().meta({
+        description:
+          'Refused. Systemic fatigue is a property of the exercise, not of a muscle: send "systemic_fatigue" at the top level.',
+      }),
+    },
+    'an entry in "muscles"'
+  );
 
 const muscleList = () =>
   z.array(muscleEntry(), { error: musclesError }).optional();
@@ -88,7 +91,7 @@ exercises.openapi(
     },
   }),
   async (c) =>
-    c.json({ exercises: await services(c).exercises.listExercises() }),
+    c.json({ exercises: await services(c).exercises.listExercises() })
 );
 
 exercises.openapi(
@@ -112,7 +115,7 @@ exercises.openapi(
               measure: oneOf(MEASURES).default("load_reps"),
               stimulus_type: oneOf(STIMULUS_TYPES).default("strength"),
               systemic_fatigue: oneOf(SYSTEMIC_FATIGUE_LEVELS).default(
-                "normal",
+                "normal"
               ),
               aliases: aliasList(),
               muscles: muscleList(),
@@ -136,9 +139,12 @@ exercises.openapi(
     },
   }),
   async (c) =>
-    c.json({
-      exercise: await services(c).exercises.addExercise(c.req.valid("json")),
-    }, 201),
+    c.json(
+      {
+        exercise: await services(c).exercises.addExercise(c.req.valid("json")),
+      },
+      201
+    )
 );
 
 const HistorySet = z.object({
@@ -194,9 +200,9 @@ exercises.openapi(
     c.json(
       await services(c).exercises.exerciseHistory(
         c.req.valid("param").ref,
-        c.req.valid("query").limit,
-      ),
-    ),
+        c.req.valid("query").limit
+      )
+    )
 );
 
 exercises.openapi(
@@ -255,9 +261,9 @@ exercises.openapi(
     c.json({
       exercise: await services(c).exercises.correctExercise(
         c.req.valid("param").ref,
-        c.req.valid("json"),
+        c.req.valid("json")
       ),
-    }),
+    })
 );
 
 // A synonym never becomes a second exercise row — that splits the lift's
@@ -315,9 +321,9 @@ exercises.openapi(
   async (c) =>
     c.json({
       deleted: await services(c).exercises.deleteExercise(
-        c.req.valid("param").ref,
+        c.req.valid("param").ref
       ),
-    }),
+    })
 );
 
 exercises.openapi(
@@ -365,9 +371,9 @@ exercises.openapi(
     c.json(
       await services(c).exercises.reclassifyMuscles(
         c.req.valid("param").ref,
-        c.req.valid("json").muscles,
-      ),
-    ),
+        c.req.valid("json").muscles
+      )
+    )
 );
 
 export const muscles = new OpenAPIHono<AppEnv>();
@@ -392,7 +398,7 @@ muscles.openapi(
       },
     },
   }),
-  async (c) => c.json({ muscles: await services(c).exercises.listMuscles() }),
+  async (c) => c.json({ muscles: await services(c).exercises.listMuscles() })
 );
 
 muscles.openapi(
@@ -418,7 +424,10 @@ muscles.openapi(
     },
   }),
   async (c) =>
-    c.json({
-      muscle: await services(c).exercises.addMuscle(c.req.valid("json").name),
-    }, 201),
+    c.json(
+      {
+        muscle: await services(c).exercises.addMuscle(c.req.valid("json").name),
+      },
+      201
+    )
 );

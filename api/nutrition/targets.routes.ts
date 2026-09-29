@@ -1,7 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { GOALS } from "./expenditure.ts";
-import { type AppEnv, services } from "../shared/services.ts";
-import { CLIP_REASONS } from "./constants.ts";
+
 import {
   body,
   number,
@@ -13,6 +11,10 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { CLIP_REASONS } from "./constants.ts";
+import { GOALS } from "./expenditure.ts";
 
 // The goal, expressed as a rate of bodyweight change. Append-only: the latest
 // effective_from is active and the history is the record of the phase
@@ -40,26 +42,30 @@ export const Target = z.object({
 // The arithmetic, returned so the coach can quote it rather than redo it.
 // Null when kcal_target was sent explicitly: nothing was computed, and an
 // object of zeroes would read as though something had been.
-const Computation = z.object({
-  tdee_kcal: z.int(),
-  band_kcal: z.int().nullable(),
-  expenditure_status: z.enum(["ok", "damped", "stale", "insufficient_data"]),
-  trend_weight_kg: z.number(),
-  energy_density_kcal_per_kg: z.int(),
-  rate_requested: z.number(),
-  rate_used: z.number(),
-  desired_slope_kg_per_day: z.number(),
-  implied_deficit_kcal: z.number(),
-  clipped: z.boolean(),
-  clipped_reasons: z.array(z.enum(CLIP_REASONS)),
-}).nullable();
+const Computation = z
+  .object({
+    tdee_kcal: z.int(),
+    band_kcal: z.int().nullable(),
+    expenditure_status: z.enum(["ok", "damped", "stale", "insufficient_data"]),
+    trend_weight_kg: z.number(),
+    energy_density_kcal_per_kg: z.int(),
+    rate_requested: z.number(),
+    rate_used: z.number(),
+    desired_slope_kg_per_day: z.number(),
+    implied_deficit_kcal: z.number(),
+    clipped: z.boolean(),
+    clipped_reasons: z.array(z.enum(CLIP_REASONS)),
+  })
+  .nullable();
 
-const ProteinComputationSchema = z.object({
-  protein_g_target: z.int(),
-  basis: z.enum(["ffm", "bodyweight"]),
-  multiplier_g_per_kg: z.number(),
-  basis_mass_kg: z.number(),
-}).nullable();
+const ProteinComputationSchema = z
+  .object({
+    protein_g_target: z.int(),
+    basis: z.enum(["ffm", "bodyweight"]),
+    multiplier_g_per_kg: z.number(),
+    basis_mass_kg: z.number(),
+  })
+  .nullable();
 
 nutritionTargets.openapi(
   createRoute({
@@ -87,7 +93,7 @@ nutritionTargets.openapi(
     c.json({
       targets: await services(c).targets.listTargets(),
       active: await services(c).targets.activeTarget(services(c).today()),
-    }),
+    })
 );
 
 nutritionTargets.openapi(
@@ -149,5 +155,5 @@ nutritionTargets.openapi(
   async (c) => {
     const result = await services(c).targets.setTarget(c.req.valid("json"));
     return result.created ? c.json(result.body, 201) : c.json(result.body, 200);
-  },
+  }
 );

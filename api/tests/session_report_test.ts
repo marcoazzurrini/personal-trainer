@@ -1,8 +1,9 @@
-import { assert, assertEquals } from "@std/assert";
-import d1 from "./d1.ts";
-import { api, ensureCatalogue, resetTraining, today } from "./helpers.ts";
-import { database } from "./d1.ts";
+import { test } from "node:test";
+
 import { sessionStore } from "../training/sessions.ts";
+import { assert, assertEquals } from "./assertions.ts";
+import d1, { database } from "./d1.ts";
+import { api, ensureCatalogue, resetTraining, today } from "./helpers.ts";
 
 async function draft(count = 3) {
   const created = await api.post("/sessions", {
@@ -18,8 +19,7 @@ async function draft(count = 3) {
   assertEquals(created.status, 201);
   return created.body.session;
 }
-
-Deno.test("one session report records only named sets and session facts, and retries without restamping", async () => {
+test("one session report records only named sets and session facts, and retries without restamping", async () => {
   await resetTraining();
   await ensureCatalogue();
   const before = await draft();
@@ -40,13 +40,13 @@ Deno.test("one session report records only named sets and session facts, and ret
   };
   const written = await api.patch(`/sessions/${before.id}`, payload);
   assertEquals(written.status, 200);
-  const session = written.body.session;
+  const { session } = written.body;
   assertEquals(session.completed_at, "2020-01-01T11:00:00.000Z");
   assertEquals(session.overall_feel, "Solid");
   assertEquals(session.notes, "Reported together");
   assertEquals(
     session.sets.map((s: { id: number }) => s.id),
-    before.sets.map((s: { id: number }) => s.id),
+    before.sets.map((s: { id: number }) => s.id)
   );
   assertEquals(session.sets[0].weight_kg, 0);
   assertEquals(session.sets[0].notes, "Planned set 1");
@@ -56,12 +56,11 @@ Deno.test("one session report records only named sets and session facts, and ret
   assertEquals(session.sets[2], before.sets[2]);
   assertEquals(
     session.sets.map((s: { target_weight_kg: number }) => s.target_weight_kg),
-    [100, 100, 100],
+    [100, 100, 100]
   );
   const retry = await api.patch(`/sessions/${before.id}`, payload);
   assertEquals(retry.status, 200);
   assertEquals(retry.body, written.body);
-
   const partial = await api.patch(`/sessions/${before.id}`, {
     sets: [{ id: before.sets[1].id, reps: 8 }],
   });
@@ -69,13 +68,15 @@ Deno.test("one session report records only named sets and session facts, and ret
   assertEquals(partial.body.session.sets[1], { ...session.sets[1], reps: 8 });
   const cleared = await api.patch(`/sessions/${before.id}`, {
     completed_at: null,
-    sets: [{
-      id: before.sets[1].id,
-      weight_kg: null,
-      reps: null,
-      effort: null,
-      performed_at: null,
-    }],
+    sets: [
+      {
+        id: before.sets[1].id,
+        weight_kg: null,
+        reps: null,
+        effort: null,
+        performed_at: null,
+      },
+    ],
   });
   assertEquals(cleared.status, 200);
   assertEquals(cleared.body.session.completed_at, null);
@@ -87,8 +88,7 @@ Deno.test("one session report records only named sets and session facts, and ret
     performed_at: null,
   });
 });
-
-Deno.test("a session report refuses invalid entries without changing any set or session fact", async (t) => {
+test("a session report refuses invalid entries without changing any set or session fact", async (t) => {
   await resetTraining();
   await ensureCatalogue();
   const before = await draft();
@@ -137,7 +137,7 @@ Deno.test("a session report refuses invalid entries without changing any set or 
     ],
   ];
   for (const [name, sets, status, message] of cases) {
-    await t.step(name, async () => {
+    await t.test(name, async () => {
       const result = await api.patch(`/sessions/${before.id}`, {
         sets,
         notes: "Must not survive",
@@ -146,21 +146,20 @@ Deno.test("a session report refuses invalid entries without changing any set or 
       assert(result.body.error.includes(message), result.body.error);
       assertEquals(
         (await api.get(`/sessions/${before.id}`)).body.session,
-        before,
+        before
       );
       assertEquals(
         (await api.get(`/sessions/${foreign.id}`)).body.session,
-        foreign,
+        foreign
       );
     });
   }
   assertEquals(
     (await api.patch("/sessions/2000000000", { sets: [valid] })).status,
-    404,
+    404
   );
 });
-
-Deno.test("session reports use the same measure and effort rules as single-set corrections", async () => {
+test("session reports use the same measure and effort rules as single-set corrections", async () => {
   await resetTraining();
   await ensureCatalogue();
   const created = await api.post("/sessions", {
@@ -204,8 +203,7 @@ Deno.test("session reports use the same measure and effort rules as single-set c
   assertEquals(bad.status, 422);
   assertEquals((await api.get(`/sessions/${before.id}`)).body, result.body);
 });
-
-Deno.test("database refusals roll back both the set update and session facts", async () => {
+test("database refusals roll back both the set update and session facts", async () => {
   await resetTraining();
   await ensureCatalogue();
   const before = await draft();
@@ -227,7 +225,7 @@ Deno.test("database refusals roll back both the set update and session facts", a
     assertEquals(refused.status, 422);
     assertEquals(
       (await api.get(`/sessions/${before.id}`)).body.session,
-      before,
+      before
     );
     const corrected = await api.patch(`/sessions/${before.id}`, {
       ...payload,
@@ -235,24 +233,26 @@ Deno.test("database refusals roll back both the set update and session facts", a
     });
     assertEquals(corrected.status, 200);
     assert(
-      corrected.body.session.sets.every((s: { reps: number | null }) =>
-        s.reps === 5
-      ),
+      corrected.body.session.sets.every(
+        (s: { reps: number | null }) => s.reps === 5
+      )
     );
   } finally {
     await db`drop trigger if exists test_report_note`;
     await db.end();
   }
-
   const created = await api.post("/sessions", {
     date: today(),
     rationale: "Database warmup refusal",
-    sets: [{ exercise: "squat", target_weight_kg: 100, target_reps: 5 }, {
-      exercise: "squat",
-      kind: "warmup",
-      target_weight_kg: 20,
-      target_reps: 5,
-    }],
+    sets: [
+      { exercise: "squat", target_weight_kg: 100, target_reps: 5 },
+      {
+        exercise: "squat",
+        kind: "warmup",
+        target_weight_kg: 20,
+        target_reps: 5,
+      },
+    ],
   });
   assertEquals(created.status, 201);
   const warmup = created.body.session;
@@ -270,12 +270,11 @@ Deno.test("database refusals roll back both the set update and session facts", a
   assert(bad.body.error.includes("Warmup"));
   assertEquals((await api.get(`/sessions/${warmup.id}`)).body.session, warmup);
 });
-
-Deno.test("omitted actual fields retain database precision during a report", async () => {
+test("omitted actual fields retain database precision during a report", async () => {
   await resetTraining();
   await ensureCatalogue();
   const before = await draft(1);
-  const id = before.sets[0].id;
+  const [{ id }] = before.sets;
   const db = d1();
   try {
     // JS Date reads only milliseconds. A notes correction must not round an
@@ -295,8 +294,7 @@ Deno.test("omitted actual fields retain database precision during a report", asy
     await db.end();
   }
 });
-
-Deno.test("a skipped database update cannot look like a successful report", async () => {
+test("a skipped database update cannot look like a successful report", async () => {
   await resetTraining();
   await ensureCatalogue();
   const before = await draft();
@@ -306,38 +304,46 @@ Deno.test("a skipped database update cannot look like a successful report", asyn
       when new.notes = 'skip this set' begin select raise(ignore); end`;
     const refused = await api.patch(`/sessions/${before.id}`, {
       notes: "Must not survive",
-      sets: before.sets.map((s: { id: number }, i: number) => ({
-        id: s.id,
-        weight_kg: 100,
-        reps: 5,
-        effort: "hard",
-        notes: i === 1 ? "skip this set" : "Recorded",
-      })),
+      sets: before.sets.map(
+        (
+          s: {
+            id: number;
+          },
+          i: number
+        ) => ({
+          id: s.id,
+          weight_kg: 100,
+          reps: 5,
+          effort: "hard",
+          notes: i === 1 ? "skip this set" : "Recorded",
+        })
+      ),
     });
     assertEquals(refused.status, 409);
     assertEquals(
       (await api.get(`/sessions/${before.id}`)).body.session,
-      before,
+      before
     );
   } finally {
     await db`drop trigger if exists test_report_skip`;
     await db.end();
   }
 });
-
-Deno.test("reports and single-set corrections revalidate concurrent partial values", async () => {
+test("reports and single-set corrections revalidate concurrent partial values", async () => {
   await resetTraining();
   await ensureCatalogue();
   for (const firstWriter of ["set", "session"]) {
     const planned = await draft(1);
-    const id = planned.sets[0].id;
+    const [{ id }] = planned.sets;
     assertEquals(
-      (await api.patch(`/sets/${id}`, {
-        weight_kg: 100,
-        reps: 5,
-        effort: "hard",
-      })).status,
-      200,
+      (
+        await api.patch(`/sets/${id}`, {
+          weight_kg: 100,
+          reps: 5,
+          effort: "hard",
+        })
+      ).status,
+      200
     );
     const clear = {
       weight_kg: null,
@@ -358,12 +364,11 @@ Deno.test("reports and single-set corrections revalidate concurrent partial valu
     assert([200, 422].includes(corrected.status));
     assertEquals(
       (await api.get(`/sessions/${planned.id}`)).body.session,
-      planned,
+      planned
     );
   }
 });
-
-Deno.test("session report D1 writes stay bounded and return all twenty sets", async () => {
+test("session report D1 writes stay bounded and return all twenty sets", async () => {
   await resetTraining();
   await ensureCatalogue();
   const before = await draft(20);

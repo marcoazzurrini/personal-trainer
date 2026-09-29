@@ -47,12 +47,13 @@ export function lastFinishedSunday(day: string): string {
 export function requireNotFuture(
   day: string,
   today: string,
-  field: string,
+  field: string
 ): string {
-  if (day > today) { // ISO dates sort lexicographically
+  if (day > today) {
+    // ISO dates sort lexicographically
     throw new ApiError(
       422,
-      `"${field}" is ${day}, which is in the future — today is ${today} in Europe/Rome. A logged day records what was already eaten, weighed or measured. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`,
+      `"${field}" is ${day}, which is in the future — today is ${today} in Europe/Rome. A logged day records what was already eaten, weighed or measured. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`
     );
   }
   return day;
@@ -66,12 +67,12 @@ const CLOCK_SKEW_MS = 5 * 60_000;
 export function requireNotFutureInstant(
   iso: string,
   field: string,
-  now: number = Date.now(),
+  now: number = Date.now()
 ): string {
   if (Date.parse(iso) > now + CLOCK_SKEW_MS) {
     throw new ApiError(
       422,
-      `"${field}" is ${iso}, which is in the future. A measurement records something that has already been taken. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`,
+      `"${field}" is ${iso}, which is in the future. A measurement records something that has already been taken. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`
     );
   }
   return iso;

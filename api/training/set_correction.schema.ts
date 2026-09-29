@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi";
-import { EFFORTS } from "./rules.ts";
+
 import {
   oneOf,
   optionalInt,
@@ -7,6 +7,7 @@ import {
   optionalText,
   optionalTimestamp,
 } from "../shared/schema.ts";
+import { EFFORTS } from "./rules.ts";
 
 // Both correction surfaces accept the same fields and give the same refusal
 // for targets. Keep request parsing here, separate from the pure merge rule.
@@ -16,7 +17,7 @@ const immutableTarget = () =>
       "Refused. Targets are the record of what was asked that day and never change after the session exists.",
   });
 
-export function setCorrectionShape() {
+export function setCorrectionFields() {
   return {
     weight_kg: optionalNumber({ min: 0 }),
     reps: optionalInt({ min: 1 }),

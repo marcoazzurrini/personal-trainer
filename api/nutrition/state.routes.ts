@@ -1,8 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
+
+import { clock, macroTotals, query } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
 import { Entry } from "./intake.routes.ts";
 import { Target } from "./targets.routes.ts";
-import { clock, macroTotals, query } from "../shared/schema.ts";
 
 // The declaration only; state.ts holds what it answers with.
 
@@ -20,21 +22,25 @@ const Expenditure = z.object({
   // Populated under insufficient_data too: stripping the dates exactly when
   // the reader needs to reconcile "0 weigh-in days" with this morning's
   // weigh-in is how a working sync gets reported as broken.
-  window: z.object({
-    from: z.string(),
-    to: z.string(),
-    days: z.int(),
-    usable_days: z.int(),
-    weigh_in_days: z.int(),
-  }).nullable(),
-  inputs: z.object({
-    mean_intake_kcal: z.number(),
-    trend_from_kg: z.number(),
-    trend_to_kg: z.number(),
-    slope_kg_per_day: z.number(),
-    energy_density_kcal_per_kg: z.number(),
-    fat_mass_kg: z.number(),
-  }).nullable(),
+  window: z
+    .object({
+      from: z.string(),
+      to: z.string(),
+      days: z.int(),
+      usable_days: z.int(),
+      weigh_in_days: z.int(),
+    })
+    .nullable(),
+  inputs: z
+    .object({
+      mean_intake_kcal: z.number(),
+      trend_from_kg: z.number(),
+      trend_to_kg: z.number(),
+      slope_kg_per_day: z.number(),
+      energy_density_kcal_per_kg: z.number(),
+      fat_mass_kg: z.number(),
+    })
+    .nullable(),
   // Which window the estimate belongs to. Null under insufficient_data,
   // because a date beside a null tdee reads as "current as of".
   as_of: z.string().nullable(),
@@ -94,38 +100,44 @@ const NutritionState = z.object({
     entries: z.array(Entry),
     totals: macroTotals(),
     // Against the target, not against the estimate.
-    vs_target: z.object({
-      kcal_target: z.int(),
-      kcal_remaining: z.number(),
-      protein_g_target: z.int(),
-      protein_g_remaining: z.number().nullable(),
-    }).nullable(),
+    vs_target: z
+      .object({
+        kcal_target: z.int(),
+        kcal_remaining: z.number(),
+        protein_g_target: z.int(),
+        protein_g_remaining: z.number().nullable(),
+      })
+      .nullable(),
   }),
   // Presented before raw weight on purpose: raw scale weight is water and gut
   // content, and translating a number back to the trend is the coach's first
   // job when Marco reacts to one.
-  trend_weight: z.object({
-    day: z.string(),
-    trend_kg: z.number(),
-    // The earliest reading of that day, which is the most fasted one
-    // available and so the most comparable across days.
-    earliest_scale_kg: z.number(),
-    interpolated: z.boolean(),
-    // A slope is stated both ways it gets used: absolute, and as a share of
-    // bodyweight — the number a cut is judged by is the percentage. The
-    // computation (read.ts) has always returned both; the
-    // schema here promised only the first.
-    slope_7d: Slope.nullable(),
-    slope_21d: Slope.nullable(),
-  }).nullable(),
+  trend_weight: z
+    .object({
+      day: z.string(),
+      trend_kg: z.number(),
+      // The earliest reading of that day, which is the most fasted one
+      // available and so the most comparable across days.
+      earliest_scale_kg: z.number(),
+      interpolated: z.boolean(),
+      // A slope is stated both ways it gets used: absolute, and as a share of
+      // bodyweight — the number a cut is judged by is the percentage. The
+      // computation (read.ts) has always returned both; the
+      // schema here promised only the first.
+      slope_7d: Slope.nullable(),
+      slope_21d: Slope.nullable(),
+    })
+    .nullable(),
   expenditure: Expenditure,
   target: Target.nullable(),
-  active_transients: z.array(z.object({
-    id: z.int(),
-    day: z.string(),
-    kind: z.string(),
-    note: z.string().nullable(),
-  })),
+  active_transients: z.array(
+    z.object({
+      id: z.int(),
+      day: z.string(),
+      kind: z.string(),
+      note: z.string().nullable(),
+    })
+  ),
   recent_days: z.array(RecentDay),
   // Alongside the estimate rather than under it: a beautiful estimate over a
   // collapsing logging habit is a misleading picture.
@@ -150,5 +162,5 @@ nutritionState.openapi(
       },
     },
   }),
-  async (c) => c.json(await services(c).nutritionState.nutritionState()),
+  async (c) => c.json(await services(c).nutritionState.nutritionState())
 );

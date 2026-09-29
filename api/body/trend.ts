@@ -14,7 +14,7 @@
 
 import { addDays, daysBetween } from "../shared/dates.ts";
 
-export const DEFAULT_ALPHA = 0.10; // ~19-day-equivalent window
+export const DEFAULT_ALPHA = 0.1; // ~19-day-equivalent window
 
 export interface DailyWeight {
   day: string; // YYYY-MM-DD
@@ -39,16 +39,19 @@ export interface TrendPoint {
 // reads as a stalled diet.
 export function trendSeries(
   weights: readonly DailyWeight[],
-  alpha: number = DEFAULT_ALPHA,
+  alpha: number = DEFAULT_ALPHA
 ): TrendPoint[] {
-  if (weights.length === 0) return [];
+  if (weights.length === 0) {
+    return [];
+  }
   // Sorted here, not assumed: the SQL that feeds this orders by day, but an
   // unsorted array used to be answered with a silently truncated series —
   // wrong in exactly the invisible-for-weeks way this module exists to avoid.
-  const ordered = [...weights].sort((a, b) => a.day < b.day ? -1 : 1);
+  const ordered = weights.toSorted((a, b) => (a.day < b.day ? -1 : 1));
   const byDay = new Map(ordered.map((w) => [w.day, Number(w.value_kg)]));
   const first = ordered[0].day;
-  const last = ordered[ordered.length - 1].day;
+  // SAFETY: the empty input returns above; sorting preserves its nonzero length.
+  const last = (ordered.at(-1) as DailyWeight).day;
 
   const points: TrendPoint[] = [];
   let trend = Number(ordered[0].value_kg);
@@ -60,7 +63,9 @@ export function trendSeries(
     if (weight === undefined) {
       const before = byDay.get(addDays(day, -1));
       const after = byDay.get(addDays(day, 1));
-      if (before === undefined || after === undefined) continue; // gap > 1 day
+      if (before === undefined || after === undefined) {
+        continue;
+      } // gap > 1 day
       weight = (before + after) / 2;
       interpolated = true;
     }

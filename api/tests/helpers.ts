@@ -1,6 +1,14 @@
-import d1 from "./d1.ts";
-import { loadCatalogue } from "../../scripts/load_catalogue.ts";
+import { Ajv } from "ajv";
+import type { ValidateFunction } from "ajv";
 
+import { loadCatalogue } from "../../scripts/load_catalogue.ts";
+import { DEFAULT_WINDOW_DAYS as WINDOW_DAYS } from "../nutrition/expenditure.ts";
+import {
+  addDays,
+  lastFinishedSunday as lastFinishedSundayOf,
+  mondayOf,
+} from "../shared/dates.ts";
+import d1 from "./d1.ts";
 import { management, verifiedDatabase, verifyApi } from "./disposable.ts";
 
 // Fail before even the import-time token mint. The test-only API proves its
@@ -12,7 +20,7 @@ export const TOKEN = crypto.randomUUID();
 
 export interface ApiResponse {
   status: number;
-  // deno-lint-ignore no-explicit-any
+  // oxlint-disable-next-line typescript/no-explicit-any -- Tests inspect different endpoint shapes; request() checks the envelope and declared schema at runtime.
   body: any;
 }
 
@@ -27,20 +35,25 @@ export interface ApiResponse {
 // reached by accident.
 function assertErrorEnvelope(
   status: number,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This boundary checks the raw HTTP error payload, including malformed values.
   body: unknown,
   method: string,
-  path: string,
+  path: string
 ): void {
-  if (status < 400) return;
+  if (status < 400) {
+    return;
+  }
+  // SAFETY: This view only reads a possible error property; the checks below reject invalid envelopes, not this assertion.
   const error = (body as { error?: unknown } | null)?.error;
-  const keys = body !== null && typeof body === "object"
-    ? Object.keys(body)
-    : [];
+  const keys =
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Raw JSON may be a primitive; only objects have envelope keys to count.
+    body !== null && typeof body === "object" ? Object.keys(body) : [];
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The error contract requires a nonempty string, not a coerced value.
   if (typeof error !== "string" || error.trim() === "" || keys.length !== 1) {
     throw new Error(
-      `${method} ${path} answered ${status} with ${
-        JSON.stringify(body)
-      } — every error must be exactly { "error": "<message>" }.`,
+      `${method} ${path} answered ${status} with ${JSON.stringify(
+        body
+      )} — every error must be exactly { "error": "<message>" }.`
     );
   }
 }
@@ -48,13 +61,14 @@ function assertErrorEnvelope(
 async function request(
   method: string,
   path: string,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests deliberately send invalid request bodies to exercise API refusals.
   body?: unknown,
-  token: string | null = TOKEN,
+  token: string | null = TOKEN
 ): Promise<ApiResponse> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers,
@@ -78,32 +92,43 @@ async function request(
 // for the same reason — on every call every test makes, covering whichever
 // path a test happens to walk down, including the ones reached by accident.
 
-import { Ajv, type ValidateFunction } from "ajv";
-
-/** A parsed JSON object, guarded at every use. */
+/** A JSON object container; its property values remain unvalidated. */
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- OpenAPI nodes and response objects have dynamic keys; each consumer checks the fields it uses.
 type Node = Record<string, unknown>;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the object-container boundary for raw JSON and nested schema values.
 function record(value: unknown): Node | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Node // checked: reached only through the guard above
-    : null;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Check the container before treating its dynamic properties as unknown values.
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    // SAFETY: The guard establishes a non-null, non-array object, not any property value's shape.
+    return value as Node;
+  }
+  return null;
 }
 
 // zod-to-openapi writes nullability in OpenAPI 3.0's "nullable: true", which
 // JSON Schema does not understand. Resolved once, at load, into the type
 // array that means the same thing.
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Traversal visits arbitrary JSON values, including scalar schema metadata.
 function resolveNullable(node: unknown): void {
   if (Array.isArray(node)) {
-    for (const child of node) resolveNullable(child);
+    for (const child of node) {
+      resolveNullable(child);
+    }
     return;
   }
   const object = record(node);
-  if (object === null) return;
+  if (object === null) {
+    return;
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Only string-valued OpenAPI types need conversion to a nullable type array.
   if (object.nullable === true && typeof object.type === "string") {
     object.type = [object.type, "null"];
   }
   delete object.nullable;
-  for (const child of Object.values(object)) resolveNullable(child);
+  for (const child of Object.values(object)) {
+    resolveNullable(child);
+  }
 }
 
 interface DeclaredRoute {
@@ -123,21 +148,24 @@ const DECLARED_ROUTES: DeclaredRoute[] = await (async () => {
   try {
     response = await fetch(`${BASE}/openapi.json`);
   } catch {
-    throw new Error(
-      `nothing answers at ${BASE}: run deno task test`,
-    );
+    throw new Error(`nothing answers at ${BASE}: run bun run test:api`);
   }
   const document = record(await response.json());
-  if (document === null || record(document.paths) === null) {
+  const paths = record(document?.paths);
+  if (document === null || paths === null) {
     throw new Error("/openapi.json did not answer with a document");
   }
   const methods = new Set(["get", "post", "patch", "put", "delete"]);
   const routes: DeclaredRoute[] = [];
-  for (const [template, pathItem] of Object.entries(document.paths as Node)) {
+  for (const [template, pathItem] of Object.entries(paths)) {
     const operations = record(pathItem);
-    if (operations === null) continue;
+    if (operations === null) {
+      continue;
+    }
     for (const [method, operation] of Object.entries(operations)) {
-      if (!methods.has(method)) continue; // the document keys methods lowercase; request() sends uppercase
+      if (!methods.has(method)) {
+        continue;
+      } // the document keys methods lowercase; request() sends uppercase
       const responses = record(operation)?.responses;
       const schemaFor = new Map<string, Node | null>();
       for (const [status, entry] of Object.entries(record(responses) ?? {})) {
@@ -146,7 +174,7 @@ const DECLARED_ROUTES: DeclaredRoute[] = await (async () => {
       }
       routes.push({
         segments: template
-          .replace(/^\/api(?=\/|$)/, "")
+          .replace(/^\/api(?=\/|$)/u, "")
           .split("/")
           .filter((segment) => segment !== ""),
         method: method.toUpperCase(),
@@ -168,6 +196,7 @@ const ajv = new Ajv({ strict: false });
 // as a whole.
 const branchValidators = new WeakMap<Node, ValidateFunction>();
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- AJV must try each union branch against the unvalidated response value.
 function branchFor(branches: Node[], value: unknown): Node | null {
   for (const branch of branches) {
     let validate = branchValidators.get(branch);
@@ -175,7 +204,9 @@ function branchFor(branches: Node[], value: unknown): Node | null {
       validate = ajv.compile(branch);
       branchValidators.set(branch, validate);
     }
-    if (validate(value)) return branch;
+    if (validate(value)) {
+      return branch;
+    }
   }
   return null; // no branch matched: ajv has already said so above
 }
@@ -189,17 +220,22 @@ function decode(segment: string): string {
 }
 
 function matchDeclared(method: string, path: string): DeclaredRoute | null {
-  const parts = path.split("?")[0].split("/").filter((p) => p !== "");
-  outer: for (const route of DECLARED_ROUTES) {
+  const parts = path
+    .split("?")[0]
+    .split("/")
+    .filter((p) => p !== "");
+  for (const route of DECLARED_ROUTES) {
     if (route.method !== method || route.segments.length !== parts.length) {
       continue;
     }
-    for (let i = 0; i < parts.length; i++) {
-      const template = route.segments[i];
-      const isParameter = template.startsWith("{");
-      if (!isParameter && template !== decode(parts[i])) continue outer;
+    if (
+      route.segments.every(
+        (template, i) =>
+          template.startsWith("{") || template === decode(parts[i])
+      )
+    ) {
+      return route;
     }
-    return route;
   }
   return null;
 }
@@ -212,16 +248,20 @@ function matchDeclared(method: string, path: string): DeclaredRoute | null {
 // and an undeclared field is one the document never admitted to.
 function collectExtras(
   schema: Node | null,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Extra-field checks traverse raw response values, even after schema validation fails.
   value: unknown,
   at: string,
-  extras: string[],
+  extras: string[]
 ): void {
-  const branches = schema !== null && Array.isArray(schema.anyOf)
-    ? schema.anyOf.filter((b): b is Node => record(b) !== null)
-    : null;
+  const branches =
+    schema !== null && Array.isArray(schema.anyOf)
+      ? schema.anyOf.filter((b): b is Node => record(b) !== null)
+      : null;
   if (branches !== null) {
     const branch = branchFor(branches, value);
-    if (branch !== null) collectExtras(branch, value, at, extras);
+    if (branch !== null) {
+      collectExtras(branch, value, at, extras);
+    }
     return;
   }
   const object = record(value);
@@ -236,16 +276,16 @@ function collectExtras(
         record(properties[key]),
         object[key],
         `${at}${at === "" ? "" : "."}${key}`,
-        extras,
+        extras
       );
     }
     return;
   }
   if (Array.isArray(value)) {
     const items = record(schema?.items);
-    value.forEach((item, i) =>
-      collectExtras(items, item, `${at}[${i}]`, extras)
-    );
+    for (const [i, item] of value.entries()) {
+      collectExtras(items, item, `${at}[${i}]`, extras);
+    }
   }
 }
 
@@ -253,7 +293,8 @@ export function assertMatchesDocument(
   method: string,
   path: string,
   status: number,
-  body: unknown,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This validator must accept malformed responses to detect contract drift.
+  body: unknown
 ): void {
   // These public surfaces deliberately do not use the generated contract.
   // A new undocumented success must fail rather than silently escaping checks.
@@ -265,12 +306,14 @@ export function assertMatchesDocument(
     "HEAD /withings/notify",
     "POST /withings/notify",
   ]);
-  const pathname = path.split("?")[0];
-  if (outsideDocument.has(`${method} ${pathname}`)) return;
+  const [pathname] = path.split("?");
+  if (outsideDocument.has(`${method} ${pathname}`)) {
+    return;
+  }
   const route = matchDeclared(method, path);
   if (route === null) {
     throw new Error(
-      `${method} ${path} answered ${status} but has no declared route.`,
+      `${method} ${path} answered ${status} but has no declared route.`
     );
   }
   const schema = route.schemaFor.get(String(status));
@@ -278,12 +321,12 @@ export function assertMatchesDocument(
     throw new Error(
       `${method} ${path} answered ${status}, which its route does not declare ` +
         `— declared: ${[...route.schemaFor.keys()].join(", ")}. The document ` +
-        `is generated from the routes, so the code and the description have split.`,
+        `is generated from the routes, so the code and the description have split.`
     );
   }
   if (schema === null) {
     throw new Error(
-      `${method} ${path} answered ${status} without a response schema.`,
+      `${method} ${path} answered ${status} without a response schema.`
     );
   }
 
@@ -296,18 +339,20 @@ export function assertMatchesDocument(
   if (!validate(body)) {
     for (const error of validate.errors ?? []) {
       problems.push(
-        `${error.instancePath || "(root)"} ${error.message ?? "is not valid"}`,
+        `${error.instancePath || "(root)"} ${error.message ?? "is not valid"}`
       );
     }
   }
   const extras: string[] = [];
   collectExtras(schema, body, "", extras);
-  for (const extra of extras) problems.push(`${extra} is not in the document`);
+  for (const extra of extras) {
+    problems.push(`${extra} is not in the document`);
+  }
   if (problems.length > 0) {
     throw new Error(
       `${method} ${path} answered ${status} with ${JSON.stringify(body)} ` +
         `— ${problems.join("; ")}. The schema and the SQL have drifted; ` +
-        `whichever is wrong, fix it.`,
+        `whichever is wrong, fix it.`
     );
   }
 }
@@ -317,23 +362,28 @@ export function assertMatchesDocument(
 // boilerplate would bury what each test is actually asserting. Tests that
 // pass an explicit id (to exercise a retry) keep theirs, and postRaw sends the
 // body untouched so the requirement itself can be tested.
+// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Invalid test inputs must pass through unchanged; only object bodies receive a missing request_id.
 function withRequestId(body: unknown): unknown {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  const b = record(body);
+  if (b === null) {
     return body;
   }
-  const b = body as Record<string, unknown>;
   return "request_id" in b ? b : { ...b, request_id: uuid() };
 }
 
 export const api = {
   get: (path: string, token?: string | null) =>
     request("GET", path, undefined, token),
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests send malformed bodies to check API refusals.
   post: (path: string, body: unknown, token?: string | null) =>
     request("POST", path, withRequestId(body), token),
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Raw bodies must reach the API unchanged, including missing request_id values.
   postRaw: (path: string, body: unknown, token?: string | null) =>
     request("POST", path, body, token),
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests send malformed bodies to check API refusals.
   patch: (path: string, body: unknown, token?: string | null) =>
     request("PATCH", path, body, token),
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests send malformed bodies to check API refusals.
   put: (path: string, body: unknown, token?: string | null) =>
     request("PUT", path, body, token),
   delete: (path: string, token?: string | null) =>
@@ -346,19 +396,21 @@ export const api = {
 // hand back the plaintext. The hash is computed in this file rather than
 // imported from the function on purpose — a second, independent statement of
 // the format, so a change to one side is caught by the other.
-export async function mintToken(opts: {
-  token?: string;
-  subject?: string;
-  expiresInMs?: number;
-} = {}): Promise<string> {
+export async function mintToken(
+  opts: {
+    token?: string;
+    subject?: string;
+    expiresInMs?: number;
+  } = {}
+): Promise<string> {
   const token = opts.token ?? crypto.randomUUID();
   const expiresInMs = opts.expiresInMs ?? 60 * 60 * 1000;
-  const expiresAt = new Date(Date.now() + expiresInMs).toISOString().replace(
-    /Z$/,
-    "000Z",
-  );
-  const issuedAt = new Date(Date.now() + expiresInMs - 3600000).toISOString()
-    .replace(/Z$/, "000Z");
+  const expiresAt = new Date(Date.now() + expiresInMs)
+    .toISOString()
+    .replace(/Z$/u, "000Z");
+  const issuedAt = new Date(Date.now() + expiresInMs - 3_600_000)
+    .toISOString()
+    .replace(/Z$/u, "000Z");
   const db = d1();
   try {
     await db`
@@ -385,7 +437,7 @@ export async function revokeToken(token: string): Promise<void> {
   const db = d1();
   try {
     await db`delete from api_tokens where token_hash = ${await sha256Hex(
-      token,
+      token
     )}`;
   } finally {
     await db.end();
@@ -395,13 +447,11 @@ export async function revokeToken(token: string): Promise<void> {
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(text),
+    new TextEncoder().encode(text)
   );
-  return Array.from(
-    new Uint8Array(digest),
-    (b) => b.toString(16).padStart(2, "0"),
-  )
-    .join("");
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0")
+  ).join("");
 }
 
 // The shared TOKEN exists as a row before any test runs, whichever file runs
@@ -447,11 +497,6 @@ export function resetWithings() {
   return resetTables(["withings_auth"]);
 }
 
-/** The Sunday that ended the most recent finished Rome week. */
-export function lastFinishedSunday(): string {
-  return lastFinishedSundayOf(ROME_TODAY);
-}
-
 interface CutSeed {
   days: number;
   kcal: number;
@@ -482,7 +527,7 @@ export async function seedCut(seed: CutSeed) {
   for (let i = seed.days - 1; i >= skip; i--) {
     const day = daysBefore(end, i);
     const elapsed = seed.days - 1 - i;
-    const weight = seed.startWeightKg + seed.kgPerWeek / 7 * elapsed;
+    const weight = seed.startWeightKg + (seed.kgPerWeek / 7) * elapsed;
     await api.post("/bodyweight", {
       value_kg: Math.round(weight * 100) / 100,
       measured_at: `${day}T05:30:00Z`, // 07:30 Rome, a morning weigh-in
@@ -506,23 +551,16 @@ export async function seedCut(seed: CutSeed) {
 // the assertions self-consistent with each other while the route read a
 // different number — the threshold tests would pass while pinning the wrong
 // value.
-import {
+export {
   DEFAULT_WINDOW_DAYS as WINDOW_DAYS,
   MIN_WINDOW_DAYS as MIN_USABLE_DAYS,
 } from "../nutrition/expenditure.ts";
-export { MIN_USABLE_DAYS, WINDOW_DAYS };
-import {
-  addDays,
-  lastFinishedSunday as lastFinishedSundayOf,
-  mondayOf,
-} from "../shared/dates.ts";
 
 /** The window the estimate reads: N days ending at the last finished Sunday, oldest first. */
 export function expenditureWindow(count = WINDOW_DAYS): string[] {
   const end = lastFinishedSunday();
-  return Array.from(
-    { length: count },
-    (_, i) => daysBefore(end, count - 1 - i),
+  return Array.from({ length: count }, (_, i) =>
+    daysBefore(end, count - 1 - i)
   );
 }
 
@@ -544,11 +582,11 @@ export async function seedFood(name = "Window Food") {
 export async function seedWeighIns(
   days: string[],
   startKg = 82,
-  kgPerWeek = -0.5,
+  kgPerWeek = -0.5
 ) {
   for (const [i, day] of days.entries()) {
     await api.post("/bodyweight", {
-      value_kg: Math.round((startKg + kgPerWeek / 7 * i) * 100) / 100,
+      value_kg: Math.round((startKg + (kgPerWeek / 7) * i) * 100) / 100,
       measured_at: `${day}T05:30:00Z`, // 07:30 Rome
     });
   }
@@ -557,7 +595,7 @@ export async function seedWeighIns(
 export async function seedIntakeDays(
   days: string[],
   kcal: number,
-  food = "Window Food",
+  food = "Window Food"
 ) {
   for (const day of days) {
     await api.post("/intake", { day, food, grams: kcal, request_id: uuid() });
@@ -604,11 +642,10 @@ export async function seedPlan(opts: {
   blockId: number;
   mesocycleId: number;
   /** The created mesocycle as the API answered it, for asserting against. */
-  // deno-lint-ignore no-explicit-any
-  mesocycle: any;
+  mesocycle: ApiResponse["body"];
 }> {
   const startedOn = opts.started_on ?? lastMonday();
-  let blockId = opts.blockId;
+  let { blockId } = opts;
   if (blockId === undefined) {
     const block = await api.post("/blocks", {
       name: "Test block",
@@ -618,7 +655,8 @@ export async function seedPlan(opts: {
     if (block.status !== 201) {
       throw new Error(`seedPlan block: ${block.body.error}`);
     }
-    blockId = block.body.block.id;
+    const id: number = block.body.block.id;
+    blockId = id;
   }
   const meso = await api.post("/mesocycles", {
     request_id: uuid(),
@@ -641,7 +679,7 @@ export async function seedPlan(opts: {
     throw new Error(`seedPlan mesocycle: ${meso.body.error}`);
   }
   return {
-    blockId: blockId!,
+    blockId,
     mesocycleId: meso.body.mesocycle.id,
     mesocycle: meso.body.mesocycle,
   };
@@ -650,13 +688,20 @@ export async function seedPlan(opts: {
 // Loads the catalogue if this database has never seen it (fresh CI stack).
 export async function ensureCatalogue() {
   const { body } = await api.get("/exercises");
-  if (body.exercises.length === 0) await loadCatalogue(BASE, TOKEN);
+  if (body.exercises.length === 0) {
+    await loadCatalogue(BASE, TOKEN);
+  }
 }
 
 // --- Date helpers. All calendar logic is Europe/Rome, like the API. ---
 
 // Use the runner's Rome clock once, so fixtures agree across the suite.
 const ROME_TODAY: string = await management(disposable, "today");
+
+/** The Sunday that ended the most recent finished Rome week. */
+export function lastFinishedSunday(): string {
+  return lastFinishedSundayOf(ROME_TODAY);
+}
 
 // The arithmetic on top of that anchor comes from shared/dates.ts — the same
 // functions the API's own code uses, so the suite cannot disagree with the

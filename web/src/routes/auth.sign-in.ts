@@ -6,7 +6,7 @@ export const Route = createFileRoute("/auth/sign-in")({
     handlers: {
       GET: async () =>
         Response.redirect(
-          await getSignInUrl({ data: { returnPathname: "/" } }),
+          await getSignInUrl({ data: { returnPathname: "/" } })
         ),
     },
   },

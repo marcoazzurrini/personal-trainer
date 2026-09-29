@@ -1,26 +1,16 @@
-// Synthetic local-only harness. No HTTP routes or provider credentials.
+import { aliasStore } from "../../api/shared/aliases.ts";
+import type { Database, Parameter, Statement } from "../../api/shared/d1.ts";
+import { ApiError } from "../../api/shared/errors.ts";
 import { exerciseStore } from "../../api/training/exercises.ts";
 import { trainingStateStore } from "../../api/training/state.ts";
 import { volumeStore } from "../../api/training/volume.ts";
-import { aliasStore } from "../../api/shared/aliases.ts";
-import { ApiError } from "../../api/shared/errors.ts";
-import {
-  type Database,
-  type Parameter,
-  type Statement,
-} from "../../api/shared/d1.ts";
+// Synthetic local-only harness. No HTTP routes or provider credentials.
+import { operationInput } from "./test-input.ts";
 
 export default {
   async fetch(request: Request, env: { DB: Database }): Promise<Response> {
     try {
-      const input = (await request.json()) as {
-        store: string;
-        method: string;
-        args: unknown[];
-        now?: string;
-        beforeWrite?: { sql: string; values?: Parameter[] };
-        failReadback?: boolean;
-      };
+      const input = operationInput.parse(await request.json());
       let injected = false;
       const prepared = new WeakMap<
         Statement,
@@ -38,9 +28,15 @@ export default {
       const db: Database = {
         prepare: (sql) => wrap(sql),
         async batch<T>(statements: Statement[]) {
-          const metadata = statements.map((s) => prepared.get(s)!);
+          const metadata = statements.map((s) => {
+            const entry = prepared.get(s);
+            if (!entry) {
+              throw new Error("Test batch received an unwrapped statement.");
+            }
+            return entry;
+          });
           const writes = metadata.some(({ sql }) =>
-            /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)
+            /^\s*(?:INSERT|UPDATE|DELETE)\b/iu.test(sql)
           );
           if (writes && input.beforeWrite && !injected) {
             injected = true;
@@ -64,24 +60,28 @@ export default {
         foodAliases: aliasStore(db, "food"),
         mealAliases: aliasStore(db, "meal"),
       };
-      if (!Object.hasOwn(stores, input.store)) {
+      const store = Object.entries(stores).find(
+        ([name]) => name === input.store
+      )?.[1];
+      if (!store) {
         throw new Error("Unknown test store.");
       }
-      const store = stores[
-        input.store as keyof typeof stores
-      ] as unknown as Record<string, (...args: unknown[]) => unknown>;
-      if (!Object.hasOwn(store, input.method)) {
+      const operation = Object.entries(store).find(
+        ([name]) => name === input.method
+      )?.[1];
+      if (!operation) {
         throw new Error("Unknown test method.");
       }
-      return Response.json((await store[input.method](...input.args)) ?? null);
+      // oxlint-disable-next-line anti-slop/no-reflect-apply -- Negative persistence tests intentionally pass unvalidated arguments to an own store method.
+      const result = await Reflect.apply(operation, store, input.args);
+      return Response.json(result ?? null);
     } catch (error) {
       return Response.json(
         {
-          error: error instanceof Error
-            ? error.message
-            : "Unknown test failure",
+          error:
+            error instanceof Error ? error.message : "Unknown test failure",
         },
-        { status: error instanceof ApiError ? error.status : 500 },
+        { status: error instanceof ApiError ? error.status : 500 }
       );
     }
   },

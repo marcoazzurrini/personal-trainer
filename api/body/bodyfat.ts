@@ -1,6 +1,4 @@
 import {
-  type Clock,
-  type Database,
   date,
   decimal,
   instant,
@@ -9,6 +7,7 @@ import {
   rows,
   systemClock,
 } from "../shared/d1.ts";
+import type { Clock, Database } from "../shared/d1.ts";
 import { requireNotFuture } from "../shared/dates.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
 import type {
@@ -22,7 +21,7 @@ const columns =
 
 export function bodyfatStore(db: Database, clock: Clock = systemClock) {
   async function recordBodyfat(
-    input: RecordBodyfatInput,
+    input: RecordBodyfatInput
   ): Promise<RecordedBodyfat> {
     const now = instant(clock().toISOString());
     const today = romeDate(now);
@@ -34,23 +33,27 @@ export function bodyfatStore(db: Database, clock: Clock = systemClock) {
       db,
       `SELECT ${columns}, percent AS stored_value FROM bodyfat_estimates WHERE day = ? AND method = ?`,
       day,
-      input.method,
+      input.method
     );
     if (found) {
       const { stored_value, ...existing } = found;
-      if (stored_value === value) return { row: existing, created: false };
+      if (stored_value === value) {
+        return { row: existing, created: false };
+      }
       throw new ApiError(
         409,
-        `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${input.method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`,
+        `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${input.method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`
       );
     }
     const uuid = requestId(input.requestId);
     const [seen] = await rows<BodyfatRow>(
       db,
       `SELECT ${columns} FROM bodyfat_estimates WHERE request_id = ?`,
-      uuid,
+      uuid
     );
-    if (seen) return { row: seen, created: false };
+    if (seen) {
+      return { row: seen, created: false };
+    }
     const row = requireRow(
       await rows<BodyfatRow>(
         db,
@@ -61,34 +64,38 @@ export function bodyfatStore(db: Database, clock: Clock = systemClock) {
         input.method,
         input.note ?? null,
         uuid,
-        now,
+        now
       ),
-      "The body-fat estimate could not be read after saving.",
+      "The body-fat estimate could not be read after saving."
     );
     return { row, created: true };
   }
   async function listBodyfat(): Promise<BodyfatRow[]> {
     return await rows<BodyfatRow>(
       db,
-      `SELECT ${columns} FROM bodyfat_estimates ORDER BY day, method`,
+      `SELECT ${columns} FROM bodyfat_estimates ORDER BY day, method`
     );
   }
   async function latestBodyfat(): Promise<BodyfatRow | null> {
-    return (await rows<BodyfatRow>(
-      db,
-      `SELECT ${columns} FROM bodyfat_estimates ORDER BY day DESC, id DESC LIMIT 1`,
-    ))[0] ?? null;
+    return (
+      (
+        await rows<BodyfatRow>(
+          db,
+          `SELECT ${columns} FROM bodyfat_estimates ORDER BY day DESC, id DESC LIMIT 1`
+        )
+      )[0] ?? null
+    );
   }
   async function removeBodyfat(
-    id: number,
+    id: number
   ): Promise<Pick<BodyfatRow, "day" | "percent" | "method">> {
     return requireRow(
       await rows<Pick<BodyfatRow, "day" | "percent" | "method">>(
         db,
         "DELETE FROM bodyfat_estimates WHERE id = ? RETURNING day, percent / 10.0 AS percent, method",
-        id,
+        id
       ),
-      `No body-fat estimate with id ${id}.`,
+      `No body-fat estimate with id ${id}.`
     );
   }
   return { recordBodyfat, listBodyfat, latestBodyfat, removeBodyfat };

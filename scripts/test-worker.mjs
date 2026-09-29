@@ -1,15 +1,17 @@
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { rmSync } from "node:fs";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+
+import { z } from "@hono/zod-openapi";
 // Local contract runner. No Wrangler config, persistent DB, .env or provider credentials.
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
-import { DatabaseSync } from "node:sqlite";
-import { randomBytes } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { createServer } from "node:http";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 process.chdir(root);
@@ -17,11 +19,11 @@ const args = process.argv.slice(2);
 const lifecycleProbe = args.length === 1 && args[0] === "--lifecycle-probe";
 if (args.includes("--coverage")) {
   throw new Error(
-    "Deno client coverage is not Worker coverage. Use workerd coverage tooling; --coverage is not supported.",
+    "Bun client coverage is not Worker coverage. Use workerd coverage tooling; --coverage is not supported."
   );
 }
-// Only selectors are configurable. Never let a short alias or a new Deno flag
-// bypass the local-network, cached-dependency or no-subprocess boundary.
+// Only selectors are configurable. Callers cannot change preloads, environment
+// loading or the disposable database. Bun is not a process-level sandbox.
 const testArgs = [];
 if (!lifecycleProbe) {
   for (let i = 0; i < args.length; i++) {
@@ -30,46 +32,64 @@ if (!lifecycleProbe) {
       if (args[i + 1] === undefined) {
         throw new Error("--filter requires a value.");
       }
-      testArgs.push(`--filter=${args[++i]}`);
-    } else if (/^--filter=/.test(arg) || /^--fail-fast(?:=\d+)?$/.test(arg)) {
-      testArgs.push(arg);
+      i += 1;
+      testArgs.push(`--test-name-pattern=${args[i]}`);
+    } else if (arg.startsWith("--filter=")) {
+      testArgs.push(arg.replace("--filter=", "--test-name-pattern="));
+    } else if (/^--fail-fast(?:=\d+)?$/u.test(arg)) {
+      testArgs.push(arg.replace("--fail-fast", "--bail"));
     } else if (
       !arg.startsWith("-") &&
-      (resolve(arg) === resolve("api/tests") ||
-        resolve(arg).startsWith(resolve("api/tests") + "/"))
+      (nodePath.resolve(arg) === nodePath.resolve("api/tests") ||
+        nodePath.resolve(arg).startsWith(`${nodePath.resolve("api/tests")}/`))
     ) {
-      testArgs.push(arg);
+      testArgs.push(nodePath.resolve(arg));
     } else {
       throw new Error(
-        "Only API test paths, --filter and --fail-fast are accepted; permission/config overrides are not allowed.",
+        "Only API test paths, --filter and --fail-fast are accepted; runner/config overrides are not allowed."
       );
     }
   }
 }
-if (!testArgs.some((arg) => !arg.startsWith("-"))) testArgs.push("api/tests/");
-const directory = await mkdtemp(join(tmpdir(), "pt-worker-test-"));
+if (!testArgs.some((arg) => !arg.startsWith("-"))) {
+  testArgs.push(nodePath.resolve("api/tests/"));
+}
+const directory = await mkdtemp(nodePath.join(tmpdir(), "pt-worker-test-"));
 // Miniflare also owns signal handlers and may exit before async disposal ends.
 // Its exit hook stops workerd; this hook always removes our private receipt.
 process.once("exit", () => rmSync(directory, { recursive: true, force: true }));
 const run = randomBytes(32).toString("hex");
 const secret = randomBytes(32).toString("hex");
-let mf, server, child;
+let child;
+let mf;
+let server;
 let stopping = false;
 let unexpectedOutbound = 0;
 const env = {};
-for (const key of ["PATH", "HOME", "TMPDIR", "DENO_DIR", "SYSTEMROOT"]) {
-  if (process.env[key] !== undefined) env[key] = process.env[key];
+for (const key of ["PATH", "HOME", "TMPDIR", "SYSTEMROOT"]) {
+  if (process.env[key] !== undefined) {
+    env[key] = process.env[key];
+  }
 }
 async function stop() {
-  if (stopping) return;
+  if (stopping) {
+    return;
+  }
   stopping = true;
   child?.kill("SIGTERM");
-  if (server) await new Promise((resolve) => server.close(resolve));
+  if (server) {
+    const closed = Promise.withResolvers();
+    server.close(closed.resolve);
+    await closed.promise;
+  }
   await mf?.dispose();
   await rm(directory, { recursive: true, force: true });
 }
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, () => void stop().then(() => process.exit(1)));
+  process.once(signal, async () => {
+    await stop();
+    process.exit(1);
+  });
 }
 try {
   const bundle = await build({
@@ -83,7 +103,7 @@ try {
   });
   if (
     Object.keys(bundle.metafile.inputs).some((name) =>
-      /(?:^|\/)api\/db\.ts$|node_modules\/postgres\//.test(name)
+      /(?:^|\/)api\/db\.ts$|node_modules\/postgres\//u.test(name)
     )
   ) {
     throw new Error("Worker contract bundle must not include PostgreSQL.");
@@ -105,10 +125,13 @@ try {
       PUBLIC_ORIGIN: "https://synthetic.invalid",
     },
     outboundService() {
-      unexpectedOutbound++;
-      return Response.json({
-        error: "External networking is blocked in contract tests.",
-      }, { status: 599 });
+      unexpectedOutbound += 1;
+      return Response.json(
+        {
+          error: "External networking is blocked in contract tests.",
+        },
+        { status: 599 }
+      );
     },
   });
   if (options.resourcePersistencePath !== undefined) {
@@ -119,21 +142,28 @@ try {
   // SQLite determines exact boundaries, including trigger bodies. Execute every
   // migration in sorted order on D1; the temporary parser never supplies test results.
   const parser = new DatabaseSync(":memory:");
-  const migrations = (await readdir("db/d1/migrations")).filter((f) =>
-    f.endsWith(".sql")
-  ).sort();
-  if (!migrations.length) throw new Error("No D1 migrations found.");
+  const migrations = (await readdir("db/d1/migrations"))
+    .filter((f) => f.endsWith(".sql"))
+    .toSorted();
+  if (!migrations.length) {
+    throw new Error("No D1 migrations found.");
+  }
   try {
     parser.exec("PRAGMA foreign_keys=ON");
     for (const name of migrations) {
-      let remaining = await readFile(join("db/d1/migrations", name), "utf8");
+      let remaining = await readFile(
+        nodePath.join("db/d1/migrations", name),
+        "utf-8"
+      );
       const statements = [];
       while (true) {
         remaining = remaining.replace(
-          /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/,
-          "",
+          /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/u,
+          ""
         );
-        if (!remaining) break;
+        if (!remaining) {
+          break;
+        }
         const statement = parser.prepare(remaining);
         const sql = statement.sourceSQL;
         if (!sql || !remaining.startsWith(sql)) {
@@ -143,13 +173,19 @@ try {
         statements.push(db.prepare(sql));
         remaining = remaining.slice(sql.length);
       }
-      if (statements.length) await db.batch(statements);
+      if (statements.length) {
+        await db.batch(statements);
+      }
     }
   } finally {
     parser.close();
   }
   await db.prepare("CREATE TABLE __test_identity (run TEXT NOT NULL)").run();
   await db.prepare("INSERT INTO __test_identity VALUES (?)").bind(run).run();
+  const nativeStatement = z.object({
+    sql: z.string(),
+    params: z.array(z.union([z.string(), z.number(), z.null()])).default([]),
+  });
   server = createServer(async (req, res) => {
     res.setHeader("content-type", "application/json");
     const reply = (status, value) => {
@@ -185,20 +221,18 @@ try {
             year: "numeric",
             month: "2-digit",
             day: "2-digit",
-          }).format(new Date()),
+          }).format(new Date())
         );
       }
       if (
-        body.action !== "batch" || !Array.isArray(body.statements) ||
+        body.action !== "batch" ||
+        !Array.isArray(body.statements) ||
         !body.statements.length
-      ) throw new Error("Expected a nonempty native D1 batch.");
-      const statements = body.statements.map(({ sql, params = [] }) => {
-        if (
-          typeof sql !== "string" || !Array.isArray(params) ||
-          params.some((v) =>
-            v !== null && typeof v !== "string" && typeof v !== "number"
-          )
-        ) throw new Error("Invalid native D1 statement.");
+      ) {
+        throw new Error("Expected a nonempty native D1 batch.");
+      }
+      const statements = body.statements.map((raw) => {
+        const { sql, params } = nativeStatement.parse(raw);
         return db.prepare(sql).bind(...params);
       });
       reply(200, await db.batch(statements));
@@ -206,9 +240,11 @@ try {
       reply(400, { error: error.message });
     }
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const listening = Promise.withResolvers();
+  server.listen(0, "127.0.0.1", listening.resolve);
+  await listening.promise;
   const origin = await mf.ready;
-  const receipt = join(directory, "disposable.json");
+  const receipt = nodePath.join(directory, "disposable.json");
   const identity = {
     kind: "personal-trainer-worker-d1-v1",
     run,
@@ -224,38 +260,39 @@ try {
     throw new Error("Worker is not using the owned D1 binding.");
   }
   console.log(
-    `Worker+D1 contract suite: ${migrations.length} migrations; ephemeral binding; outbound networking blocked.`,
+    `Worker+D1 contract suite: ${migrations.length} migrations; ephemeral binding; outbound networking blocked.`
   );
   if (lifecycleProbe) {
     console.log(`LIFECYCLE_READY ${origin.origin}`);
-    await new Promise(() => {}); // SIGTERM disposes Miniflare and the owned directory.
+    // The lifecycle probe waits for SIGTERM to dispose Miniflare and this directory.
+    await Promise.withResolvers().promise;
   }
-  child = spawn("deno", [
-    "test",
-    "--cached-only",
-    "--frozen",
-    "--allow-net=127.0.0.1",
-    "--allow-env",
-    "--allow-read",
-    ...(testArgs.length ? testArgs : ["api/tests/"]),
-  ], {
-    cwd: root,
-    env: {
-      ...env,
-      DENO_NO_UPDATE_CHECK: "1",
-      DENO_NO_PROMPT: "1",
-      TEST_DISPOSABLE_FILE: receipt,
-      API_URL: identity.apiUrl,
-    },
-    stdio: "inherit",
-  });
-  const code = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code) => resolve(code ?? 1));
-  });
+  child = spawn(
+    process.execPath,
+    [
+      "--no-env-file",
+      "test",
+      "--timeout=120000",
+      "--preload=./api/tests/preload.ts",
+      ...testArgs,
+    ],
+    {
+      cwd: root,
+      env: {
+        ...env,
+        TEST_DISPOSABLE_FILE: receipt,
+        API_URL: identity.apiUrl,
+      },
+      stdio: "inherit",
+    }
+  );
+  const exited = Promise.withResolvers();
+  child.once("error", exited.reject);
+  child.once("exit", (exitCode) => exited.resolve(exitCode ?? 1));
+  const code = await exited.promise;
   if (unexpectedOutbound) {
     throw new Error(
-      `${unexpectedOutbound} unexpected outbound Worker requests were blocked.`,
+      `${unexpectedOutbound} unexpected outbound Worker requests were blocked.`
     );
   }
   process.exitCode = code;

@@ -1,5 +1,7 @@
-import { assert, assertEquals } from "@std/assert";
+import { stat, readdir, readFile } from "node:fs/promises";
+import { test } from "node:test";
 
+import { assert, assertEquals } from "./assertions.ts";
 // The two rules about reaching the database, held against the source that has
 // to obey them: the pure arithmetic may not ask D1 anything, and neither
 // may a file that declares HTTP routes.
@@ -30,10 +32,8 @@ import { assert, assertEquals } from "@std/assert";
 // hop further down, where nobody reading the arithmetic can see it. So the
 // failure names the whole chain: the entry point alone would say a rule was
 // broken without saying which import to take back.
-
 const API_DIR = "api";
 const DB = `${API_DIR}/shared/d1.ts`;
-
 // The pure modules, named one by one.
 //
 // A folder carried this rule until #31 dissolved it: rules/ meant "no database
@@ -54,37 +54,39 @@ const PURE = [
   `${API_DIR}/training/rules.ts`,
   `${API_DIR}/training/set_correction.ts`,
 ];
-
 // Static imports, side-effect imports, re-exports and dynamic imports all
 // name their target the same way.
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*)"([^"]+)"/g;
-
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*)"(?<specifier>[^"]+)"/gu;
 async function readable(file: string): Promise<boolean> {
   try {
-    await Deno.stat(file);
+    await stat(file);
     return true;
   } catch {
     return false;
   }
 }
-
 async function filesUnder(dir: string): Promise<string[]> {
   const found: string[] = [];
-  for await (const entry of Deno.readDir(dir)) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = `${dir}/${entry.name}`;
-    if (path === `${API_DIR}/tests`) continue;
-    if (entry.isDirectory) found.push(...await filesUnder(path));
-    else if (entry.name.endsWith(".ts")) found.push(path);
+    if (path === `${API_DIR}/tests`) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      found.push(...(await filesUnder(path)));
+    } else if (entry.name.endsWith(".ts")) {
+      found.push(path);
+    }
   }
-  return found.sort();
+  return found.toSorted();
 }
-
 // Bare specifiers are import-map entries, never a file in this tree.
 function target(file: string, specifier: string): string | null {
-  if (!specifier.startsWith(".")) return null;
+  if (!specifier.startsWith(".")) {
+    return null;
+  }
   return new URL(specifier, `file:///${file}`).pathname.slice(1);
 }
-
 // Depth-first from one file, carrying the hops taken to arrive at it, and
 // answering with the first chain that ends at the database.
 //
@@ -95,42 +97,48 @@ function target(file: string, specifier: string): string | null {
 async function chainToDatabase(
   file: string,
   seen: Set<string>,
-  taken: string[],
+  taken: string[]
 ): Promise<string[] | null> {
   let source: string;
   try {
-    source = await Deno.readTextFile(file);
+    source = await readFile(file, "utf-8");
   } catch {
     // A specifier naming no file on disk. Whatever is wrong there, deno
     // check reports it in the caller's own words; this test stays quiet
     // rather than reporting it a second time and worse.
     return null;
   }
-
   const lines = source.split("\n");
   for (let line = 0; line < lines.length; line++) {
     for (const [, specifier] of lines[line].matchAll(SPECIFIER)) {
       const next = target(file, specifier);
-      if (next === null) continue;
+      if (next === null) {
+        continue;
+      }
       const hops = [...taken, `${file}:${line + 1}`];
-      if (next === DB) return [...hops, DB];
-      if (seen.has(next)) continue;
+      if (next === DB) {
+        return [...hops, DB];
+      }
+      if (seen.has(next)) {
+        continue;
+      }
       seen.add(next);
       const found = await chainToDatabase(next, seen, hops);
-      if (found !== null) return found;
+      if (found !== null) {
+        return found;
+      }
     }
   }
   return null;
 }
-
-Deno.test("application runtime has no PostgreSQL driver or Deno process globals", async () => {
+test("application runtime has no PostgreSQL driver or Deno process globals", async () => {
   const offenders: string[] = [];
   for (const file of await filesUnder(API_DIR)) {
-    const source = await Deno.readTextFile(file);
+    const source = await readFile(file, "utf-8");
     if (
-      /\bDeno\./.test(source) ||
-      /(?:from\s*|import\s*\(?\s*)["'][^"']*(?:postgres|\/db\.ts)["']/.test(
-        source,
+      /\bDeno\./u.test(source) ||
+      /(?:from\s*|import\s*\(?\s*)["'][^"']*(?:postgres|\/db\.ts)["']/u.test(
+        source
       )
     ) {
       offenders.push(file);
@@ -139,32 +147,31 @@ Deno.test("application runtime has no PostgreSQL driver or Deno process globals"
   assertEquals(
     offenders,
     [],
-    "Workers use request bindings, not PostgreSQL or Deno process state.",
+    "Workers use request bindings, not PostgreSQL or Deno process state."
   );
 });
-
-Deno.test("nothing pure reaches the database", async () => {
+test("nothing pure reaches the database", async () => {
   const offenders: string[] = [];
   for (const file of PURE) {
     assert(
       await readable(file),
       `${file} is listed as pure and is not there. If it moved, move it in ` +
         `PURE too; if it is gone, take it out — a stale entry is a module ` +
-        `nobody is checking.`,
+        `nobody is checking.`
     );
     const chain = await chainToDatabase(file, new Set([file]), []);
-    if (chain !== null) offenders.push(chain.join("\n      \u2192 "));
+    if (chain !== null) {
+      offenders.push(chain.join("\n      \u2192 "));
+    }
   }
-
   assertEquals(
     offenders,
     [],
     `these modules are pure by rule — they may refuse, but they may not ask ` +
       `the database anything:\n  ${offenders.join("\n  ")}\nPut the query in ` +
-      `the topic module beside them, and pass the values down.`,
+      `the topic module beside them, and pass the values down.`
   );
 });
-
 // The second subject, from ADR-0006: a file that declares HTTP routes parses
 // the request, calls one named function, and shapes the answer. It may not
 // hold the query.
@@ -183,36 +190,34 @@ Deno.test("nothing pure reaches the database", async () => {
 // is the entire design, so every route file has a chain to persistence by
 // construction, and a transitive check here would fail the shape it exists to
 // enforce. What is forbidden is the route building the query itself.
-Deno.test("no file declaring HTTP routes imports the database", async () => {
+test("no file declaring HTTP routes imports the database", async () => {
   const files = (await filesUnder(API_DIR)).filter((f) =>
     f.endsWith(".routes.ts")
   );
   assert(files.length > 0, `no *.routes.ts found under ${API_DIR}`);
-
   const offenders: string[] = [];
   for (const file of files) {
-    const lines = (await Deno.readTextFile(file)).split("\n");
-    lines.forEach((line, i) => {
+    const lines = (await readFile(file, "utf-8")).split("\n");
+    for (const [i, line] of lines.entries()) {
       // The binding itself must not become a way around the module boundary.
       if (
         !line.trimStart().startsWith("//") &&
-        /\.DB\b|\.prepare\s*\(|\.batch\s*\(/.test(line)
+        /\.DB\b|\.prepare\s*\(|\.batch\s*\(/u.test(line)
       ) {
         offenders.push(`${file}:${i + 1}`);
       }
       for (const [, specifier] of line.matchAll(SPECIFIER)) {
-        if (target(file, specifier) === DB) offenders.push(`${file}:${i + 1}`);
+        if (target(file, specifier) === DB) {
+          offenders.push(`${file}:${i + 1}`);
+        }
       }
-    });
+    }
   }
-
   assertEquals(
     offenders,
     [],
     `a route file may not reach the database — it parses the request, calls ` +
-      `one named function, and shapes the answer:\n  ${
-        offenders.join("\n  ")
-      }\nMove the query into the topic module beside it, and let that module ` +
-      `own its database operations.`,
+      `one named function, and shapes the answer:\n  ${offenders.join("\n  ")}\nMove the query into the topic module beside it, and let that module ` +
+      `own its database operations.`
   );
 });

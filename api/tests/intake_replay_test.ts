@@ -1,37 +1,42 @@
-import { assertEquals } from "@std/assert";
-import d1, { database } from "./d1.ts";
+import { test } from "node:test";
+
 import { intakeStore } from "../nutrition/intake.ts";
+import { assertEquals } from "./assertions.ts";
+import d1, { database } from "./d1.ts";
 import { api, resetNutrition, uuid } from "./helpers.ts";
 
-Deno.test("logIntake replays the stored meal day across Rome midnight", {
-  sanitizeResources: false,
-  sanitizeOps: false,
-}, async () => {
+test("logIntake replays the stored meal day across Rome midnight", async () => {
   await resetNutrition();
   for (const name of ["Midnight A", "Midnight B"]) {
     assertEquals(
-      (await api.post("/foods", {
-        name,
-        kcal_100g: 100,
-        protein_100g: 25,
-        carbs_100g: 0,
-        fat_100g: 0,
-        source: "label",
-      })).status,
-      201,
+      (
+        await api.post("/foods", {
+          name,
+          kcal_100g: 100,
+          protein_100g: 25,
+          carbs_100g: 0,
+          fat_100g: 0,
+          source: "label",
+        })
+      ).status,
+      201
     );
   }
   assertEquals(
-    (await api.post("/meals", {
-      name: "Midnight meal",
-      items: [{ food: "Midnight A", grams: 100 }, {
-        food: "Midnight B",
-        grams: 50,
-      }],
-    })).status,
-    201,
+    (
+      await api.post("/meals", {
+        name: "Midnight meal",
+        items: [
+          { food: "Midnight A", grams: 100 },
+          {
+            food: "Midnight B",
+            grams: 50,
+          },
+        ],
+      })
+    ).status,
+    201
   );
-
   // An injected clock controls calendar decisions; storage remains real D1.
   const db = d1();
   let now = new Date("2026-01-01T22:59:59Z");
@@ -52,13 +57,10 @@ Deno.test("logIntake replays the stored meal day across Rome midnight", {
         request_id,
       });
       assertEquals(changed.status, 200);
-      assertEquals(changed.body, JSON.parse(JSON.stringify(first.view)));
+      assertEquals(changed.body, structuredClone(first.view));
     }
     assertEquals((await api.get("/intake?day=2026-01-02")).body.entries, []);
-    assertEquals(
-      (await db`select count(*) as n from intake_entries`)[0].n,
-      2,
-    );
+    assertEquals((await db`select count(*) as n from intake_entries`)[0].n, 2);
   } finally {
     await db.end();
   }

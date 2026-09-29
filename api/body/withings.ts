@@ -1,23 +1,15 @@
-import {
-  type Clock,
-  type Database,
-  instant,
-  rows,
-  type Statement,
-  statement,
-  systemClock,
-} from "../shared/d1.ts";
+import { instant, rows, statement, systemClock } from "../shared/d1.ts";
+import type { Clock, Database, Statement } from "../shared/d1.ts";
 import { ApiError } from "../shared/errors.ts";
 import { bodyweightStore } from "./bodyweight.ts";
 import {
   getWeights,
-  type MeasureRange,
   NOTIFY_WINDOW_MARGIN_S,
   refreshTokens,
   selectWeights,
-  type WithingsConfig,
   WithingsError,
 } from "./withings_client.ts";
+import type { MeasureRange, WithingsConfig } from "./withings_client.ts";
 
 export const WITHINGS_SOURCE = "withings";
 const EXPIRY_MARGIN_MS = 60_000;
@@ -49,13 +41,13 @@ interface AuthRow {
 export function withingsStore(
   db: Database,
   config: WithingsStoreConfig,
-  clock: Clock = systemClock,
+  clock: Clock = systemClock
 ) {
   const now = () => instant(clock().toISOString());
   function clientConfig(): WithingsConfig {
     if (!config.clientId || !config.clientSecret) {
       throw new WithingsError(
-        "WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set on the server, so no call to Withings can be authenticated.",
+        "WITHINGS_CLIENT_ID and WITHINGS_CLIENT_SECRET are not set on the server, so no call to Withings can be authenticated."
       );
     }
     return {
@@ -70,25 +62,23 @@ export function withingsStore(
         await rows<AuthRow>(
           db,
           `SELECT withings_user_id, access_token, refresh_token,
-      access_token_expires_at, last_sync_at FROM withings_auth WHERE id = 1`,
+      access_token_expires_at, last_sync_at FROM withings_auth WHERE id = 1`
         )
       )[0] ?? null
     );
   }
   async function accessTokenFor(
     cfg: WithingsConfig,
-    auth: AuthRow,
+    auth: AuthRow
   ): Promise<string> {
     if (
       new Date(auth.access_token_expires_at).getTime() - clock().getTime() >
-        EXPIRY_MARGIN_MS
+      EXPIRY_MARGIN_MS
     ) {
       return auth.access_token;
     }
-    const tokens = await refreshTokens(
-      cfg,
-      auth.refresh_token,
-      () => clock().getTime(),
+    const tokens = await refreshTokens(cfg, auth.refresh_token, () =>
+      clock().getTime()
     );
     // Provider refreshes are never retried automatically. Do not overwrite a
     // reseeded account or credentials another request has already rotated.
@@ -103,11 +93,11 @@ export function withingsStore(
       now(),
       auth.withings_user_id,
       auth.refresh_token,
-      auth.access_token,
+      auth.access_token
     );
     if (!changed.length) {
       throw new WithingsError(
-        "Withings credentials changed during refresh. The provider may already have rotated its token; check synchronization before retrying.",
+        "Withings credentials changed during refresh. The provider may already have rotated its token; check synchronization before retrying."
       );
     }
     return tokens.accessToken;
@@ -116,7 +106,7 @@ export function withingsStore(
     range: MeasureRange,
     label: string,
     advanceWatermark: boolean,
-    auth: AuthRow,
+    auth: AuthRow
   ): Promise<SyncSummary> {
     const cfg = clientConfig();
     const token = await accessTokenFor(cfg, auth);
@@ -132,7 +122,7 @@ export function withingsStore(
             db,
             `INSERT INTO api_write_assertions (id, rows_match)
             VALUES (1, EXISTS (SELECT 1 FROM withings_auth WHERE id = 1 AND withings_user_id = ?))`,
-            auth.withings_user_id,
+            auth.withings_user_id
           ),
           ...statements,
           statement(db, "DELETE FROM api_write_assertions WHERE id = 1"),
@@ -141,26 +131,31 @@ export function withingsStore(
       },
     };
     const weights = bodyweightStore(guarded, clock);
-    let written = 0,
-      duplicate = 0,
-      refused = 0;
+    let duplicate = 0;
+    let refused = 0;
+    let written = 0;
     for (const reading of accepted) {
       try {
         const { created } = await weights.recordBodyweight({
           ...reading,
           source: WITHINGS_SOURCE,
         });
-        if (created) written++;
-        else duplicate++;
+        if (created) {
+          written += 1;
+        } else {
+          duplicate += 1;
+        }
       } catch (error) {
-        if (!(error instanceof ApiError)) throw error;
-        refused++;
+        if (!(error instanceof ApiError)) {
+          throw error;
+        }
+        refused += 1;
         console.error(`withings: reading refused (status ${error.status})`);
       }
     }
     if ((await readAuth())?.withings_user_id !== auth.withings_user_id) {
       throw new WithingsError(
-        "The Withings account changed during synchronization. The checkpoint is unchanged.",
+        "The Withings account changed during synchronization. The checkpoint is unchanged."
       );
     }
     if (advanceWatermark) {
@@ -175,11 +170,11 @@ export function withingsStore(
         watermark,
         watermark,
         now(),
-        auth.withings_user_id,
+        auth.withings_user_id
       );
       if (!changed.length) {
         throw new WithingsError(
-          "The Withings account changed during synchronization. The checkpoint is unchanged.",
+          "The Withings account changed during synchronization. The checkpoint is unchanged."
         );
       }
     }
@@ -196,7 +191,7 @@ export function withingsStore(
     const auth = await readAuth();
     if (!auth) {
       throw new WithingsError(
-        "No row in withings_auth, so there is no refresh token to authenticate with. Seed the Withings credentials before synchronizing.",
+        "No row in withings_auth, so there is no refresh token to authenticate with. Seed the Withings credentials before synchronizing."
       );
     }
     if (
@@ -204,7 +199,7 @@ export function withingsStore(
       auth.withings_user_id !== expectedUserId
     ) {
       throw new WithingsError(
-        "The notification does not belong to the configured Withings account.",
+        "The notification does not belong to the configured Withings account."
       );
     }
     return auth;
@@ -212,7 +207,7 @@ export function withingsStore(
   async function syncNotifiedWindow(
     startdate: number,
     enddate: number,
-    expectedUserId?: string,
+    expectedUserId?: string
   ): Promise<SyncSummary> {
     return await sync(
       {
@@ -221,15 +216,16 @@ export function withingsStore(
       },
       `window ${startdate}–${enddate}`,
       false,
-      await requireAuth(expectedUserId),
+      await requireAuth(expectedUserId)
     );
   }
   async function catchUp(
     override?: number,
-    expectedUserId?: string,
+    expectedUserId?: string
   ): Promise<SyncSummary> {
     const auth = await requireAuth(expectedUserId);
-    const since = override ??
+    const since =
+      override ??
       (auth.last_sync_at
         ? Math.floor(new Date(auth.last_sync_at).getTime() / 1000)
         : 0);
@@ -247,9 +243,11 @@ export function withingsStore(
         AND (last_sync_attempt_at IS NULL OR last_sync_attempt_at < ?) RETURNING withings_user_id`,
         instant(at.toISOString()),
         instant(at.toISOString()),
-        instant(new Date(at.getTime() - CATCH_UP_INTERVAL_MS).toISOString()),
+        instant(new Date(at.getTime() - CATCH_UP_INTERVAL_MS).toISOString())
       );
-      if (!claimed.length) return null;
+      if (!claimed.length) {
+        return null;
+      }
       return await catchUp(undefined, claimed[0].withings_user_id);
     } catch {
       // Scheduled work never exposes provider text or database parameters.

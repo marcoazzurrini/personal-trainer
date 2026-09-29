@@ -14,14 +14,31 @@ identifies the final hosted comparison and independently restored backup.
 ## Local development and tests
 
 Wrangler supplies local Workers and D1. Normal application development no longer
-requires a PostgreSQL service, Docker Compose or a Coolify installation.
+requires a PostgreSQL service, Docker Compose or a Coolify installation. Bun owns
+dependency installation and API test assertions, not the application runtime;
+web tests remain on Vitest and Playwright. See [ADR-0016](adr/0016-bun-owns-development-with-workers-unchanged.md).
+
+For local API development, copy the root `.env.example` to `.env`, fill in the
+required values, and run `bun run dev`. Wrangler reads `.env` beside its
+configuration. Do not keep a second `.dev.vars` file: Wrangler would prefer it
+and ignore `.env`. The dashboard has its own `web/.env.example` and local
+`web/.env`; only its development/start commands load those values. D1 import
+tooling has a separate example for its explicitly selected source database.
+
+These files configure local work, not production. Retired infrastructure
+credentials belong in private recovery storage outside the repository, not in a
+second active environment file. Build and test commands must not load `.env`.
+Bun's package installer remains a separate, trusted boundary under ADR-0016.
 
 Destructive tests must own an isolated, in-memory D1 binding. They must not read
 local secret files, use remote bindings or inherit provider credentials. A URL
 on localhost is not proof of isolation: a tunnel can reach production there.
 The test harness establishes its own database identity before setup or writes
-and denies unconfigured outbound requests. SQL failure injection belongs only
-in that test harness, never in the deployed Worker.
+and denies unconfigured outbound requests. Bun is not a process-level permission
+sandbox: the test harness supplies a clean child environment, disables implicit
+dotenv loading, guards client fetches and blocks Worker outbound requests.
+Tests and their installed dependencies remain trusted local code. SQL failure
+injection belongs only in that test harness, never in the deployed Worker.
 
 The historical PostgreSQL migrations and their disposable comparison suite
 remain only to verify the one-time transfer. PostgreSQL is not an application

@@ -1,4 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import {
   api,
   daysBefore,
@@ -7,24 +9,20 @@ import {
   seedCut,
   uuid,
 } from "./helpers.ts";
-
 // Phase 2 end to end: three weeks of real history through the API, then the
 // estimate, the target, and the guards that stop either of them lying.
-
-Deno.test("expenditure and targets", async (t) => {
+test("expenditure and targets", async (t) => {
   await resetNutrition();
   // 28 days ending at the last finished Sunday: 2,200 kcal logged daily,
   // weighing daily, losing ~0.5 kg/week.
   await seedCut({ days: 28, kcal: 2200, startWeightKg: 82, kgPerWeek: -0.5 });
-
-  await t.step("without a body-fat estimate it refuses to guess", async () => {
+  await t.test("without a body-fat estimate it refuses to guess", async () => {
     const { body } = await api.get("/nutrition-state");
     assertEquals(body.expenditure.status, "insufficient_data");
     assertEquals(body.expenditure.tdee_kcal, null);
     assert(body.expenditure.reason.includes("body-fat"));
   });
-
-  await t.step("with one, it back-solves above intake", async () => {
+  await t.test("with one, it back-solves above intake", async () => {
     await api.post("/bodyfat", {
       percent: 14,
       method: "bia",
@@ -40,21 +38,19 @@ Deno.test("expenditure and targets", async (t) => {
     // Forbes, not 7,700: a lean trainee's kg is much cheaper.
     assert(body.expenditure.inputs.energy_density_kcal_per_kg < 7000);
   });
-
-  await t.step("trend weight is reported before raw weight", async () => {
+  await t.test("trend weight is reported before raw weight", async () => {
     const { body } = await api.get("/nutrition-state");
     assert(body.trend_weight.trend_kg > 0);
     assert(body.trend_weight.slope_21d.pct_bw_week < 0);
     // The trend lags a falling series, so it sits above the latest reading.
     assert(body.trend_weight.trend_kg > body.trend_weight.earliest_scale_kg);
   });
-
-  await t.step("weekly reads finished weeks with implied TDEE", async () => {
+  await t.test("weekly reads finished weeks with implied TDEE", async () => {
     const { status, body } = await api.get("/nutrition/weekly?weeks=3");
     assertEquals(status, 200);
     assertEquals(body.weeks.length, 3);
     const complete = body.weeks.filter(
-      (w: { implied_tdee_kcal: number | null }) => w.implied_tdee_kcal !== null,
+      (w: { implied_tdee_kcal: number | null }) => w.implied_tdee_kcal !== null
     );
     assert(complete.length >= 2);
     for (const week of complete) {
@@ -69,21 +65,20 @@ Deno.test("expenditure and targets", async (t) => {
       assertEquals(week.implied_tdee_kcal, Math.round(2200 - daily * density));
       assertEquals(
         week.rate_pct_bw_week,
-        Math.round(daily * 7 / week.trend_start_kg * 10000) / 100,
+        Math.round(((daily * 7) / week.trend_start_kg) * 10_000) / 100
       );
     }
     assert(body.note.includes("noisy"));
     // No target set yet at this point in the file.
     assertEquals(
       body.weeks.every((w: { target: null }) => w.target === null),
-      true,
+      true
     );
   });
-
-  await t.step("each week carries its own rate of change", async () => {
+  await t.test("each week carries its own rate of change", async () => {
     const { body } = await api.get("/nutrition/weekly?weeks=3");
     const withRate = body.weeks.filter(
-      (w: { rate_pct_bw_week: number | null }) => w.rate_pct_bw_week !== null,
+      (w: { rate_pct_bw_week: number | null }) => w.rate_pct_bw_week !== null
     );
     assert(withRate.length >= 2);
     // Losing ~0.5 kg/week on ~82 kg is about -0.6%/week; the EMA lags, so the
@@ -93,13 +88,10 @@ Deno.test("expenditure and targets", async (t) => {
       assert(w.rate_pct_bw_week > -1.5, "and not absurd");
     }
   });
-
   let tdee = 0;
-
-  await t.step("a target is computed from the rate, not sent", async () => {
+  await t.test("a target is computed from the rate, not sent", async () => {
     const state = await api.get("/nutrition-state");
     tdee = state.body.expenditure.tdee_kcal;
-
     const { status, body } = await api.post("/nutrition-targets", {
       goal: "cut",
       rate_pct_bw_week: -0.5,
@@ -123,21 +115,19 @@ Deno.test("expenditure and targets", async (t) => {
     assert(body.computation.implied_deficit_kcal > 250);
     assert(body.computation.implied_deficit_kcal < 400);
   });
-
-  await t.step("today's totals report against the target", async () => {
+  await t.test("today's totals report against the target", async () => {
     const { body } = await api.get("/nutrition-state");
     assertEquals(body.target.goal, "cut");
     assertEquals(
       body.today_so_far.vs_target.kcal_target,
-      body.target.kcal_target,
+      body.target.kcal_target
     );
     assertEquals(
       body.today_so_far.vs_target.protein_g_target,
-      body.target.protein_g_target,
+      body.target.protein_g_target
     );
   });
-
-  await t.step("an aggressive rate is clipped to 0.7%/week", async () => {
+  await t.test("an aggressive rate is clipped to 0.7%/week", async () => {
     const { body } = await api.post("/nutrition-targets", {
       goal: "cut",
       rate_pct_bw_week: -1.5,
@@ -154,16 +144,15 @@ Deno.test("expenditure and targets", async (t) => {
     assert(body.computation.implied_deficit_kcal < 500);
     assert(body.target.kcal_target > tdee - 500);
   });
-
-  await t.step("weekly rows carry the target that governed them", async () => {
+  await t.test("weekly rows carry the target that governed them", async () => {
     // A target only attaches to weeks it was actually in force for. The first
     // one was dated today, so it governs no finished week; the clipped one was
     // backdated to the last finished Sunday, so it governs that week. Without
     // this join the caller would have to reconstruct which target applied to
     // which week by date, from an append-only history.
     const { body } = await api.get("/nutrition/weekly?weeks=3");
-    const older = body.weeks[0];
-    const latest = body.weeks[body.weeks.length - 1];
+    const [older] = body.weeks;
+    const latest = body.weeks.at(-1);
     assertEquals(older.target, null, "predates any target");
     assert(latest.target !== null, "the backdated target should attach");
     assertEquals(latest.target.goal, "cut");
@@ -172,24 +161,22 @@ Deno.test("expenditure and targets", async (t) => {
     assertEquals(
       latest.target.rate_pct_bw_week,
       -1.5,
-      "as requested, pre-clip",
+      "as requested, pre-clip"
     );
     assertEquals(typeof latest.target.changed_during_week, "boolean");
   });
-
-  await t.step("a protein multiplier without body fat is refused", async () => {
+  await t.test("a protein multiplier without body fat is refused", async () => {
     // The bodyweight basis is offered as the way out rather than the server
     // guessing a body-fat number to make fat-free mass computable.
     const wrongBasis = await api.post("/nutrition-targets", {
       goal: "cut",
       rate_pct_bw_week: -0.5,
       protein_g_per_kg_ffm: 2.7,
-      protein_g_per_kg_bw: 2.0,
+      protein_g_per_kg_bw: 2,
       decision: "two protein inputs",
     });
     assertEquals(wrongBasis.status, 422);
     assert(wrongBasis.body.error.includes("exactly one protein input"));
-
     const absurd = await api.post("/nutrition-targets", {
       goal: "cut",
       rate_pct_bw_week: -0.5,
@@ -199,8 +186,7 @@ Deno.test("expenditure and targets", async (t) => {
     assertEquals(absurd.status, 422);
     assert(absurd.body.error.includes("2.3"));
   });
-
-  await t.step(
+  await t.test(
     "a rate whose sign contradicts the goal is refused",
     async () => {
       const wrongWay = await api.post("/nutrition-targets", {
@@ -211,7 +197,6 @@ Deno.test("expenditure and targets", async (t) => {
       });
       assertEquals(wrongWay.status, 422);
       assert(wrongWay.body.error.includes("negative"));
-
       const fakeMaintain = await api.post("/nutrition-targets", {
         goal: "maintain",
         rate_pct_bw_week: -0.5,
@@ -219,10 +204,9 @@ Deno.test("expenditure and targets", async (t) => {
         decision: "typo",
       });
       assertEquals(fakeMaintain.status, 422);
-    },
+    }
   );
-
-  await t.step("a target without a decision is refused", async () => {
+  await t.test("a target without a decision is refused", async () => {
     const { status } = await api.post("/nutrition-targets", {
       goal: "cut",
       rate_pct_bw_week: -0.5,
@@ -230,8 +214,7 @@ Deno.test("expenditure and targets", async (t) => {
     });
     assertEquals(status, 422);
   });
-
-  await t.step(
+  await t.test(
     "changing the effective goal derives a phase switch",
     async () => {
       const { body } = await api.post("/nutrition-targets", {
@@ -242,18 +225,16 @@ Deno.test("expenditure and targets", async (t) => {
         request_id: uuid(),
       });
       assertEquals(body.phase_switch_registered, true);
-
       const events = await api.get("/nutrition-events");
       const switches = events.body.events.filter(
-        (e: { kind: string }) => e.kind === "phase_switch",
+        (e: { kind: string }) => e.kind === "phase_switch"
       );
       assertEquals(switches.length, 1);
       assertEquals(switches[0].id, -body.target.id);
       assert(switches[0].note.includes("maintain"));
-    },
+    }
   );
-
-  await t.step(
+  await t.test(
     "a derived transient is visible before the scale moves",
     async () => {
       const { body } = await api.get("/nutrition-state");
@@ -261,11 +242,10 @@ Deno.test("expenditure and targets", async (t) => {
       // surfaced for the coach to explain before the scale moves.
       assert(body.active_transients.length > 0);
       assertEquals(body.active_transients[0].kind, "phase_switch");
-    },
+    }
   );
 });
-
-Deno.test("the estimate holds rather than extrapolating", async (t) => {
+test("the estimate holds rather than extrapolating", async (t) => {
   await resetNutrition();
   // Six weeks of good history, then a fortnight of silence: no logging, no
   // weighing. Enough behind the gap that an older window still qualifies —
@@ -282,16 +262,14 @@ Deno.test("the estimate holds rather than extrapolating", async (t) => {
     method: "bia",
     request_id: uuid(),
   });
-
-  await t.step("status is stale and the estimate is frozen", async () => {
+  await t.test("status is stale and the estimate is frozen", async () => {
     const { body } = await api.get("/nutrition-state");
     assertEquals(body.expenditure.status, "stale");
     assert(body.expenditure.tdee_kcal !== null);
     assert(body.expenditure.as_of < body.now.date);
     assert(body.expenditure.reason.includes("Held from the window"));
   });
-
-  await t.step("a target cannot be computed off a stale estimate", async () => {
+  await t.test("a target cannot be computed off a stale estimate", async () => {
     // Deliberate: the gate belongs in the check-in procedure, but the server
     // still records what it computed from, so a stale-based target is
     // visible in the log rather than indistinguishable from a fresh one.
@@ -300,7 +278,6 @@ Deno.test("the estimate holds rather than extrapolating", async (t) => {
     assert(body.adherence.days_logged_last_7 === 0);
   });
 });
-
 // The two weekly means once disagreed about which days counted: mean_kcal
 // excluded days flagged incomplete and mean_protein_g did not, so a day Marco
 // had said he did not track was thrown out of one number and averaged into the
@@ -308,13 +285,12 @@ Deno.test("the estimate holds rather than extrapolating", async (t) => {
 // low and a shortfall that never happened looked real. This fixture doubles a
 // day rather than starving one — seedCut has already logged every day, and a
 // doubled day puts an exact delta through the same arithmetic.
-Deno.test("a flagged day leaves both weekly means", async (t) => {
+test("a flagged day leaves both weekly means", async (t) => {
   await resetNutrition();
   // Two weeks at 2,200 kcal of a 5 g/100 g food: 110 g of protein a day.
   await seedCut({ days: 14, kcal: 2200, startWeightKg: 82, kgPerWeek: -0.5 });
   const day = daysBefore(lastFinishedSunday(), 3);
-
-  await t.step("a doubled day moves both while it still counts", async () => {
+  await t.test("a doubled day moves both while it still counts", async () => {
     await api.post("/intake", {
       day,
       food: "Seed Food",
@@ -325,13 +301,11 @@ Deno.test("a flagged day leaves both weekly means", async (t) => {
     assertEquals(body.weeks[0].mean_kcal, 2514); // (6 x 2200 + 4400) / 7
     assertEquals(body.weeks[0].mean_protein_g, 126); // (6 x 110 + 220) / 7
   });
-
-  await t.step("flagging it removes it from both", async () => {
+  await t.test("flagging it removes it from both", async () => {
     const flagged = await api.post(`/days/${day}/flags`, {
       flag: "incomplete",
     });
     assertEquals(flagged.status, 201);
-
     const { body } = await api.get("/nutrition/weekly?weeks=1");
     assertEquals(body.weeks[0].days_flagged, 1);
     assertEquals(body.weeks[0].mean_kcal, 2200);

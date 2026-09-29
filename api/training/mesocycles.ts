@@ -3,26 +3,20 @@
 // plan version counter or lock service is needed.
 import {
   batch,
-  type Clock,
-  type Database,
   databaseError,
   date,
   decimal,
   instant,
   jsonChunks,
-  type Parameter,
   requestId,
-  type Result,
   romeDate,
   rows,
   statement,
   systemClock,
   wireInstant,
 } from "../shared/d1.ts";
+import type { Clock, Database, Parameter, Result } from "../shared/d1.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
-import { trainingResolver } from "./resolve.ts";
-import { affectedRows, finishWrite } from "./session_write.ts";
-import { assertDoseUnit } from "./rules.ts";
 import type {
   CreateMesocycleInput,
   DecisionInput,
@@ -34,13 +28,29 @@ import type {
   RecordedRow,
   RenameMesocycleInput,
 } from "./mesocycles.types.ts";
+import { trainingResolver } from "./resolve.ts";
+import { assertDoseUnit } from "./rules.ts";
+import { affectedRows, finishWrite } from "./session_write.ts";
 
 type Header = Omit<MesocycleDetail, "week" | "exercises"> & { week: number };
 const decisionColumns = "id, mesocycle_id, made_at, what_changed, why";
 const publicDecision = (row: RecordedRow): RecordedRow => ({
   ...row,
-  made_at: wireInstant(row.made_at)!,
+  made_at: wireInstant(row.made_at),
 });
+
+type PlanRead = Header | PlanExerciseRow | RecordedRow;
+
+function detail(results: Result<PlanRead>[], key: Parameter): MesocycleDetail {
+  // SAFETY: detailStatements always puts the header SELECT first and the exercises SELECT second.
+  const header = requireRow(
+    results[0].results as Header[],
+    `No mesocycle with id ${key}.`
+  );
+  // SAFETY: the second detailStatements query selects exactly the PlanExerciseRow columns.
+  const exercises = results[1].results as PlanExerciseRow[];
+  return { ...header, week: header.week < 1 ? null : header.week, exercises };
+}
 
 export function mesocycleStore(db: Database, clock: Clock = systemClock) {
   const resolver = trainingResolver(db);
@@ -55,7 +65,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
           CAST((julianday(?) - julianday(m.started_on)) / 7 AS INTEGER) + 1 AS week
          FROM mesocycles m WHERE ${predicate}`,
         today,
-        key,
+        key
       ),
       statement(
         db,
@@ -71,28 +81,17 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
            ORDER BY h.effective_from DESC, h.id DESC LIMIT 1
          ) WHERE ${predicate} ORDER BY me.priority, e.name`,
         today,
-        key,
+        key
       ),
     ];
   }
-  function detail(results: Result[], key: Parameter): MesocycleDetail {
-    const header = requireRow(
-      results[0].results as unknown as Header[],
-      `No mesocycle with id ${key}.`,
-    );
-    return {
-      ...header,
-      week: header.week < 1 ? null : header.week,
-      exercises: results[1].results as unknown as PlanExerciseRow[],
-    };
-  }
   async function mesocycleDetail(id: number): Promise<MesocycleDetail> {
     return detail(
-      await batch(
+      await batch<PlanRead>(
         db,
-        detailStatements(id, romeDate(instant(clock().toISOString()))),
+        detailStatements(id, romeDate(instant(clock().toISOString())))
       ),
-      id,
+      id
     );
   }
   async function mesocycleByRef(ref: string) {
@@ -101,12 +100,12 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
 
   // Bulk lookup also serves large plans without spending one D1 query per noun.
   async function prepare(
-    additions: PlanEntry[],
+    entries: PlanEntry[],
     removals: (string | number)[] = [],
-    redoses: NonNullable<DecisionInput["redose"]> = [],
+    redoses: NonNullable<DecisionInput["redose"]> = []
   ) {
     const references = await resolver.forSets([
-      ...additions,
+      ...entries,
       ...removals.map((exercise) => ({ exercise })),
       ...redoses,
     ]);
@@ -115,17 +114,17 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       remove.push(await references.resolveExercise(ref));
     }
     const add: PlanExercise[] = [];
-    for (const entry of additions) {
+    for (const entry of entries) {
       if (entry.weekly_sets !== undefined) {
         throw new ApiError(
           422,
-          'The weekly dose is "weekly_dose" plus "weekly_dose_unit" (sets, minutes, or km), so that work in metres and minutes can be dosed too. An exercise entry is {exercise, role, priority, weekly_dose, weekly_dose_unit, notes?}.',
+          'The weekly dose is "weekly_dose" plus "weekly_dose_unit" (sets, minutes, or km), so that work in metres and minutes can be dosed too. An exercise entry is {exercise, role, priority, weekly_dose, weekly_dose_unit, notes?}.'
         );
       }
       if (entry.load_target !== undefined) {
         throw new ApiError(
           422,
-          "Load targets are not stored in tables: the intent carries the plan's goals and its progression mechanism (see tasks/programming). Only the weekly dose is structured.",
+          "Load targets are not stored in tables: the intent carries the plan's goals and its progression mechanism (see tasks/programming). Only the weekly dose is structured."
         );
       }
       const exercise = await references.resolveExercise(entry.exercise);
@@ -134,7 +133,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
         exerciseId: exercise.id,
         role: entry.role,
         priority: entry.priority,
-        weeklyDose: decimal(entry.weekly_dose, 6, 1)!,
+        weeklyDose: decimal(entry.weekly_dose, 6, 1),
         weeklyDoseUnit: entry.weekly_dose_unit,
         notes: entry.notes ?? null,
       });
@@ -146,7 +145,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       redose.push({
         exerciseId: exercise.id,
         name: exercise.name,
-        dose: decimal(entry.weekly_dose, 6, 1)!,
+        dose: decimal(entry.weekly_dose, 6, 1),
         unit: entry.weekly_dose_unit,
       });
     }
@@ -158,7 +157,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
     items: PlanExercise[],
     today: string,
     now: string,
-    byRequest = false,
+    byRequest = false
   ) {
     const predicate = byRequest ? "m.request_id = ?" : "m.id = ?";
     return jsonChunks(items).flatMap((chunk) => [
@@ -169,7 +168,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
            json_extract(v.value, '$.priority'), json_extract(v.value, '$.notes')
          FROM json_each(?) v CROSS JOIN mesocycles m WHERE ${predicate} ORDER BY CAST(v.key AS INTEGER)`,
         chunk.json,
-        key,
+        key
       ),
       affectedRows(db, chunk.count),
       statement(
@@ -181,7 +180,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
         today,
         now,
         chunk.json,
-        key,
+        key
       ),
       affectedRows(db, chunk.count),
     ]);
@@ -190,21 +189,21 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
     const [seen] = await rows<{ id: number }>(
       db,
       "SELECT id FROM mesocycles WHERE request_id = ?",
-      uuid,
+      uuid
     );
     return seen ? await mesocycleDetail(seen.id) : undefined;
   }
-  async function createMesocycle(
-    b: CreateMesocycleInput,
-  ) {
+  async function createMesocycle(b: CreateMesocycleInput) {
     const uuid = requestId(b.request_id);
     const seen = await seenPlan(uuid);
-    if (seen) return { mesocycle: seen, created: false };
+    if (seen) {
+      return { mesocycle: seen, created: false };
+    }
     try {
       const prepared = await prepare(b.exercises);
       const now = instant(clock().toISOString());
       const start = date(b.started_on);
-      const results = await db.batch([
+      const results = await db.batch<PlanRead>([
         statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
         statement(
           db,
@@ -217,7 +216,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
           b.planned_weeks,
           b.sessions_per_week,
           start,
-          uuid,
+          uuid
         ),
         affectedRows(db, 1),
         ...additions(uuid, prepared.add, start, now, true),
@@ -229,34 +228,33 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       // Recover a concurrent replay or a confirmed completed request by reading
       // its key, never by retrying an uncertain non-idempotent write.
       const replay = await seenPlan(uuid);
-      if (replay) return { mesocycle: replay, created: false };
+      if (replay) {
+        return { mesocycle: replay, created: false };
+      }
       throw databaseError(error);
     }
   }
-  async function renameMesocycle(
-    ref: string,
-    b: RenameMesocycleInput,
-  ) {
+  async function renameMesocycle(ref: string, b: RenameMesocycleInput) {
     const m = await resolver.resolveMesocycle(ref);
     if (b.intent !== undefined) {
       throw new ApiError(
         422,
-        "The intent is the plan; changing it is a decision. POST /mesocycles/:id/decisions with the full replacement intent, what changed, and why.",
+        "The intent is the plan; changing it is a decision. POST /mesocycles/:id/decisions with the full replacement intent, what changed, and why."
       );
     }
     if (b.ended_on !== undefined) {
       throw new ApiError(
         422,
-        'Ending a plan is a plan change, so it carries its reason: POST /mesocycles/:id/decisions with {"ended_on": "YYYY-MM-DD", "what_changed": …, "why": …}.',
+        'Ending a plan is a plan change, so it carries its reason: POST /mesocycles/:id/decisions with {"ended_on": "YYYY-MM-DD", "what_changed": …, "why": …}.'
       );
     }
-    const results = await batch(db, [
+    const results = await batch<PlanRead>(db, [
       statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
       statement(
         db,
         "UPDATE mesocycles SET name = ? WHERE id = ?",
         b.name,
-        m.id,
+        m.id
       ),
       affectedRows(db, 1),
       ...detailStatements(m.id, romeDate(instant(clock().toISOString()))),
@@ -270,21 +268,21 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       db,
       `SELECT ${decisionColumns} FROM mesocycle_decisions WHERE mesocycle_id = ? AND request_id = ?`,
       id,
-      uuid,
+      uuid
     );
     return seen
       ? {
-        mesocycle: await mesocycleDetail(id),
-        decision: publicDecision(seen),
-        created: false,
-      }
+          mesocycle: await mesocycleDetail(id),
+          decision: publicDecision(seen),
+          created: false,
+        }
       : undefined;
   }
   function memberCount(expected: number) {
     return statement(
       db,
       "UPDATE api_write_assertions SET plan_matches = (changes() = ?) WHERE id = 1",
-      expected,
+      expected
     );
   }
   async function recordDecision(ref: string, b: DecisionInput) {
@@ -292,54 +290,63 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
     const uuid = requestId(b.request_id);
     for (let attempt = 0; attempt < 3; attempt++) {
       const seen = await seenDecision(m.id, uuid);
-      if (seen) return seen;
+      if (seen) {
+        return seen;
+      }
       try {
         if (b.weekly_sets !== undefined) {
           throw new ApiError(
             422,
-            'Dose changes are "redose": [{exercise, weekly_dose, weekly_dose_unit}], for exercises already in the plan.',
+            'Dose changes are "redose": [{exercise, weekly_dose, weekly_dose_unit}], for exercises already in the plan.'
           );
         }
         if (b.load_targets !== undefined) {
           throw new ApiError(
             422,
-            'Load targets are not stored in tables: a change to a goal or to the progression mechanism is an intent change. Send "intent" with the full replacement text (see tasks/programming).',
+            'Load targets are not stored in tables: a change to a goal or to the progression mechanism is an intent change. Send "intent" with the full replacement text (see tasks/programming).'
           );
         }
         const inputs = await prepare(
           b.add ?? [],
           b.remove ?? [],
-          b.redose ?? [],
+          b.redose ?? []
         );
         const members = new Set(
-          (await rows<{ exercise_id: number }>(
-            db,
-            "SELECT exercise_id FROM mesocycle_exercises WHERE mesocycle_id = ?",
-            m.id,
-          )).map((row) => row.exercise_id),
+          (
+            await rows<{ exercise_id: number }>(
+              db,
+              "SELECT exercise_id FROM mesocycle_exercises WHERE mesocycle_id = ?",
+              m.id
+            )
+          ).map((row) => row.exercise_id)
         );
         for (const exercise of inputs.remove) {
           if (!members.delete(exercise.id)) {
             throw new ApiError(
               422,
-              `"${exercise.name}" is not in this mesocycle's plan, so it cannot be removed. GET /mesocycles/${m.id} shows the plan.`,
+              `"${exercise.name}" is not in this mesocycle's plan, so it cannot be removed. GET /mesocycles/${m.id} shows the plan.`
             );
           }
         }
-        for (const entry of inputs.add) members.add(entry.exerciseId);
+        for (const entry of inputs.add) {
+          members.add(entry.exerciseId);
+        }
         for (const entry of inputs.redose) {
           if (!members.has(entry.exerciseId)) {
             throw new ApiError(
               422,
-              `"${entry.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /mesocycles/${m.id} to see the plan.`,
+              `"${entry.name}" is not in this mesocycle's plan, so its dose cannot be changed. Add it with "add" instead, or GET /mesocycles/${m.id} to see the plan.`
             );
           }
         }
         const now = instant(clock().toISOString());
         const today = romeDate(now);
         const newIntent = b.intent ?? null;
-        const endedOn = b.ended_on == null ? null : date(b.ended_on);
-        const results = await db.batch([
+        const endedOn =
+          b.ended_on === null || b.ended_on === undefined
+            ? null
+            : date(b.ended_on);
+        const results = await db.batch<PlanRead>([
           statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
           // Capture the intent being displaced inside the transaction, not from
           // a stale application read. A failed later change rolls this back.
@@ -353,20 +360,20 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
             uuid,
             Number(newIntent !== null),
             now,
-            m.id,
+            m.id
           ),
           affectedRows(db, 1),
-          ...jsonChunks(inputs.remove.map((exercise) => exercise.id)).flatMap((
-            chunk,
-          ) => [
-            statement(
-              db,
-              "DELETE FROM mesocycle_exercises WHERE mesocycle_id = ? AND exercise_id IN (SELECT value FROM json_each(?))",
-              m.id,
-              chunk.json,
-            ),
-            memberCount(chunk.count),
-          ]),
+          ...jsonChunks(inputs.remove.map((exercise) => exercise.id)).flatMap(
+            (chunk) => [
+              statement(
+                db,
+                "DELETE FROM mesocycle_exercises WHERE mesocycle_id = ? AND exercise_id IN (SELECT value FROM json_each(?))",
+                m.id,
+                chunk.json
+              ),
+              memberCount(chunk.count),
+            ]
+          ),
           ...additions(m.id, inputs.add, today, now),
           ...jsonChunks(inputs.redose).flatMap((chunk) => [
             statement(
@@ -379,7 +386,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
               today,
               now,
               chunk.json,
-              m.id,
+              m.id
             ),
             memberCount(chunk.count),
           ]),
@@ -391,43 +398,49 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
             newIntent,
             Number(b.ended_on !== undefined),
             endedOn,
-            m.id,
+            m.id
           ),
           affectedRows(db, 1),
           statement(
             db,
             `SELECT ${decisionColumns} FROM mesocycle_decisions WHERE mesocycle_id = ? AND request_id = ?`,
             m.id,
-            uuid,
+            uuid
           ),
           ...detailStatements(m.id, today),
           finishWrite(db),
         ]);
+        // SAFETY: the fourth-to-last statement selects decisionColumns; detail reads and cleanup follow it.
+        const recorded = results.at(-4) as Result<RecordedRow>;
         return {
           mesocycle: detail(results.slice(-3, -1), m.id),
           decision: publicDecision(
             requireRow(
-              results.at(-4)!.results as unknown as RecordedRow[],
-              "The decision could not be read after saving.",
-            ),
+              recorded.results,
+              "The decision could not be read after saving."
+            )
           ),
           created: true,
         };
       } catch (error) {
         const replay = await seenDecision(m.id, uuid);
-        if (replay) return replay;
+        if (replay) {
+          return replay;
+        }
         if (
           error instanceof Error &&
-          /CHECK constraint failed: api_plan_membership_changed\b/.test(
-            error.message,
+          /CHECK constraint failed: api_plan_membership_changed\b/u.test(
+            error.message
           )
-        ) continue;
+        ) {
+          continue;
+        }
         throw databaseError(error);
       }
     }
     throw new ApiError(
       409,
-      `The plan kept changing. Nothing was saved by this request. Read GET /mesocycles/${m.id} before retrying.`,
+      `The plan kept changing. Nothing was saved by this request. Read GET /mesocycles/${m.id} before retrying.`
     );
   }
   async function decisionLog(ref: string) {
@@ -435,13 +448,13 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
     const decisions = await rows<DecisionRow>(
       db,
       "SELECT id, made_at, what_changed, why, prior_intent FROM mesocycle_decisions WHERE mesocycle_id = ? ORDER BY made_at, id",
-      m.id,
+      m.id
     );
     return {
       mesocycle_id: m.id,
       decisions: decisions.map((row) => ({
         ...row,
-        made_at: wireInstant(row.made_at)!,
+        made_at: wireInstant(row.made_at),
       })),
     };
   }

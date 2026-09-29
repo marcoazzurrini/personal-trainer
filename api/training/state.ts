@@ -1,15 +1,14 @@
 import {
-  type Clock,
-  type Database,
   instant as canonicalInstant,
   romeDate,
   rows,
   systemClock,
   wireInstant,
 } from "../shared/d1.ts";
+import type { Clock, Database } from "../shared/d1.ts";
 import { addDays, daysBetween, mondayOf } from "../shared/dates.ts";
-import { deliveredInDoseUnit, DOCUMENTED_TRACKS, type Track } from "./rules.ts";
-import { contextStore } from "./user_context.ts";
+import { deliveredInDoseUnit, DOCUMENTED_TRACKS } from "./rules.ts";
+import type { Track } from "./rules.ts";
 import type {
   ActiveMesocycle,
   PlanExercise,
@@ -20,6 +19,7 @@ import type {
   TrainingState,
   WeekScheduleEntry,
 } from "./state.types.ts";
+import { contextStore } from "./user_context.ts";
 
 const performed =
   "(t.reps IS NOT NULL OR t.distance_m IS NOT NULL OR t.duration_s IS NOT NULL)";
@@ -56,14 +56,14 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
     const [schedule] = await rows<WeekScheduleEntry>(
       db,
       "SELECT week_start, schedule, written_at FROM week_schedules WHERE week_start = ?",
-      weekStart,
+      weekStart
     );
     const weekSchedule = schedule
-      ? { ...schedule, written_at: wireInstant(schedule.written_at)! }
+      ? { ...schedule, written_at: wireInstant(schedule.written_at) }
       : null;
     const active = await rows<Plan>(
       db,
-      "SELECT id, name, track, intent, planned_weeks, sessions_per_week, started_on FROM mesocycles WHERE ended_on IS NULL ORDER BY track",
+      "SELECT id, name, track, intent, planned_weeks, sessions_per_week, started_on FROM mesocycles WHERE ended_on IS NULL ORDER BY track"
     );
     if (!active.length) {
       return {
@@ -71,9 +71,10 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
         mesocycles: [],
         week_schedule: weekSchedule,
         user_context: userContext,
-        note: userContext.length === 0
-          ? "No active mesocycle and no user context: this is a first conversation. Start with the onboarding document, `tasks/onboarding` — do not program anything yet."
-          : "No active mesocycle. Read the `tasks/programming` document, then create one with POST /mesocycles (blocks via POST /blocks).",
+        note:
+          userContext.length === 0
+            ? "No active mesocycle and no user context: this is a first conversation. Start with the onboarding document, `tasks/onboarding` — do not program anything yet."
+            : "No active mesocycle. Read the `tasks/programming` document, then create one with POST /mesocycles (blocks via POST /blocks).",
       };
     }
     const mesocycles: ActiveMesocycle[] = [];
@@ -102,14 +103,14 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
         today > m.started_on ? today : m.started_on,
         m.id,
         weekStart,
-        m.id,
+        m.id
       );
       const [{ sessions_done }] = await rows<{ sessions_done: number }>(
         db,
         `SELECT count(DISTINCT s.id) AS sessions_done FROM sessions s JOIN sets t ON t.session_id = s.id
          WHERE t.mesocycle_id = ? AND s.date >= ? AND ${performed}`,
         m.id,
-        weekStart,
+        weekStart
       );
       const recentWeeks: RecentWeek[] = [];
       if (week !== null) {
@@ -127,7 +128,7 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
             w,
             m.id,
             addDays(m.started_on, (w - 1) * 7),
-            addDays(m.started_on, w * 7),
+            addDays(m.started_on, w * 7)
           );
           recentWeeks.push({ week: w, ...done });
         }
@@ -135,7 +136,7 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
       const decisions = await rows<RecentDecision>(
         db,
         "SELECT id, made_at, what_changed, why FROM mesocycle_decisions WHERE mesocycle_id = ? ORDER BY made_at DESC, id DESC LIMIT 5",
-        m.id,
+        m.id
       );
       const hasMethod = DOCUMENTED_TRACKS.includes(m.track);
       mesocycles.push({
@@ -156,20 +157,20 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
             e.dose_unit,
             e.sets_done,
             e.distance_m,
-            e.duration_s,
+            e.duration_s
           ),
         })),
         this_week: { sessions_done, sessions_per_week: m.sessions_per_week },
         recent_weeks: recentWeeks,
         recent_decisions: decisions.map((d) => ({
           ...d,
-          made_at: wireInstant(d.made_at)!,
+          made_at: wireInstant(d.made_at),
         })),
       });
     }
     const recentSessions = await rows<Omit<RecentSession, "exercises">>(
       db,
-      "SELECT id, date, rationale, notes, overall_feel FROM sessions ORDER BY date DESC, id DESC LIMIT 5",
+      "SELECT id, date, rationale, notes, overall_feel FROM sessions ORDER BY date DESC, id DESC LIMIT 5"
     );
     const sessions: RecentSession[] = [];
     for (const s of recentSessions) {
@@ -184,7 +185,7 @@ export function trainingStateStore(db: Database, clock: Clock = systemClock) {
               t.reps DESC NULLS LAST, t.distance_m DESC NULLS LAST) AS rank
           FROM sets t JOIN exercises e ON e.id = t.exercise_id WHERE t.session_id = ? AND t.kind = 'working' AND ${performed}
         ) WHERE rank = 1 ORDER BY exercise`,
-        s.id,
+        s.id
       );
       sessions.push({ ...s, exercises });
     }

@@ -1,12 +1,14 @@
-import { build } from "esbuild";
 import { createHash } from "node:crypto";
-import { sourceRevision } from "./source-revision.mjs";
-export { sourceRevision } from "./source-revision.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import nodePath from "node:path";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+import { build } from "esbuild";
+
+import { sourceRevision } from "./source-revision.mjs";
+
+export { sourceRevision } from "./source-revision.mjs";
+
+const root = nodePath.resolve(import.meta.dirname, "..");
 
 export async function buildWorker() {
   const revision = sourceRevision();
@@ -30,11 +32,11 @@ export async function buildWorker() {
   });
   if (
     Object.keys(unstamped.metafile.inputs).some((name) =>
-      /api\/db\.ts$|node_modules\/postgres\//.test(name)
+      /api\/db\.ts$|node_modules\/postgres\//u.test(name)
     )
   ) {
     throw new Error(
-      "The production Worker must not include the retired PostgreSQL runtime.",
+      "The production Worker must not include the retired PostgreSQL runtime."
     );
   }
   // Stamp one immutable compiler result, not a second build which could read
@@ -42,35 +44,36 @@ export async function buildWorker() {
   const source = unstamped.outputFiles[0].text;
   if (source.split(placeholder).length !== 2) {
     throw new Error(
-      "The Worker must contain exactly one build digest placeholder.",
+      "The Worker must contain exactly one build digest placeholder."
     );
   }
   const digest = createHash("sha256").update(source).digest("hex");
   const metadata = { revision, digest };
   if (sourceRevision() !== revision) {
     throw new Error(
-      "Source revision changed while building. No artifact was written.",
+      "Source revision changed while building. No artifact was written."
     );
   }
-  await mkdir(resolve(root, "dist"), { recursive: true });
+  await mkdir(nodePath.resolve(root, "dist"), { recursive: true });
   await writeFile(
-    resolve(root, "dist/worker.js"),
-    source.replace(placeholder, digest),
+    nodePath.resolve(root, "dist/worker.js"),
+    source.replace(placeholder, digest)
   );
   await writeFile(
-    resolve(root, "dist/build.json"),
-    JSON.stringify(metadata) + "\n",
+    nodePath.resolve(root, "dist/build.json"),
+    `${JSON.stringify(metadata)}\n`
   );
   return metadata;
 }
 
 if (
-  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  process.argv[1] &&
+  nodePath.resolve(process.argv[1]) === import.meta.filename
 ) {
   const metadata = await buildWorker();
   console.log(
     `Worker built: ${metadata.digest}; commit: ${
       metadata.revision ?? "uncommitted source"
-    }.`,
+    }.`
   );
 }

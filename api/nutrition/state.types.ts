@@ -1,9 +1,9 @@
 import type { BodyfatRow } from "../body/bodyfat.types.ts";
-import type { MacroTotals } from "./rules.ts";
-import type { ExpenditureRead } from "./read.types.ts";
 import type { ActiveTransient } from "./events.types.ts";
-import type { TargetRow } from "./targets.types.ts";
 import type { IntakeEntry } from "./intake.types.ts";
+import type { ExpenditureRead } from "./read.types.ts";
+import type { MacroTotals } from "./rules.ts";
+import type { TargetRow } from "./targets.types.ts";
 
 export interface RecentDay {
   day: string;

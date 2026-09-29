@@ -1,4 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import {
   api,
   ensureCatalogue,
@@ -7,21 +9,18 @@ import {
   seedPlan,
   today,
 } from "./helpers.ts";
-
 // The procedures may omit a read only because another response supplies its
 // facts. Prose checks alone cannot establish that the API keeps that promise.
-Deno.test("training-state supplies current context both before and during a plan", async () => {
+test("training-state supplies current context both before and during a plan", async () => {
   await resetTraining();
   await ensureCatalogue();
-  for (
-    const content of [
-      "Needs 48 hours between heavy days",
-      "Needs 72 hours between heavy days",
-    ]
-  ) {
+  for (const content of [
+    "Needs 48 hours between heavy days",
+    "Needs 72 hours between heavy days",
+  ]) {
     assertEquals(
       (await api.post("/user-context", { topic: "recovery", content })).status,
-      201,
+      201
     );
   }
   const current = (await api.get("/user-context")).body.context;
@@ -35,8 +34,7 @@ Deno.test("training-state supplies current context both before and during a plan
   assertEquals(during.status, 200);
   assertEquals(during.body.user_context, current);
 });
-
-Deno.test("session detail and exercise history supply effort while session lists supply headers only", async () => {
+test("session detail and exercise history supply effort while session lists supply headers only", async () => {
   await resetTraining();
   await ensureCatalogue();
   const written = await api.post("/sessions", {
@@ -55,53 +53,59 @@ Deno.test("session detail and exercise history supply effort while session lists
   assert(!("sets" in list.body.sessions[0]));
   const detail = await api.get(`/sessions/${list.body.sessions[0].id}`);
   assertEquals(detail.status, 200);
-  const efforts = detail.body.session.sets.filter(
-    (s: { kind: string; effort: string | null }) =>
-      s.kind === "working" && s.effort !== null,
-  ).map((s: { effort: string }) => s.effort);
+  const efforts = detail.body.session.sets
+    .filter(
+      (s: { kind: string; effort: string | null }) =>
+        s.kind === "working" && s.effort !== null
+    )
+    .map((s: { effort: string }) => s.effort);
   assertEquals(efforts, ["hard"]);
   const history = await api.get("/exercises/squat/history?limit=20");
   assertEquals(history.status, 200);
   assertEquals(
     history.body.sets.map((s: { effort: string }) => s.effort),
-    efforts,
+    efforts
   );
 });
-
-Deno.test("direct meal logging resolves aliases and returns the same day facts as a read", async () => {
+test("direct meal logging resolves aliases and returns the same day facts as a read", async () => {
   await resetNutrition();
   assertEquals(
-    (await api.post("/foods", {
-      name: "Workflow yogurt",
-      kcal_100g: 100,
-      protein_100g: 25,
-      carbs_100g: 0,
-      fat_100g: 0,
-      source: "label",
-    })).status,
-    201,
+    (
+      await api.post("/foods", {
+        name: "Workflow yogurt",
+        kcal_100g: 100,
+        protein_100g: 25,
+        carbs_100g: 0,
+        fat_100g: 0,
+        source: "label",
+      })
+    ).status,
+    201
   );
   assertEquals(
-    (await api.post("/meals", {
-      name: "Workflow breakfast",
-      aliases: ["la colazione del test"],
-      items: [{ food: "Workflow yogurt", grams: 200 }],
-    })).status,
-    201,
+    (
+      await api.post("/meals", {
+        name: "Workflow breakfast",
+        aliases: ["la colazione del test"],
+        items: [{ food: "Workflow yogurt", grams: 200 }],
+      })
+    ).status,
+    201
   );
   assertEquals(
-    (await api.post("/intake", {
-      day: today(),
-      adhoc_kcal: 300,
-      note: "Unknown protein in the earlier meal",
-    })).status,
-    201,
+    (
+      await api.post("/intake", {
+        day: today(),
+        adhoc_kcal: 300,
+        note: "Unknown protein in the earlier meal",
+      })
+    ).status,
+    201
   );
   assertEquals(
     (await api.post(`/days/${today()}/flags`, { flag: "incomplete" })).status,
-    201,
+    201
   );
-
   // No preliminary GET /meals or GET /foods: POST resolves the known alias.
   const logged = await api.post("/intake", {
     meal: "LA COLAZIONE DEL TEST",

@@ -1,4 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import {
   api,
   ensureCatalogue,
@@ -9,17 +11,14 @@ import {
   uuid,
 } from "./helpers.ts";
 
-Deno.test("session lifecycle", async (t) => {
+test("session lifecycle", async (t) => {
   await resetTraining();
   await ensureCatalogue();
-
   await seedPlan({ exercises: [{ exercise: "squat", weekly_dose: 9 }] });
-
   const requestId = uuid();
   let sessionId: number;
   let workingSetId: number;
-
-  await t.step("an upcoming session creates rows with targets", async () => {
+  await t.test("an upcoming session creates rows with targets", async () => {
     const { status, body } = await api.post("/sessions", {
       request_id: requestId,
       date: today(),
@@ -40,13 +39,12 @@ Deno.test("session lifecycle", async (t) => {
     assertEquals(body.session.sets.length, 3);
     assertEquals(
       body.session.sets.map((s: { position: number }) => s.position),
-      [1, 2, 3],
+      [1, 2, 3]
     );
     assertEquals(body.session.sets[1].weight_kg, null); // actuals empty
     workingSetId = body.session.sets[1].id;
   });
-
-  await t.step("a retry with the same request_id is a no-op", async () => {
+  await t.test("a retry with the same request_id is a no-op", async () => {
     const { status, body } = await api.post("/sessions", {
       request_id: requestId,
       date: today(),
@@ -57,25 +55,25 @@ Deno.test("session lifecycle", async (t) => {
     assertEquals(body.session.id, sessionId);
     assertEquals(body.session.sets.length, 3); // original, not the retry body
   });
-
-  await t.step("a new set cannot carry both targets and actuals", async () => {
+  await t.test("a new set cannot carry both targets and actuals", async () => {
     const { status, body } = await api.post("/sessions", {
       date: today(),
       rationale: "x",
-      sets: [{
-        exercise: "squat",
-        target_weight_kg: 100,
-        target_reps: 5,
-        weight_kg: 100,
-        reps: 5,
-        effort: "hard",
-      }],
+      sets: [
+        {
+          exercise: "squat",
+          target_weight_kg: 100,
+          target_reps: 5,
+          weight_kg: 100,
+          reps: 5,
+          effort: "hard",
+        },
+      ],
     });
     assertEquals(status, 422);
     assert(body.error.includes("never both"));
   });
-
-  await t.step("logging a working set without effort is rejected", async () => {
+  await t.test("logging a working set without effort is rejected", async () => {
     const { status, body } = await api.patch(`/sets/${workingSetId}`, {
       weight_kg: 100,
       reps: 6,
@@ -83,8 +81,7 @@ Deno.test("session lifecycle", async (t) => {
     assertEquals(status, 422);
     assert(body.error.includes("effort"));
   });
-
-  await t.step(
+  await t.test(
     "logging with effort works and stamps performed_at",
     async () => {
       const { status, body } = await api.patch(`/sets/${workingSetId}`, {
@@ -95,10 +92,9 @@ Deno.test("session lifecycle", async (t) => {
       assertEquals(status, 200);
       assertEquals(body.set.weight_kg, 100);
       assert(body.set.performed_at !== null);
-    },
+    }
   );
-
-  await t.step("resending the same patch is idempotent", async () => {
+  await t.test("resending the same patch is idempotent", async () => {
     const { status, body } = await api.patch(`/sets/${workingSetId}`, {
       weight_kg: 100,
       reps: 6,
@@ -107,16 +103,14 @@ Deno.test("session lifecycle", async (t) => {
     assertEquals(status, 200);
     assertEquals(body.set.reps, 6);
   });
-
-  await t.step("targets are immutable through PATCH", async () => {
+  await t.test("targets are immutable through PATCH", async () => {
     const { status, body } = await api.patch(`/sets/${workingSetId}`, {
       target_weight_kg: 90,
     });
     assertEquals(status, 422);
     assert(body.error.includes("immutable"));
   });
-
-  await t.step("an unplanned set appends at the next position", async () => {
+  await t.test("an unplanned set appends at the next position", async () => {
     const { status, body } = await api.post(`/sessions/${sessionId}/sets`, {
       exercise: "squat",
       weight_kg: 100,
@@ -125,10 +119,9 @@ Deno.test("session lifecycle", async (t) => {
     });
     assertEquals(status, 201);
     assertEquals(body.set.position, 4);
-    assertEquals(body.set.target_weight_kg, undefined); // no targets on unplanned
+    assertEquals(body.set.target_weight_kg); // no targets on unplanned
   });
-
-  await t.step("an unplanned set requires actuals", async () => {
+  await t.test("an unplanned set requires actuals", async () => {
     const { status } = await api.post(`/sessions/${sessionId}/sets`, {
       exercise: "squat",
       target_weight_kg: 100,
@@ -136,8 +129,7 @@ Deno.test("session lifecycle", async (t) => {
     });
     assertEquals(status, 422);
   });
-
-  await t.step("completing a session is a field change", async () => {
+  await t.test("completing a session is a field change", async () => {
     const { status, body } = await api.patch(`/sessions/${sessionId}`, {
       overall_feel: "solid",
       completed_at: new Date().toISOString(),
@@ -145,8 +137,7 @@ Deno.test("session lifecycle", async (t) => {
     assertEquals(status, 200);
     assert(body.session.completed_at !== null);
   });
-
-  await t.step("a retro session carries actuals and null targets", async () => {
+  await t.test("a retro session carries actuals and null targets", async () => {
     const { status, body } = await api.post("/sessions", {
       date: lastTuesday(),
       rationale: "retro-logged, forgot to log",
@@ -159,24 +150,21 @@ Deno.test("session lifecycle", async (t) => {
     assertEquals(body.session.sets[0].target_weight_kg, null);
     assertEquals(body.session.sets[0].weight_kg, 95);
   });
-
-  await t.step("sessions list filters by mesocycle", async () => {
+  await t.test("sessions list filters by mesocycle", async () => {
     const { body } = await api.get("/sessions?mesocycle=current&limit=10");
     assertEquals(body.sessions.length, 2);
     assert(!("sets" in body.sessions[0])); // rows only, no sets
   });
-
-  await t.step("a skipped planned set survives as an empty row", async () => {
+  await t.test("a skipped planned set survives as an empty row", async () => {
     const { body } = await api.get(`/sessions/${sessionId}`);
     const skipped = body.session.sets.find(
-      (s: { position: number }) => s.position === 3,
+      (s: { position: number }) => s.position === 3
     );
     assertEquals(skipped.weight_kg, null);
     assertEquals(skipped.target_weight_kg, 100);
   });
 });
-
-Deno.test("a draft session is discardable; a performed one is not", async (t) => {
+test("a draft session is discardable; a performed one is not", async (t) => {
   await resetTraining();
   await ensureCatalogue();
   // The iteration loop this protects: coach proposes a session, Marco wants
@@ -193,22 +181,18 @@ Deno.test("a draft session is discardable; a performed one is not", async (t) =>
       { exercise: "squat", target_weight_kg: 100, target_reps: 5 },
     ],
   });
-
-  await t.step("nothing touched: the draft deletes whole", async () => {
+  await t.test("nothing touched: the draft deletes whole", async () => {
     const created = await api.post("/sessions", plan());
     assertEquals(created.status, 201, created.body.error);
-    const id = created.body.session.id;
-
+    const { id } = created.body.session;
     const { status, body } = await api.delete(`/sessions/${id}`);
     assertEquals(status, 200);
     assertEquals(body.deleted.sets, 2);
-
     assertEquals((await api.get(`/sessions/${id}`)).status, 404);
   });
-
-  await t.step("one actual on record refuses the delete", async () => {
+  await t.test("one actual on record refuses the delete", async () => {
     const created = await api.post("/sessions", plan());
-    const id = created.body.session.id;
+    const { id } = created.body.session;
     const setId = created.body.session.sets[0].id;
     const logged = await api.patch(`/sets/${setId}`, {
       weight_kg: 100,
@@ -216,26 +200,24 @@ Deno.test("a draft session is discardable; a performed one is not", async (t) =>
       effort: "hard",
     });
     assertEquals(logged.status, 200, logged.body.error);
-
     const { status, body } = await api.delete(`/sessions/${id}`);
     assertEquals(status, 409);
     assert(body.error.includes("1 of its 2 sets"), body.error);
     assert(body.error.includes("PATCH /sets/:id"), body.error);
   });
-
-  await t.step(
+  await t.test(
     "a started session is history even with no actuals",
     async () => {
       // Starting the workout is commitment enough: the session was under way,
       // the warmup happened, the plan was the plan. No silent discard after that.
       const created = await api.post("/sessions", plan());
-      const id = created.body.session.id;
+      const { id } = created.body.session;
       await api.patch(`/sessions/${id}`, {
         started_at: new Date().toISOString(),
       });
       const { status, body } = await api.delete(`/sessions/${id}`);
       assertEquals(status, 409);
       assert(body.error.includes("started or finished"), body.error);
-    },
+    }
   );
 });

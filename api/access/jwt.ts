@@ -19,20 +19,24 @@ export class JwtError extends Error {
   // Set when the token names a key the key set does not hold. The caller may
   // refetch the keys once for that case — a rotated key is the ordinary
   // reason — and every other refusal is final.
-  constructor(message: string, public readonly unknownKid = false) {
+  readonly unknownKid: boolean;
+
+  // eslint-disable-next-line unicorn/custom-error-definition -- Preserve the existing Error name; callers distinguish refusals with instanceof JwtError.
+  constructor(message: string, unknownKid = false) {
     super(message);
+    this.unknownKid = unknownKid;
   }
 }
 
 /** Compare credentials through native HMAC verification, not JavaScript equality. */
 export async function timingSafeEqual(
   left: string,
-  right: string,
+  right: string
 ): Promise<boolean> {
   const key = await crypto.subtle.generateKey(
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign", "verify"],
+    ["sign", "verify"]
   );
   const encoder = new TextEncoder();
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(left));
@@ -40,12 +44,12 @@ export async function timingSafeEqual(
     "HMAC",
     key,
     signature,
-    encoder.encode(right),
+    encoder.encode(right)
   );
 }
 
 export interface Jwks {
-  keys: Array<JsonWebKey & { kid?: string }>;
+  keys: (JsonWebKey & { kid?: string })[];
 }
 
 export interface Identity {
@@ -74,7 +78,7 @@ const LEEWAY_SECONDS = 60;
 // that might sit on a SharedArrayBuffer, which is what Uint8Array.from yields
 // in the type system.
 export function decodeBase64Url(text: string): Uint8Array<ArrayBuffer> {
-  const base64 = text.replace(/-/g, "+").replace(/_/g, "/");
+  const base64 = text.replaceAll("-", "+").replaceAll("_", "/");
   const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
   let binary: string;
   try {
@@ -83,21 +87,31 @@ export function decodeBase64Url(text: string): Uint8Array<ArrayBuffer> {
     throw new JwtError("The token is not base64url.");
   }
   const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  for (let i = 0; i < binary.length; i++) {
+    // eslint-disable-next-line unicorn/prefer-code-point -- atob returns byte-valued code units, not Unicode text; preserve the exact decoded bytes.
+    bytes[i] = binary.charCodeAt(i);
+  }
   return bytes;
 }
 
-function decodeJson(segment: string, what: string): Record<string, unknown> {
+// eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Decoded JWT and issuer JSON fields remain unknown until their individual boundary checks.
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeJson(segment: string, what: string): JsonObject {
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder().decode(decodeBase64Url(segment)));
   } catch {
     throw new JwtError(`The token's ${what} is not JSON.`);
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isJsonObject(parsed)) {
     throw new JwtError(`The token's ${what} is not an object.`);
   }
-  return parsed as Record<string, unknown>; // checked: the guard above
+  return parsed;
 }
 
 // The key is imported for the algorithm the header claims, and refused if
@@ -111,7 +125,7 @@ async function importKey(jwk: JsonWebKey, alg: Alg): Promise<CryptoKey> {
   if (alg === "RS256") {
     if (jwk.kty !== "RSA" || !jwk.n || !jwk.e) {
       throw new JwtError(
-        "The token says RS256 but the key it names is not an RSA key.",
+        "The token says RS256 but the key it names is not an RSA key."
       );
     }
     return await crypto.subtle.importKey(
@@ -119,12 +133,12 @@ async function importKey(jwk: JsonWebKey, alg: Alg): Promise<CryptoKey> {
       { kty: "RSA", n: jwk.n, e: jwk.e },
       { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
       false,
-      ["verify"],
+      ["verify"]
     );
   }
   if (jwk.kty !== "EC" || jwk.crv !== "P-256" || !jwk.x || !jwk.y) {
     throw new JwtError(
-      "The token says ES256 but the key it names is not a P-256 key.",
+      "The token says ES256 but the key it names is not a P-256 key."
     );
   }
   return await crypto.subtle.importKey(
@@ -132,7 +146,7 @@ async function importKey(jwk: JsonWebKey, alg: Alg): Promise<CryptoKey> {
     { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
     { name: "ECDSA", namedCurve: "P-256" },
     false,
-    ["verify"],
+    ["verify"]
   );
 }
 
@@ -142,7 +156,7 @@ function pickKey(jwks: Jwks, kid: string | null): JsonWebKey {
     if (match === undefined) {
       throw new JwtError(
         `The token is signed with key "${kid}", which the authorization server does not publish.`,
-        true,
+        true
       );
     }
     return match;
@@ -150,7 +164,7 @@ function pickKey(jwks: Jwks, kid: string | null): JsonWebKey {
   // No kid: only unambiguous when there is one key to choose from.
   if (jwks.keys.length !== 1) {
     throw new JwtError(
-      "The token names no signing key and the authorization server publishes more than one.",
+      "The token names no signing key and the authorization server publishes more than one."
     );
   }
   return jwks.keys[0];
@@ -161,9 +175,13 @@ function pickKey(jwks: Jwks, kid: string | null): JsonWebKey {
 // algorithm is refused here, so no key material ever meets a signature it was
 // not made for; and a caller can learn which key the token names before it
 // goes looking for one.
-export function readHeader(
-  token: string,
-): { alg: Alg; kid: string | null; segments: [string, string, string] } {
+interface TokenHeader {
+  alg: Alg;
+  kid: string | null;
+  segments: [string, string, string];
+}
+
+export function readHeader(token: string): TokenHeader {
   const parts = token.split(".");
   if (parts.length !== 3) {
     throw new JwtError("The token is not three dot-separated segments.");
@@ -171,13 +189,14 @@ export function readHeader(
   const header = decodeJson(parts[0], "header");
   if (!isAlg(header.alg)) {
     throw new JwtError(
-      `The token is signed with "${
-        String(header.alg)
-      }"; only RS256 or ES256 is accepted.`,
+      `The token is signed with "${String(
+        header.alg
+      )}"; only RS256 or ES256 is accepted.`
     );
   }
   return {
     alg: header.alg,
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- A raw JWT header supplies an optional kid; only a string participates in key selection.
     kid: typeof header.kid === "string" ? header.kid : null,
     segments: [parts[0], parts[1], parts[2]],
   };
@@ -195,70 +214,82 @@ export function canonicalResource(url: string): string {
   } catch {
     return url;
   }
-  return `${parsed.origin}${
-    parsed.pathname.replace(/\/+$/, "")
-  }${parsed.search}`;
+  return `${parsed.origin}${parsed.pathname.replace(
+    /\/+$/u,
+    ""
+  )}${parsed.search}`;
+}
+
+interface VerifiedClaims extends JsonObject {
+  sub: string;
+  exp: number;
 }
 
 // Shared cryptographic checks do not decide which application may use a token.
 // Each public verifier below applies its own, non-interchangeable claim policy.
 async function verifiedClaims(
   token: string,
-  opts: { issuer: string; jwks: Jwks; now?: number },
-): Promise<Record<string, unknown>> {
+  opts: { issuer: string; jwks: Jwks; now?: number }
+): Promise<VerifiedClaims> {
   const { alg, kid, segments } = readHeader(token);
   const [headerSegment, payloadSegment, signatureSegment] = segments;
 
   const key = await importKey(pickKey(opts.jwks, kid), alg);
-  const signed = new TextEncoder().encode(
-    `${headerSegment}.${payloadSegment}`,
-  );
+  const signed = new TextEncoder().encode(`${headerSegment}.${payloadSegment}`);
   const valid = await crypto.subtle.verify(
     alg === "RS256"
       ? { name: "RSASSA-PKCS1-v1_5" }
       : { name: "ECDSA", hash: "SHA-256" },
     key,
     decodeBase64Url(signatureSegment),
-    signed,
+    signed
   );
-  if (!valid) throw new JwtError("The token's signature does not verify.");
+  if (!valid) {
+    throw new JwtError("The token's signature does not verify.");
+  }
 
   const claims = decodeJson(payloadSegment, "payload");
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   if (claims.iss !== opts.issuer) {
     throw new JwtError(
-      `The token was issued by "${
-        String(claims.iss)
-      }", not by this project's authorization server.`,
+      `The token was issued by "${String(
+        claims.iss
+      )}", not by this project's authorization server.`
     );
   }
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the signed payload's expiry before applying the existing clock leeway.
   if (typeof claims.exp !== "number" || claims.exp + LEEWAY_SECONDS <= now) {
     throw new JwtError("The token has expired. Sign in again.");
   }
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- Only numeric nbf claims participate in the existing not-before check.
   if (typeof claims.nbf === "number" && claims.nbf - LEEWAY_SECONDS > now) {
     throw new JwtError("The token is not valid yet.");
   }
 
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- A nonempty string subject is required at the signed-payload boundary.
   if (typeof claims.sub !== "string" || claims.sub === "") {
     throw new JwtError("The token names no subject.");
   }
-  return claims;
+  return { ...claims, sub: claims.sub, exp: claims.exp };
 }
 
-function identity(claims: Record<string, unknown>): Identity {
+function identity(claims: VerifiedClaims): Identity {
   return {
-    sub: claims.sub as string,
-    email: typeof claims.email === "string" && claims.email !== ""
-      ? claims.email
-      : null,
+    sub: claims.sub,
+    email:
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional email remains an untrusted claim; preserve its string-or-null representation.
+      typeof claims.email === "string" && claims.email !== ""
+        ? claims.email
+        : null,
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Optional client_id is exposed only when the signed payload contains a string.
     client_id: typeof claims.client_id === "string" ? claims.client_id : null,
-    exp: claims.exp as number,
+    exp: claims.exp,
   };
 }
 
 export async function verifyJwt(
   token: string,
-  opts: { issuer: string; audience: string; jwks: Jwks; now?: number },
+  opts: { issuer: string; audience: string; jwks: Jwks; now?: number }
 ): Promise<Identity> {
   const claims = await verifiedClaims(token, opts);
   // The audience: a token is minted for one resource, and this endpoint
@@ -266,14 +297,15 @@ export async function verifyJwt(
   // authorization server's resources is refused here, whoever signed it.
   // Both values go in the sentence, because a mismatch is nearly always a
   // registration typo and the two strings side by side are the diagnosis.
-  const audiences = (Array.isArray(claims.aud) ? claims.aud : [claims.aud])
-    .filter((entry): entry is string => typeof entry === "string");
+  const audiences = (
+    Array.isArray(claims.aud) ? claims.aud : [claims.aud]
+  ).filter((entry): entry is string => typeof entry === "string");
   const wanted = canonicalResource(opts.audience);
   if (!audiences.some((entry) => canonicalResource(entry) === wanted)) {
     throw new JwtError(
       `The token is for "${
         audiences.join(", ") || "no resource"
-      }", not for this endpoint (${opts.audience}).`,
+      }", not for this endpoint (${opts.audience}).`
     );
   }
 
@@ -286,16 +318,19 @@ export async function verifyJwt(
 // token here merely because its subject belongs to Marco.
 export async function verifyWebSessionJwt(
   token: string,
-  opts: { issuer: string; clientId: string; jwks: Jwks; now?: number },
+  opts: { issuer: string; clientId: string; jwks: Jwks; now?: number }
 ): Promise<Identity> {
   const claims = await verifiedClaims(token, opts);
   if (
     claims.client_id !== opts.clientId ||
-    typeof claims.sid !== "string" || claims.sid === "" ||
-    claims.aud !== undefined || claims.act !== undefined
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Web-session authentication requires a nonempty string sid from the signed payload.
+    typeof claims.sid !== "string" ||
+    claims.sid === "" ||
+    claims.aud !== undefined ||
+    claims.act !== undefined
   ) {
     throw new JwtError(
-      "This endpoint requires a direct web session for this application, not a connector or impersonation token. Sign in to the dashboard again.",
+      "This endpoint requires a direct web session for this application, not a connector or impersonation token. Sign in to the dashboard again."
     );
   }
   return identity(claims);
@@ -317,7 +352,7 @@ const REFETCH_INTERVAL_MS = 60 * 1000;
 // connection and never answers — or a name that never resolves — would hold
 // the request open for as long as the runtime allows, and the caller would
 // wait with it instead of being told to try again.
-const FETCH_MS = 5_000;
+const FETCH_MS = 5000;
 interface Published<T> {
   value?: T;
   fetchedAt: number;
@@ -334,27 +369,35 @@ const metadataCache = new Map<string, Published<string>>();
 async function refreshPublished<T>(
   entry: Published<T>,
   now: number,
-  read: () => Promise<T>,
+  read: () => Promise<T>
 ): Promise<T> {
-  if (entry.pending) return await entry.pending;
+  if (entry.pending) {
+    return await entry.pending;
+  }
   if (
-    entry.failedAt !== undefined && now - entry.failedAt < REFETCH_INTERVAL_MS
+    entry.failedAt !== undefined &&
+    now - entry.failedAt < REFETCH_INTERVAL_MS
   ) {
     throw entry.failure;
   }
-  entry.pending = read().then((value) => {
-    entry.value = value;
-    entry.fetchedAt = now;
-    entry.failedAt = undefined;
-    entry.failure = undefined;
-    return value;
-  }).catch((err) => {
-    entry.failedAt = now;
-    entry.failure = err;
-    throw err;
-  }).finally(() => {
-    entry.pending = undefined;
-  });
+  /* oxlint-disable promise/prefer-await-to-then, promise/prefer-await-to-callbacks -- Preserve this shared refresh promise's settlement order, cache publication, failure recording and final cleanup. */
+  entry.pending = read()
+    .then((value) => {
+      entry.value = value;
+      entry.fetchedAt = now;
+      entry.failedAt = undefined;
+      entry.failure = undefined;
+      return value;
+    })
+    .catch((error) => {
+      entry.failedAt = now;
+      entry.failure = error;
+      throw error;
+    })
+    .finally(() => {
+      entry.pending = undefined;
+    });
+  /* oxlint-enable promise/prefer-await-to-then, promise/prefer-await-to-callbacks */
   return await entry.pending;
 }
 
@@ -370,7 +413,7 @@ export function metadataUrl(issuer: string): string {
   } catch {
     throw new Error(`AUTH_ISSUER is not a URL: "${issuer}".`);
   }
-  const path = parsed.pathname.replace(/\/+$/, "");
+  const path = parsed.pathname.replace(/\/+$/u, "");
   return `${parsed.origin}/.well-known/oauth-authorization-server${path}`;
 }
 
@@ -381,7 +424,7 @@ export function metadataUrl(issuer: string): string {
 // judge it, and the route answers those differently.
 export async function discoverJwksUrl(
   issuer: string,
-  opts: { now?: number } = {},
+  opts: { now?: number } = {}
 ): Promise<string> {
   const now = opts.now ?? Date.now();
   const cached = metadataCache.get(issuer) ?? { fetchedAt: 0 };
@@ -396,22 +439,22 @@ export async function discoverJwksUrl(
     });
     if (!response.ok) {
       throw new Error(
-        `The authorization server's metadata could not be read: ${url} answered ${response.status}.`,
+        `The authorization server's metadata could not be read: ${url} answered ${response.status}.`
       );
     }
-    const body = (await response.json()) as {
-      issuer?: unknown;
-      jwks_uri?: unknown;
-    } | null;
+    const json: unknown = await response.json();
+    const body = isJsonObject(json) ? json : null;
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Issuer metadata is external JSON; only a string can declare its issuer.
     const declared = typeof body?.issuer === "string" ? body.issuer : "";
-    if (declared.replace(/\/+$/, "") !== issuer.replace(/\/+$/, "")) {
+    if (declared.replace(/\/+$/u, "") !== issuer.replace(/\/+$/u, "")) {
       throw new Error(
-        `The authorization server's metadata could not be read: ${url} names issuer "${declared}", not ${issuer}.`,
+        `The authorization server's metadata could not be read: ${url} names issuer "${declared}", not ${issuer}.`
       );
     }
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the external metadata's nonempty JWKS URL before returning it.
     if (typeof body?.jwks_uri !== "string" || body.jwks_uri === "") {
       throw new Error(
-        `The authorization server's metadata could not be read: ${url} did not name a jwks_uri.`,
+        `The authorization server's metadata could not be read: ${url} did not name a jwks_uri.`
       );
     }
     return body.jwks_uri;
@@ -420,13 +463,14 @@ export async function discoverJwksUrl(
 
 export async function fetchJwks(
   url: string,
-  opts: { unknownKid?: string; now?: number } = {},
+  opts: { unknownKid?: string; now?: number } = {}
 ): Promise<Jwks> {
   const now = opts.now ?? Date.now();
   const cached = jwksCache.get(url) ?? { fetchedAt: 0 };
   jwksCache.set(url, cached);
   const fresh = now - cached.fetchedAt < CACHE_TTL_MS;
-  const holdsKid = opts.unknownKid === undefined ||
+  const holdsKid =
+    opts.unknownKid === undefined ||
     cached.value?.keys.some((key) => key.kid === opts.unknownKid);
   const recentlyFetched = now - cached.fetchedAt < REFETCH_INTERVAL_MS;
   if (cached.value !== undefined && fresh && (holdsKid || recentlyFetched)) {
@@ -439,17 +483,17 @@ export async function fetchJwks(
     });
     if (!response.ok) {
       throw new Error(
-        `The authorization server's keys could not be read: ${url} answered ${response.status}.`,
+        `The authorization server's keys could not be read: ${url} answered ${response.status}.`
       );
     }
     const body: unknown = await response.json();
-    const keys = (body as { keys?: unknown } | null)?.keys;
+    const keys = isJsonObject(body) ? body.keys : undefined;
     if (!Array.isArray(keys)) {
-      throw new Error(
-        `The authorization server's keys could not be read: ${url} did not answer with a key set.`,
+      throw new TypeError(
+        `The authorization server's keys could not be read: ${url} did not answer with a key set.`
       );
     }
-    const jwks: Jwks = { keys: keys as Jwks["keys"] }; // checked: an array; each key is checked at import
+    const jwks: Jwks = { keys }; // The array is checked here; individual keys are checked at import.
     return jwks;
   });
 }

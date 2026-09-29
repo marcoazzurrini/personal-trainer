@@ -1,27 +1,22 @@
-rc: .lefthookrc
-
 pre-commit:
   parallel: true
   jobs:
     - name: secrets
-      run: deno task secrets
+      run: bun run secrets
     - name: format
-      glob: "*.{ts,js,json,jsonc,md}"
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,yml,yaml,css,md}"
       exclude:
         - docs/**
-        # Never format plugin/. SKILL.md opens with a YAML block
-        # declaring the skill's name, its description, and allowed-tools:
-        # Bash. deno fmt indents the keys that follow the long description
-        # line, and YAML reads an indented line as a continuation of the
-        # previous value — so allowed-tools gets swallowed into the
-        # description and the skill loses permission to run curl. Same
-        # exclusion in deno.json; api/tests/plugin_test.ts holds the shape.
+        # Skill frontmatter is an executable contract. Keep it out of formatters.
         - plugin/**
-      run: deno fmt {staged_files}
+      run: bun run fmt {staged_files}
       stage_fixed: true
     - name: lint
-      glob: "*.ts"
-      run: deno lint {staged_files}
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs}"
+      run: bun run lint {staged_files}
     - name: typecheck
-      glob: "*.ts"
-      run: deno task check
+      glob: "*.{ts,tsx}"
+      run: bun run check
+    - name: web-types
+      glob: "web/**/*.{ts,tsx}"
+      run: bun run --cwd web check

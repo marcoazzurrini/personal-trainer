@@ -3,23 +3,28 @@
 // connection and caller-supplied Host/Forwarded headers are not authorities.
 export function publicRequest(
   request: Request,
-  redirectUri: string | undefined,
+  redirectUri: string | undefined
 ): Request {
   let callback: URL;
   try {
     callback = new URL(redirectUri ?? "");
     const local = ["localhost", "127.0.0.1", "[::1]"].includes(
-      callback.hostname,
+      callback.hostname
     );
     if (
       (callback.protocol !== "https:" &&
         !(local && callback.protocol === "http:")) ||
-      callback.username || callback.password ||
-      callback.pathname !== "/auth/callback" || callback.search || callback.hash
-    ) throw new Error();
+      callback.username ||
+      callback.password ||
+      callback.pathname !== "/auth/callback" ||
+      callback.search ||
+      callback.hash
+    ) {
+      throw new Error("Invalid callback URL");
+    }
   } catch {
     throw new Error(
-      "WORKOS_REDIRECT_URI must be the dashboard's HTTPS /auth/callback URL (HTTP is allowed only on localhost).",
+      "WORKOS_REDIRECT_URI must be the dashboard's HTTPS /auth/callback URL (HTTP is allowed only on localhost)."
     );
   }
 

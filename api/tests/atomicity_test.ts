@@ -1,4 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import d1 from "./d1.ts";
 import {
   api,
@@ -9,13 +11,11 @@ import {
   today,
   uuid,
 } from "./helpers.ts";
-
 // Refused writes leave no record. Alias collisions and unknown exercises are
 // preflight refusals, not proof of rollback. The session CHECK reaches SQL;
 // nutrition_rollback_test.ts injects failures after successful parent/child
 // writes to prove actual transaction rollback.
-
-Deno.test("a food that cannot take its alias is not created", async () => {
+test("a food that cannot take its alias is not created", async () => {
   await resetNutrition();
   await api.post("/foods", {
     name: "Skyr",
@@ -27,7 +27,6 @@ Deno.test("a food that cannot take its alias is not created", async () => {
     aliases: ["lo yogurt islandese"],
     request_id: uuid(),
   });
-
   // Alias ownership is checked before creation; this proves refusal has no side effects.
   const { status, body } = await api.post("/foods", {
     name: "Icelandic Yoghurt",
@@ -41,14 +40,12 @@ Deno.test("a food that cannot take its alias is not created", async () => {
   });
   assertEquals(status, 409);
   assert(body.error.includes("alias"), body.error);
-
   // No second yoghurt should exist after the preflight refusal.
   assertEquals((await api.get("/foods/Icelandic Yoghurt")).status, 422);
   const all = await api.get("/foods");
   assertEquals(all.body.foods.length, 1);
 });
-
-Deno.test("a meal that cannot take its alias is not created", async () => {
+test("a meal that cannot take its alias is not created", async () => {
   await resetNutrition();
   await api.post("/foods", {
     name: "Oats",
@@ -65,7 +62,6 @@ Deno.test("a meal that cannot take its alias is not created", async () => {
     items: [{ food: "Oats", grams: 80 }],
     request_id: uuid(),
   });
-
   const { status } = await api.post("/meals", {
     name: "Colazione due",
     aliases: ["la solita colazione"],
@@ -73,15 +69,13 @@ Deno.test("a meal that cannot take its alias is not created", async () => {
     request_id: uuid(),
   });
   assertEquals(status, 409);
-
   // A meal row with items but no alias would be the worst outcome: it exists,
   // it is loggable, and the word Marco actually says still points elsewhere.
   const meals = await api.get("/meals");
   assertEquals(meals.body.meals.length, 1);
   assertEquals((await api.get("/meals/Colazione due")).status, 422);
 });
-
-Deno.test("a session whose sets break a rule is not created", async (t) => {
+test("a session whose sets break a rule is not created", async (t) => {
   await resetTraining();
   await ensureCatalogue();
   const block = await api.post("/blocks", {
@@ -98,8 +92,7 @@ Deno.test("a session whose sets break a rule is not created", async (t) => {
     started_on: lastMonday(),
     exercises: [{ exercise: "squat", role: "main", priority: 1 }],
   });
-
-  await t.step("effort on a warmup is refused by the database", async () => {
+  await t.test("effort on a warmup is refused by the database", async () => {
     // Not caught by parseNewSet — effort is legal on a set, and the rule that
     // warmups do not carry it lives in a CHECK. The session row is already
     // inserted when the sets fail, even when those sets share one INSERT.
@@ -121,8 +114,7 @@ Deno.test("a session whose sets break a rule is not created", async (t) => {
     assertEquals(status, 422);
     assert(body.error.includes("Warmup"), body.error);
   });
-
-  await t.step("no session, and no orphan set, survives it", async () => {
+  await t.test("no session, and no orphan set, survives it", async () => {
     const sessions = await api.get("/sessions?limit=100");
     assertEquals(sessions.body.sessions.length, 0);
     // The squat set that did insert would otherwise still be counted: it is a
@@ -139,8 +131,7 @@ Deno.test("a session whose sets break a rule is not created", async (t) => {
     }
   });
 });
-
-Deno.test("a mesocycle naming an unknown exercise is not created", async () => {
+test("a mesocycle naming an unknown exercise is not created", async () => {
   await resetTraining();
   await ensureCatalogue();
   const block = await api.post("/blocks", {
@@ -148,7 +139,6 @@ Deno.test("a mesocycle naming an unknown exercise is not created", async () => {
     goal: "testing",
     started_on: lastMonday(),
   });
-
   const { status, body } = await api.post("/mesocycles", {
     block_id: block.body.block.id,
     name: "Meso with a typo in it",
@@ -176,7 +166,6 @@ Deno.test("a mesocycle naming an unknown exercise is not created", async () => {
   });
   assertEquals(status, 422);
   assert(body.error.includes("Unknown exercise"), body.error);
-
   // "One active mesocycle per track" is a unique index, so an orphan here does
   // not just sit there — it takes the track's slot, and every retry after the
   // typo is fixed comes back as a conflict about a mesocycle nobody planned.

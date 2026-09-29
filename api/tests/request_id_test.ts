@@ -1,7 +1,8 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import {
   api,
-  type ApiResponse,
   daysBefore,
   ensureCatalogue,
   lastFinishedSunday,
@@ -12,7 +13,7 @@ import {
   today,
   uuid,
 } from "./helpers.ts";
-
+import type { ApiResponse } from "./helpers.ts";
 // The retry guarantee, checked as an inventory rather than one endpoint at a
 // time.
 //
@@ -34,14 +35,11 @@ import {
 //
 // Every call here uses postRaw: api.post injects a request_id when a test
 // hasn't supplied one, which is exactly what must not happen in this file.
-
 const RETRY_MESSAGE = "Recorded writes replay by this id";
-
-Deno.test("every creating POST that could duplicate requires a request_id", async (t) => {
+test("every creating POST that could duplicate requires a request_id", async (t) => {
   await resetTraining();
   await resetNutrition();
   await ensureCatalogue();
-
   // Fixtures, created the ordinary way so the cases below have something to
   // point at. api.post supplies their ids.
   const block = await api.post("/blocks", {
@@ -57,13 +55,15 @@ Deno.test("every creating POST that could duplicate requires a request_id", asyn
     planned_weeks: 4,
     sessions_per_week: 3,
     started_on: lastMonday(),
-    exercises: [{
-      exercise: "squat",
-      role: "main",
-      priority: 1,
-      weekly_dose: 9,
-      weekly_dose_unit: "sets",
-    }],
+    exercises: [
+      {
+        exercise: "squat",
+        role: "main",
+        priority: 1,
+        weekly_dose: 9,
+        weekly_dose_unit: "sets",
+      },
+    ],
   });
   const session = await api.post("/sessions", {
     date: today(),
@@ -78,91 +78,121 @@ Deno.test("every creating POST that could duplicate requires a request_id", asyn
     fat_100g: 3,
     source: "estimate",
   });
-
   // Most handlers ask for the id immediately after parsing the body, so the
   // rest of these payloads is only as complete as it needs to be to get there.
   // The two that validate other fields first carry them.
   const mustRequire: [string, string, unknown][] = [
-    ["blocks", "/blocks", {
-      name: "B",
-      goal: "g",
-      started_on: lastMonday(),
-    }],
+    [
+      "blocks",
+      "/blocks",
+      {
+        name: "B",
+        goal: "g",
+        started_on: lastMonday(),
+      },
+    ],
     ["user context", "/user-context", { topic: "t", content: "c" }],
-    ["foods", "/foods", {
-      name: "Another Food",
-      kcal_100g: 100,
-      protein_100g: 5,
-      carbs_100g: 12,
-      fat_100g: 3,
-      source: "estimate",
-    }],
-    ["meals", "/meals", {
-      name: "M",
-      items: [{ food: "Inventory Food", grams: 50 }],
-    }],
+    [
+      "foods",
+      "/foods",
+      {
+        name: "Another Food",
+        kcal_100g: 100,
+        protein_100g: 5,
+        carbs_100g: 12,
+        fat_100g: 3,
+        source: "estimate",
+      },
+    ],
+    [
+      "meals",
+      "/meals",
+      {
+        name: "M",
+        items: [{ food: "Inventory Food", grams: 50 }],
+      },
+    ],
     ["intake", "/intake", { adhoc_kcal: 100 }],
     ["body fat", "/bodyfat", { percent: 14, method: "bia" }],
     ["nutrition events", "/nutrition-events", { kind: "creatine_start" }],
-    ["nutrition targets", "/nutrition-targets", {
-      goal: "cut",
-      rate_pct_bw_week: -0.5,
-      protein_g_target: 180,
-      decision: "d",
-    }],
-    ["sessions", "/sessions", {
-      date: today(),
-      rationale: "r",
-      sets: [{ exercise: "squat", weight_kg: 100, reps: 5, effort: "hard" }],
-    }],
+    [
+      "nutrition targets",
+      "/nutrition-targets",
+      {
+        goal: "cut",
+        rate_pct_bw_week: -0.5,
+        protein_g_target: 180,
+        decision: "d",
+      },
+    ],
+    [
+      "sessions",
+      "/sessions",
+      {
+        date: today(),
+        rationale: "r",
+        sets: [{ exercise: "squat", weight_kg: 100, reps: 5, effort: "hard" }],
+      },
+    ],
     // Appends at max(position)+1, so there is no natural key to collide on —
     // without the id a lost response becomes a second set that was never done.
-    ["an appended set", `/sessions/${session.body.session.id}/sets`, {
-      exercise: "squat",
-      weight_kg: 100,
-      reps: 5,
-      effort: "hard",
-    }],
-    ["mesocycles", "/mesocycles", {
-      block_id: block.body.block.id,
-      name: "M2",
-      track: "strength",
-      intent: "i",
-      planned_weeks: 4,
-      sessions_per_week: 3,
-      started_on: lastMonday(),
-      exercises: [{
+    [
+      "an appended set",
+      `/sessions/${session.body.session.id}/sets`,
+      {
         exercise: "squat",
-        role: "main",
-        priority: 1,
-        weekly_dose: 9,
-        weekly_dose_unit: "sets",
-      }],
-    }],
-    ["mesocycle decisions", "/mesocycles/current/decisions", {
-      what_changed: "x",
-      why: "y",
-    }],
+        weight_kg: 100,
+        reps: 5,
+        effort: "hard",
+      },
+    ],
+    [
+      "mesocycles",
+      "/mesocycles",
+      {
+        block_id: block.body.block.id,
+        name: "M2",
+        track: "strength",
+        intent: "i",
+        planned_weeks: 4,
+        sessions_per_week: 3,
+        started_on: lastMonday(),
+        exercises: [
+          {
+            exercise: "squat",
+            role: "main",
+            priority: 1,
+            weekly_dose: 9,
+            weekly_dose_unit: "sets",
+          },
+        ],
+      },
+    ],
+    [
+      "mesocycle decisions",
+      "/mesocycles/current/decisions",
+      {
+        what_changed: "x",
+        why: "y",
+      },
+    ],
   ];
-
   for (const [label, path, body] of mustRequire) {
-    await t.step(label, async () => {
+    await t.test(label, async () => {
       const { status, body: res } = await api.postRaw(path, body);
       assertEquals(status, 422, `${path} accepted a write with no request_id`);
       assert(
         res.error.includes(RETRY_MESSAGE),
-        `${path} refused for some other reason: ${res.error}`,
+        `${path} refused for some other reason: ${res.error}`
       );
     });
   }
 });
-
-Deno.test("the writes that cannot duplicate do not ask for one", async (t) => {
+test("the writes that cannot duplicate do not ask for one", async (t) => {
   await resetTraining();
   await resetNutrition();
   await ensureCatalogue();
-
-  await t.step(
+  await t.test(
     "bodyweight — keyed on the instant it was measured",
     async () => {
       const { status } = await api.postRaw("/bodyweight", {
@@ -170,31 +200,27 @@ Deno.test("the writes that cannot duplicate do not ask for one", async (t) => {
         measured_at: "2026-08-01T05:30:00Z",
       });
       assertEquals(status, 201);
-    },
+    }
   );
-
-  await t.step("and resending a weigh-in replays it", async () => {
+  await t.test("and resending a weigh-in replays it", async () => {
     const { status } = await api.postRaw("/bodyweight", {
       value_kg: 82.5,
       measured_at: "2026-08-01T05:30:00Z",
     });
     assertEquals(status, 200); // replayed, not written twice
   });
-
-  await t.step("day flags — the insert does nothing on conflict", async () => {
+  await t.test("day flags — the insert does nothing on conflict", async () => {
     const first = await api.postRaw(`/days/${today()}/flags`, {
       flag: "incomplete",
     });
     assertEquals(first.status, 201);
-
     const again = await api.postRaw(`/days/${today()}/flags`, {
       flag: "incomplete",
     });
     assertEquals(again.status, 201);
     assertEquals(again.body.flags, ["incomplete"]); // one flag, not two
   });
-
-  await t.step(
+  await t.test(
     "exercises and muscles — the unique name is the key",
     async () => {
       // Asserted against the catalogue rather than by creating anything, because
@@ -210,15 +236,13 @@ Deno.test("the writes that cannot duplicate do not ask for one", async (t) => {
       assertEquals(exercise.status, 409);
       assert(
         exercise.body.error.includes("already exists"),
-        exercise.body.error,
+        exercise.body.error
       );
-
       const muscle = await api.postRaw("/muscles", { name: "quads" });
       assertEquals(muscle.status, 409);
-    },
+    }
   );
 });
-
 // The other half of the promise, and the half that was never checked.
 //
 // The inventory above proves every creating POST *asks* for a request_id. It
@@ -233,11 +257,10 @@ Deno.test("the writes that cannot duplicate do not ask for one", async (t) => {
 // indistinguishable from eating twice. An error on the second is the same
 // promise broken more loudly — the unique constraint on request_id catching
 // what the handler forgot to.
-Deno.test("resending a request_id replays the original result", async (t) => {
+test("resending a request_id replays the original result", async (t) => {
   await resetTraining();
   await resetNutrition();
   await ensureCatalogue();
-
   const block = await api.post("/blocks", {
     name: "Replay block",
     goal: "testing",
@@ -304,14 +327,12 @@ Deno.test("resending a request_id replays the original result", async (t) => {
   // onboarding has before there is enough history to solve for one. It needs a
   // bodyweight and nothing else.
   await seedWeighIns([daysBefore(lastFinishedSunday(), 1)], 82);
-
   interface Replay {
     label: string;
     path: string;
-    body: unknown;
-    identity: (b: ApiResponse["body"]) => unknown;
+    body: object;
+    identity: (b: ApiResponse["body"]) => number | number[];
   }
-
   const replays: Replay[] = [
     {
       label: "blocks",
@@ -414,13 +435,15 @@ Deno.test("resending a request_id replays the original result", async (t) => {
         planned_weeks: 4,
         sessions_per_week: 3,
         started_on: lastMonday(),
-        exercises: [{
-          exercise: "squat",
-          role: "main",
-          priority: 1,
-          weekly_dose: 9,
-          weekly_dose_unit: "sets",
-        }],
+        exercises: [
+          {
+            exercise: "squat",
+            role: "main",
+            priority: 1,
+            weekly_dose: 9,
+            weekly_dose_unit: "sets",
+          },
+        ],
       },
       identity: (b) => b.mesocycle.id,
     },
@@ -443,36 +466,32 @@ Deno.test("resending a request_id replays the original result", async (t) => {
       identity: (b) => b.decision.id,
     },
   ];
-
   for (const replay of replays) {
-    await t.step(replay.label, async () => {
+    await t.test(replay.label, async () => {
       const sent = {
-        ...(replay.body as Record<string, unknown>),
+        ...replay.body,
         request_id: uuid(),
       };
-
       const first = await api.postRaw(replay.path, sent);
       assertEquals(
         first.status,
         201,
-        `${replay.path} first call: ${first.body.error}`,
+        `${replay.path} first call: ${first.body.error}`
       );
-
       const again = await api.postRaw(replay.path, sent);
       assertEquals(
         again.status,
         200,
         `${replay.path} answered ${again.status} to a repeated request_id — a ` +
-          `retry must replay the original, not write again: ${again.body.error}`,
+          `retry must replay the original, not write again: ${again.body.error}`
       );
       assertEquals(
         replay.identity(again.body),
         replay.identity(first.body),
-        `${replay.path} replayed something other than the original row`,
+        `${replay.path} replayed something other than the original row`
       );
     });
   }
-
   // The one retry the inventory above cannot state, because it sends a body
   // twice unchanged and this failure needs the body to move.
   //
@@ -482,10 +501,9 @@ Deno.test("resending a request_id replays the original result", async (t) => {
   // passes with the preamble removed. Only a retry that crosses midnight tells
   // them apart — it lands on a free (day, method), and nothing but the
   // request_id can still recognise it as the call already answered.
-  await t.step("body fat, retried after the day moved", async () => {
+  await t.test("body fat, retried after the day moved", async () => {
     const id = uuid();
     const recorded = daysBefore(today(), 3);
-
     const first = await api.postRaw("/bodyfat", {
       percent: 18.5,
       method: "dxa",
@@ -493,7 +511,6 @@ Deno.test("resending a request_id replays the original result", async (t) => {
       request_id: id,
     });
     assertEquals(first.status, 201, `first call: ${first.body.error}`);
-
     // The same call arriving again with the day underneath it moved on.
     const again = await api.postRaw("/bodyfat", {
       percent: 18.5,
@@ -505,20 +522,19 @@ Deno.test("resending a request_id replays the original result", async (t) => {
       again.status,
       200,
       `a retry whose day had moved answered ${again.status} instead of ` +
-        `replaying the original: ${again.body.error}`,
+        `replaying the original: ${again.body.error}`
     );
     assertEquals(
       again.body.bodyfat_estimate.id,
       first.body.bodyfat_estimate.id,
-      "the retry wrote a second estimate rather than replaying the first",
+      "the retry wrote a second estimate rather than replaying the first"
     );
     assertEquals(
       again.body.bodyfat_estimate.day,
       recorded,
-      "the replay carried the day the retry arrived on, not the day it recorded",
+      "the replay carried the day the retry arrived on, not the day it recorded"
     );
   });
-
   // The retry guarantee is per plan, not per table.
   //
   // mesocycle_decisions is the one table two endpoints wrote, and the lookup
@@ -526,37 +542,33 @@ Deno.test("resending a request_id replays the original result", async (t) => {
   // replayed for another, answering 200 with a plan nothing had touched. The
   // endpoints are one now and the lookup is scoped, which leaves the reuse
   // visible: it reaches the write and the unique constraint refuses it.
-  await t.step("a decision id spent on one plan is not another's", async () => {
+  await t.test("a decision id spent on one plan is not another's", async () => {
     const id = uuid();
-
     const first = await api.postRaw(
       "/mesocycles/current:hypertrophy/decisions",
-      { what_changed: "held", why: "reps climbing", request_id: id },
+      { what_changed: "held", why: "reps climbing", request_id: id }
     );
     assertEquals(first.status, 201, `first call: ${first.body.error}`);
-
     const crossed = await api.postRaw(
       "/mesocycles/current:strength/decisions",
-      { what_changed: "held", why: "reps climbing", request_id: id },
+      { what_changed: "held", why: "reps climbing", request_id: id }
     );
     assertEquals(
       crossed.status,
       409,
       `an id spent on another plan answered ${crossed.status} — a replay here ` +
         `reports success for a decision that was never recorded: ` +
-        `${crossed.body.error}`,
+        `${crossed.body.error}`
     );
-
     const log = await api.get("/mesocycles/current:strength/decisions");
     assertEquals(
       log.body.decisions.length,
       0,
-      "the crossed id recorded a decision against the wrong plan",
+      "the crossed id recorded a decision against the wrong plan"
     );
   });
 });
-
-Deno.test("appendSet replays only for its session, including concurrent retries", async () => {
+test("appendSet replays only for its session, including concurrent retries", async () => {
   await resetTraining();
   await ensureCatalogue();
   const sessions: number[] = [];
@@ -580,7 +592,8 @@ Deno.test("appendSet replays only for its session, including concurrent retries"
   const raced = await Promise.all([api.post(path, body), api.post(path, body)]);
   assertEquals(raced.filter((r) => r.status === 201).length, 1);
   assert(raced.every((r) => [200, 201, 409].includes(r.status)));
-  const first = raced.find((r) => r.status === 201)!;
+  const first = raced.find((r) => r.status === 201);
+  assert(first !== undefined);
   const replay = await api.post(path, body);
   assertEquals(replay.status, 200);
   assertEquals(replay.body, first.body);
@@ -588,32 +601,36 @@ Deno.test("appendSet replays only for its session, including concurrent retries"
   assertEquals(crossed.status, 409);
   assertEquals(
     (await api.get(`/sessions/${sessions[0]}`)).body.session.sets.length,
-    2,
+    2
   );
   assertEquals(
     (await api.get(`/sessions/${sessions[1]}`)).body.session.sets.length,
-    1,
+    1
   );
 });
-
-Deno.test("concurrent meal retries leave one complete meal", async () => {
+test("concurrent meal retries leave one complete meal", async () => {
   await resetNutrition();
   for (const name of ["Raced A", "Raced B"]) {
     assertEquals(
-      (await api.post("/foods", {
-        name,
-        kcal_100g: 100,
-        protein_100g: 25,
-        carbs_100g: 0,
-        fat_100g: 0,
-        source: "label",
-      })).status,
-      201,
+      (
+        await api.post("/foods", {
+          name,
+          kcal_100g: 100,
+          protein_100g: 25,
+          carbs_100g: 0,
+          fat_100g: 0,
+          source: "label",
+        })
+      ).status,
+      201
     );
   }
   await api.post("/meals", {
     name: "Raced meal",
-    items: [{ food: "Raced A", grams: 100 }, { food: "Raced B", grams: 50 }],
+    items: [
+      { food: "Raced A", grams: 100 },
+      { food: "Raced B", grams: 50 },
+    ],
   });
   const body = { meal: "Raced meal", request_id: uuid() };
   const raced = await Promise.all([

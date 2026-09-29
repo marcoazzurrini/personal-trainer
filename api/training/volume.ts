@@ -1,11 +1,5 @@
-import {
-  type Clock,
-  type Database,
-  instant,
-  romeDate,
-  rows,
-  systemClock,
-} from "../shared/d1.ts";
+import { instant, romeDate, rows, systemClock } from "../shared/d1.ts";
+import type { Clock, Database } from "../shared/d1.ts";
 import { mondayOf } from "../shared/dates.ts";
 import { ApiError } from "../shared/errors.ts";
 import { trainingResolver } from "./resolve.ts";
@@ -16,7 +10,7 @@ import type { ExerciseWeek, VolumeRow } from "./volume.types.ts";
 export function volumeStore(db: Database, clock: Clock = systemClock) {
   const resolver = trainingResolver(db);
   async function volumePerMuscle(
-    param: string,
+    param: string
   ): Promise<{ mesocycle_id?: number; weekly_volume: VolumeRow[] }> {
     const cutoff = mondayOf(romeDate(instant(clock().toISOString())));
     if (param === "all") {
@@ -25,7 +19,7 @@ export function volumeStore(db: Database, clock: Clock = systemClock) {
           db,
           `SELECT week_start, muscle, sum(working_sets) AS working_sets FROM weekly_volume
        WHERE week_start < ? GROUP BY week_start, muscle ORDER BY week_start, muscle`,
-          cutoff,
+          cutoff
         ),
       };
     }
@@ -36,7 +30,7 @@ export function volumeStore(db: Database, clock: Clock = systemClock) {
         db,
         `SELECT week_start, muscle, working_sets FROM weekly_volume WHERE mesocycle_id = ? AND week_start < ? ORDER BY week_start, muscle`,
         m.id,
-        cutoff,
+        cutoff
       ),
     };
   }
@@ -48,7 +42,7 @@ export function volumeStore(db: Database, clock: Clock = systemClock) {
     if (param === "all") {
       throw new ApiError(
         422,
-        '"all" works on GET /weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".',
+        '"all" works on GET /weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".'
       );
     }
     const m = await resolver.resolveMesocycle(param);
@@ -73,19 +67,22 @@ export function volumeStore(db: Database, clock: Clock = systemClock) {
          ORDER BY dose.effective_from DESC, dose.id DESC LIMIT 1)
        ORDER BY v.week, e.name`,
       mondayOf(romeDate(instant(clock().toISOString()))),
-      m.id,
+      m.id
     );
     return {
       mesocycle_id: m.id,
       track: m.track,
       weekly_exercise_sets: found.map((r) => ({
         ...r,
-        delivered: r.dose_unit === null ? null : deliveredInDoseUnit(
-          r.dose_unit,
-          r.sets_done,
-          r.distance_m,
-          r.duration_s,
-        ),
+        delivered:
+          r.dose_unit === null
+            ? null
+            : deliveredInDoseUnit(
+                r.dose_unit,
+                r.sets_done,
+                r.distance_m,
+                r.duration_s
+              ),
       })),
     };
   }

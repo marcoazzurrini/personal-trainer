@@ -35,7 +35,7 @@ export function scaleFood(food: FoodMacros, grams: number): ScaledMacros {
   // become 1.3499999999999999 and round down instead of up.
   const gramTenths = Math.round(grams * 10);
   const scaled = (per100g: number) =>
-    Math.round(Math.round(per100g * 10) * gramTenths / 1000) / 10;
+    Math.round((Math.round(per100g * 10) * gramTenths) / 1000) / 10;
   return {
     kcal: scaled(food.kcal_100g),
     protein_g: scaled(food.protein_100g),
@@ -45,11 +45,8 @@ export function scaleFood(food: FoodMacros, grams: number): ScaledMacros {
   };
 }
 
-// Postgres rows arrive untyped. This is the one place that assumption is
-// written down, so a renamed column breaks here rather than silently scaling
-// undefined into NaN.
-// deno-lint-ignore no-explicit-any
-export function foodMacros(row: any): FoodMacros {
+// Select only the per-100g macro columns from a typed food or meal-item row.
+export function foodMacros(row: FoodMacros): FoodMacros {
   return {
     kcal_100g: row.kcal_100g,
     protein_100g: row.protein_100g,
@@ -72,7 +69,7 @@ export interface Logged {
 }
 
 const MACROS = ["protein_g", "carbs_g", "fat_g", "fiber_g"] as const;
-type Macro = typeof MACROS[number];
+type Macro = (typeof MACROS)[number];
 
 export interface MacroTotals {
   kcal: number;
@@ -174,30 +171,33 @@ export function checkEnergy(
   carbsG: number,
   fatG: number,
   override: boolean,
-  sourceNote: string | null,
+  sourceNote: string | null
 ): void {
   const implied = 4 * proteinG + 4 * carbsG + 9 * fatG;
   const allowed = Math.max(implied * TOLERANCE, FLOOR_KCAL);
   const off = kcal - implied;
-  if (Math.abs(off) <= allowed) return;
+  if (Math.abs(off) <= allowed) {
+    return;
+  }
 
-  const cause = off < 0
-    ? "sugar alcohols, which sit inside the carbohydrate figure but only carry ~2.4 kcal/g"
-    : "alcohol at 7 kcal/g, or fibre counted in the energy line";
+  const cause =
+    off < 0
+      ? "sugar alcohols, which sit inside the carbohydrate figure but only carry ~2.4 kcal/g"
+      : "alcohol at 7 kcal/g, or fibre counted in the energy line";
 
   if (!override) {
     throw new ApiError(
       422,
-      `Stated energy (${kcal} kcal per 100 g) and the macros disagree by more than 15%: ${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat account for ${
-        Math.round(implied)
-      } kcal. Usually this means a mis-transcribed or mis-scaled label — the classic case is per-serving macros against per-100 g energy, so recheck it first. If the label really does say this because the food carries energy the macros don't name (${cause}), resend with "energy_check": "override" and a "source_note" saying which.`,
+      `Stated energy (${kcal} kcal per 100 g) and the macros disagree by more than 15%: ${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat account for ${Math.round(
+        implied
+      )} kcal. Usually this means a mis-transcribed or mis-scaled label — the classic case is per-serving macros against per-100 g energy, so recheck it first. If the label really does say this because the food carries energy the macros don't name (${cause}), resend with "energy_check": "override" and a "source_note" saying which.`
     );
   }
 
   if (sourceNote === null) {
     throw new ApiError(
       422,
-      '"energy_check": "override" requires a "source_note" naming the cause (alcohol, sugar alcohols, fibre accounting). An override without a reason is indistinguishable from a typo.',
+      '"energy_check": "override" requires a "source_note" naming the cause (alcohol, sugar alcohols, fibre accounting). An override without a reason is indistinguishable from a typo.'
     );
   }
 }
@@ -223,15 +223,17 @@ const MAX_MACRO_MASS_PER_100G = 105;
 export function checkMacroMass(
   proteinG: number,
   carbsG: number,
-  fatG: number,
+  fatG: number
 ): void {
   const mass = proteinG + carbsG + fatG;
-  if (mass <= MAX_MACRO_MASS_PER_100G) return;
+  if (mass <= MAX_MACRO_MASS_PER_100G) {
+    return;
+  }
   throw new ApiError(
     422,
     `${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat come to ${
       Math.round(mass * 10) / 10
-    } g of macros in 100 g of food, which cannot be true — 100 g of anything holds at most 100 g. The usual cause is per-serving macros entered as per-100 g. Rescale them: divide by the serving size in grams and multiply by 100.`,
+    } g of macros in 100 g of food, which cannot be true — 100 g of anything holds at most 100 g. The usual cause is per-serving macros entered as per-100 g. Rescale them: divide by the serving size in grams and multiply by 100.`
   );
 }
 
@@ -242,27 +244,29 @@ export function gramsEaten(
   grams: number | null,
   units: number | null,
   gramsPerUnit: number | null,
-  foodName: string,
+  foodName: string
 ): number {
   if (grams !== null && units !== null) {
     throw new ApiError(
       422,
-      'Send either "grams" or "units", not both — they are two ways of saying the same thing.',
+      'Send either "grams" or "units", not both — they are two ways of saying the same thing.'
     );
   }
   // Match the stored weight before deriving macros, just as units and meals do.
-  if (grams !== null) return round1(grams);
+  if (grams !== null) {
+    return round1(grams);
+  }
   if (units !== null) {
     if (gramsPerUnit === null) {
       throw new ApiError(
         422,
-        `"${foodName}" has no grams_per_unit, so "units" cannot be converted to a weight. Send "grams" instead, or set grams_per_unit on the food if it is genuinely eaten in pieces.`,
+        `"${foodName}" has no grams_per_unit, so "units" cannot be converted to a weight. Send "grams" instead, or set grams_per_unit on the food if it is genuinely eaten in pieces.`
       );
     }
     return round1(units * gramsPerUnit);
   }
   throw new ApiError(
     422,
-    'Logging a food needs an amount: send "grams", or "units" for a food with grams_per_unit set.',
+    'Logging a food needs an amount: send "grams", or "units" for a food with grams_per_unit set.'
   );
 }

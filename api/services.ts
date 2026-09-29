@@ -1,13 +1,16 @@
-import {
-  type Clock,
-  type Database,
-  instant,
-  romeDate,
-  systemClock,
-} from "./shared/d1.ts";
-import { aliasStore } from "./shared/aliases.ts";
 import { bodyfatStore } from "./body/bodyfat.ts";
 import { bodyweightStore } from "./body/bodyweight.ts";
+import { eventStore } from "./nutrition/events.ts";
+import { foodStore } from "./nutrition/foods.ts";
+import { intakeStore } from "./nutrition/intake.ts";
+import { mealStore } from "./nutrition/meals.ts";
+import { nutritionResolver } from "./nutrition/resolve.ts";
+import { nutritionStateStore } from "./nutrition/state.ts";
+import { targetStore } from "./nutrition/targets.ts";
+import { nutritionWeeklyStore } from "./nutrition/weekly.ts";
+import { aliasStore } from "./shared/aliases.ts";
+import { instant, romeDate, systemClock } from "./shared/d1.ts";
+import type { Clock, Database } from "./shared/d1.ts";
 import { blockStore } from "./training/blocks.ts";
 import { exerciseStore } from "./training/exercises.ts";
 import { mesocycleStore } from "./training/mesocycles.ts";
@@ -17,14 +20,6 @@ import { trainingStateStore } from "./training/state.ts";
 import { contextStore } from "./training/user_context.ts";
 import { volumeStore } from "./training/volume.ts";
 import { scheduleStore } from "./training/week_schedule.ts";
-import { eventStore } from "./nutrition/events.ts";
-import { foodStore } from "./nutrition/foods.ts";
-import { intakeStore } from "./nutrition/intake.ts";
-import { mealStore } from "./nutrition/meals.ts";
-import { nutritionResolver } from "./nutrition/resolve.ts";
-import { nutritionStateStore } from "./nutrition/state.ts";
-import { targetStore } from "./nutrition/targets.ts";
-import { nutritionWeeklyStore } from "./nutrition/weekly.ts";
 
 /** Each request gets stores bound to its own database and clock. */
 export function createServices(db: Database, clock: Clock = systemClock) {

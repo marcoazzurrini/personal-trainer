@@ -1,14 +1,16 @@
-import { type Context, Hono } from "@hono/hono";
+import { Hono } from "hono";
+import type { Context } from "hono";
+
 import { ApiError } from "../shared/errors.ts";
 import {
   discoverJwksUrl,
   fetchJwks,
-  type Identity,
   JwtError,
   readHeader,
   timingSafeEqual,
   verifyJwt,
 } from "./jwt.ts";
+import type { Identity } from "./jwt.ts";
 import type { McpDeps } from "./mcp.ts";
 import {
   challengeHeader,
@@ -45,10 +47,10 @@ function config(input: McpConfig): Config {
   if (!issuer || !allowedSubject) {
     throw new ApiError(
       500,
-      "Signing in needs AUTH_ISSUER and ALLOWED_SUBJECT configured on the server.",
+      "Signing in needs AUTH_ISSUER and ALLOWED_SUBJECT configured on the server."
     );
   }
-  const trimmed = issuer.replace(/\/$/, "");
+  const trimmed = issuer.replace(/\/$/u, "");
   return {
     issuer: trimmed,
     jwksUrl: input.jwksUrl || null,
@@ -63,7 +65,8 @@ function config(input: McpConfig): Config {
 // PUBLIC_ORIGIN overrides the origin for the case the rule does not fit.
 function publicUrl(c: Context, cfg: Config, path: string): string {
   const url = new URL(c.req.url);
-  const origin = cfg.publicOrigin ??
+  const origin =
+    cfg.publicOrigin ??
     publicOrigin({
       protocol: url.protocol,
       hostname: url.hostname,
@@ -79,7 +82,7 @@ const NO_STREAM =
 /** Build per request with its token store; the composition root mounts /api/mcp. */
 export function createMcpRoutes(
   input: McpConfig,
-  deps: { issueToken: McpDeps["issue"] },
+  deps: { issueToken: McpDeps["issue"] }
 ) {
   const mcp = new Hono();
   mcp.get("/oauth-protected-resource", (c) => {
@@ -87,7 +90,7 @@ export function createMcpRoutes(
     const resource = publicUrl(
       c,
       cfg,
-      c.req.path.replace(/\/oauth-protected-resource$/, ""),
+      c.req.path.replace(/\/oauth-protected-resource$/u, "")
     );
     return c.json(protectedResourceMetadata(resource, cfg.issuer));
   });
@@ -108,20 +111,19 @@ export function createMcpRoutes(
     if (bearer === "") {
       return c.json(
         {
-          error:
-            `Sign in first. This endpoint takes the token the authorization server issues after a sign-in; where to sign in is described at ${metadataUrl}.`,
+          error: `Sign in first. This endpoint takes the token the authorization server issues after a sign-in; where to sign in is described at ${metadataUrl}.`,
         },
         401,
-        { "WWW-Authenticate": challengeHeader(metadataUrl, false) },
+        { "WWW-Authenticate": challengeHeader(metadataUrl, false) }
       );
     }
 
     let identity: Identity;
     try {
       identity = await verify(bearer, cfg, resource);
-    } catch (err) {
-      if (err instanceof JwtError) {
-        return c.json({ error: err.message }, 401, {
+    } catch (error) {
+      if (error instanceof JwtError) {
+        return c.json({ error: error.message }, 401, {
           "WWW-Authenticate": challengeHeader(metadataUrl, true),
         });
       }
@@ -133,7 +135,7 @@ export function createMcpRoutes(
           error:
             "The authorization server could not be reached to check the token. Try again in a moment.",
         },
-        503,
+        503
       );
     }
 
@@ -143,14 +145,15 @@ export function createMcpRoutes(
     if (!(await timingSafeEqual(identity.sub, cfg.allowedSubject))) {
       return c.json(
         {
-          error:
-            `This coach belongs to one person, and ${identity.sub} is not them.`,
+          error: `This coach belongs to one person, and ${identity.sub} is not them.`,
         },
-        403,
+        403
       );
     }
 
-    if (c.req.method === "GET") return c.json({ error: NO_STREAM }, 405);
+    if (c.req.method === "GET") {
+      return c.json({ error: NO_STREAM }, 405);
+    }
 
     let message: unknown;
     try {
@@ -160,9 +163,9 @@ export function createMcpRoutes(
         {
           jsonrpc: "2.0",
           id: null,
-          error: { code: -32700, message: "The body is not JSON." },
+          error: { code: -32_700, message: "The body is not JSON." },
         },
-        400,
+        400
       );
     }
 
@@ -171,11 +174,13 @@ export function createMcpRoutes(
       { subject: identity.sub },
       {
         issue: deps.issueToken,
-        baseUrl: publicUrl(c, cfg, c.req.path.replace(/\/mcp$/, "")),
+        baseUrl: publicUrl(c, cfg, c.req.path.replace(/\/mcp$/u, "")),
         version: "1",
-      },
+      }
     );
-    if (outcome.status === 202) return c.body(null, 202);
+    if (outcome.status === 202) {
+      return c.body(null, 202);
+    }
     return c.json(outcome.body, outcome.status);
   });
 
@@ -191,7 +196,7 @@ export function createMcpRoutes(
 async function verify(
   token: string,
   cfg: Config,
-  audience: string,
+  audience: string
 ): Promise<Identity> {
   const { kid } = readHeader(token);
   const jwksUrl = cfg.jwksUrl ?? (await discoverJwksUrl(cfg.issuer));

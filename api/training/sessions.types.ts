@@ -1,5 +1,5 @@
-import type { CorrectSetInput } from "./set_correction.ts";
 import type { Effort, Kind } from "./rules.ts";
+import type { CorrectSetInput } from "./set_correction.ts";
 
 export interface SessionHeaderRow {
   id: number;
@@ -37,17 +37,15 @@ export interface SessionDetailRow extends SessionHeaderRow {
 }
 
 /** The row POST /sessions/{id}/sets answers with: no targets to show. */
-export type AppendedSetRow =
-  & Omit<
-    SessionSetRow,
-    | "exercise"
-    | "measure"
-    | "target_weight_kg"
-    | "target_reps"
-    | "target_distance_m"
-    | "target_duration_s"
-  >
-  & { session_id: number };
+export type AppendedSetRow = Omit<
+  SessionSetRow,
+  | "exercise"
+  | "measure"
+  | "target_weight_kg"
+  | "target_reps"
+  | "target_distance_m"
+  | "target_duration_s"
+> & { session_id: number };
 
 /** An exercise or mesocycle by id, name, or alias — the resolver decides. */
 type Reference = string | number;

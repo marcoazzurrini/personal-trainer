@@ -14,21 +14,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.20.0
-          cache: npm
-      - run: npm ci
-      - uses: denoland/setup-deno@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          deno-version: 2.9.6
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
       # Docker is still used by the secret scanner, not by the application.
-      - run: deno task secrets
-      - run: deno task test:secrets
-      - run: deno fmt --check
-      - run: deno lint
-      - run: deno task check
-      - run: deno test --frozen --allow-read --allow-env api/tests/deno_version_test.ts api/tests/deploy_test.ts api/tests/revision_test.ts
-      - run: npm run test:tooling
-      - run: npm run test:operators
-      - run: npm run build
+      - run: bun run secrets
+      - run: bun run test:secrets
+      - run: bun run check:style
+      - run: bun run check
+      - run: bun run test:tooling
+      - run: bun run test:operators
+      - run: bun run build
 
   test:
     runs-on: ubuntu-latest
@@ -37,15 +34,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.20.0
-          cache: npm
-      - run: npm ci
-      - uses: denoland/setup-deno@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          deno-version: 2.9.6
-      # Resolve dependencies before the cached-only, loopback-only test client.
-      - run: npm run test:prepare
-      - run: npm run test:api
-      - run: npm run test:shutdown
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # Bun clients use a clean environment, no .env loading and local fixtures.
+      # The application itself still executes in workerd with ephemeral D1.
+      - run: bun run test:api
+      - run: bun run test:shutdown
 
   d1:
     runs-on: ubuntu-latest
@@ -54,15 +50,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.20.0
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            db/d1/package-lock.json
-      - run: npm ci
-      - run: npm ci --ignore-scripts --prefix db/d1
-      - run: npm test --prefix db/d1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run test:d1
       # Disposable PostgreSQL remains only as the one-time import reference.
-      - run: npm --prefix db/d1 run test:postgres
+      - run: bun run test:postgres-import
 
   web:
     runs-on: ubuntu-latest
@@ -71,15 +65,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.20.0
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci --prefix web
-      - run: npm --prefix web run build
-      - run: npm --prefix web run check
-      - run: npm --prefix web test
-      - run: npm exec --prefix web -- playwright install --with-deps chromium
-      - run: npm --prefix web run test:browser
-      - run: npm --prefix web run test:workers
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd web build
+      - run: bun run --cwd web check
+      - run: bun run --cwd web test
+      - run: bun run --cwd web playwright install --with-deps chromium
+      - run: bun run --cwd web test:browser
+      - run: bun run --cwd web test:workers
 
   # Keep migrations, API readiness, dashboard deployment and public verification
   # inside one serialized release. PRs never deploy; missing secrets fail closed.
@@ -106,15 +101,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.20.0
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            web/package-lock.json
-      - run: npm ci
-      - run: npm ci --prefix web
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
       - name: Validate both release configurations
         run: |
-          node --input-type=module <<'JS'
+          bun --no-env-file run - <<'JS'
           import { sourceRevision } from './scripts/build-worker.mjs';
           for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'GITHUB_SHA']) {
             if (!process.env[key]?.trim()) throw new Error(`Deployment requires ${key}.`);
@@ -130,10 +123,10 @@ jobs:
       - name: Build the dashboard before changing production
         env:
           BUILD_REVISION: ${{ github.sha }}
-        run: npm --prefix web run build
+        run: bun run --cwd web build
       - name: Validate dashboard build identity
         run: |
-          node --input-type=module <<'JS'
+          bun --no-env-file run - <<'JS'
           import { readFile } from 'node:fs/promises';
           const metadata = JSON.parse(await readFile('web/.output/build.json', 'utf8'));
           if (metadata.revision !== process.env.GITHUB_SHA || !/^[a-f0-9]{64}$/.test(metadata.digest)) {
@@ -143,12 +136,12 @@ jobs:
       # This command applies D1 migrations, deploys the API and verifies its
       # exact immutable build at the public readiness endpoint before returning.
       - name: Migrate, deploy and verify the API build
-        run: npm run deploy
+        run: bun run deploy
       - name: Deploy the dashboard build
-        run: npm --prefix web run deploy
+        run: bun run --cwd web deploy
       - name: Verify the public dashboard build
         run: |
-          node --input-type=module <<'JS'
+          bun --no-env-file run - <<'JS'
           import { readFile } from 'node:fs/promises';
           import { verifyRelease } from './scripts/deploy-worker.mjs';
           const metadata = JSON.parse(await readFile('web/.output/build.json', 'utf8'));

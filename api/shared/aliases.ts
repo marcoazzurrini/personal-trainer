@@ -1,12 +1,6 @@
+import { batch, caseKey, jsonChunks, rows, statement } from "./d1.ts";
+import type { Database } from "./d1.ts";
 import { ApiError, requireRow } from "./errors.ts";
-import {
-  batch,
-  caseKey,
-  type Database,
-  jsonChunks,
-  rows,
-  statement,
-} from "./d1.ts";
 
 const kinds = {
   exercise: {
@@ -32,28 +26,35 @@ export type AliasKind = keyof typeof kinds;
 
 /** Identifiers come only from this trusted catalogue, never from request input. */
 export function aliasStore(db: Database, kind: AliasKind) {
-  if (!Object.hasOwn(kinds, kind)) throw new Error("Unknown alias kind.");
+  if (!Object.hasOwn(kinds, kind)) {
+    throw new Error("Unknown alias kind.");
+  }
   const spec = kinds[kind];
 
   async function assertAliasesFree(aliases: readonly string[]): Promise<void> {
     const taken: { alias: string; id: number; name: string }[] = [];
-    for (
-      const chunk of jsonChunks([
-        ...new Set(aliases.map((a) => caseKey(a.trim()))),
-      ])
-    ) {
+    for (const chunk of jsonChunks([
+      ...new Set(aliases.map((a) => caseKey(a.trim()))),
+    ])) {
       taken.push(
         ...(await rows<{ alias: string; id: number; name: string }>(
           db,
           `SELECT a.alias, e.id, e.name FROM ${spec.aliases} a
          JOIN ${spec.table} e ON e.id = a.${spec.key}
          WHERE a.alias_key IN (SELECT value FROM json_each(?)) ORDER BY a.alias`,
-          chunk.json,
-        )),
+          chunk.json
+        ))
       );
     }
-    if (!taken.length) return;
-    taken.sort((a, b) => (a.alias < b.alias ? -1 : a.alias > b.alias ? 1 : 0));
+    if (!taken.length) {
+      return;
+    }
+    taken.sort((a, b) => {
+      if (a.alias < b.alias) {
+        return -1;
+      }
+      return a.alias > b.alias ? 1 : 0;
+    });
     const clashes = taken
       .map((t) => `"${t.alias}" already belongs to ${kind} ${t.id} (${t.name})`)
       .join("; ");
@@ -68,15 +69,17 @@ export function aliasStore(db: Database, kind: AliasKind) {
         one ? "the name belongs" : "a name belongs"
       } on this row instead, release it first with DELETE ${spec.route}/${
         taken[0].id
-      }/aliases/${encodeURIComponent(taken[0].alias)}.`,
+      }/aliases/${encodeURIComponent(taken[0].alias)}.`
     );
   }
 
   async function addAliases(
     id: number,
-    aliases: readonly string[],
+    aliases: readonly string[]
   ): Promise<void> {
-    if (!aliases.length) return;
+    if (!aliases.length) {
+      return;
+    }
     await batch(
       db,
       jsonChunks(aliases.map((alias) => ({ alias, key: caseKey(alias) }))).map(
@@ -86,9 +89,9 @@ export function aliasStore(db: Database, kind: AliasKind) {
             `INSERT INTO ${spec.aliases} (${spec.key}, alias, alias_key)
        SELECT ?, json_extract(value, '$.alias'), json_extract(value, '$.key') FROM json_each(?)`,
             id,
-            chunk.json,
-          ),
-      ),
+            chunk.json
+          )
+      )
     );
   }
 
@@ -102,9 +105,9 @@ export function aliasStore(db: Database, kind: AliasKind) {
         db,
         `DELETE FROM ${spec.aliases} WHERE ${spec.key} = ? AND alias_key = ? RETURNING id`,
         input.id,
-        caseKey(input.alias),
+        caseKey(input.alias)
       ),
-      input.notAnAlias,
+      input.notAnAlias
     );
   }
   return { addAliases, releaseAlias, assertAliasesFree };

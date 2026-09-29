@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
+
 import {
   body,
   idParam,
@@ -8,6 +8,8 @@ import {
   optionalTimestamp,
   query,
 } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
 
 export const bodyweight = new OpenAPIHono<AppEnv>();
 
@@ -52,7 +54,7 @@ bodyweight.openapi(
       },
     },
   }),
-  async (c) => {
+  async (c) =>
     // The trend rides along as its own series, not as a column on the raw rows.
     // It cannot be a column: an interpolated day has no raw row to carry it, so
     // a per-row trend would gap exactly where the EMA earns its keep — and the
@@ -60,11 +62,10 @@ bodyweight.openapi(
     // that would conflate on any day with a second weigh-in. One call now
     // yields both series the bodyweight chart needs; the chart rules forbid
     // computing a trend client-side, and for a long while nothing served one.
-    return c.json({
+    c.json({
       bodyweight: await services(c).bodyweight.listBodyweight(),
       trend: await services(c).bodyweight.loadTrend(),
-    });
-  },
+    })
 );
 
 // Nothing but request shaping: the defaults belong to the HTTP call, and every
@@ -120,7 +121,7 @@ bodyweight.openapi(
     return created
       ? c.json({ bodyweight: row }, 201)
       : c.json({ bodyweight: row }, 200);
-  },
+  }
 );
 
 bodyweight.openapi(
@@ -150,5 +151,5 @@ bodyweight.openapi(
     return c.json({
       deleted: await services(c).bodyweight.removeBodyweight(id),
     });
-  },
+  }
 );

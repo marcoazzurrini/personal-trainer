@@ -11,4 +11,4 @@
 
 export { bodyfat } from "./bodyfat.routes.ts";
 export { bodyweight } from "./bodyweight.routes.ts";
-export { withingsAdmin, withingsWebhook } from "./withings.routes.ts";
+export { createWithingsRoutes } from "./withings.routes.ts";

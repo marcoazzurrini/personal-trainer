@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
-import { KINDS } from "./constants.ts";
+
 import {
   body,
   oneOf,
@@ -9,13 +8,18 @@ import {
   query,
   requestId,
 } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { KINDS } from "./constants.ts";
 
 export const nutritionEvents = new OpenAPIHono<AppEnv>();
 
 const Event = z.object({
-  id: z.int().describe(
-    "Positive for a recorded event; negative for an automatic switch, using the negated target id. Use the returned id to withdraw either kind.",
-  ),
+  id: z
+    .int()
+    .describe(
+      "Positive for a recorded event; negative for an automatic switch, using the negated target id. Use the returned id to withdraw either kind."
+    ),
   day: z.string(),
   kind: z.enum(KINDS),
   note: z.string().nullable(),
@@ -52,7 +56,7 @@ nutritionEvents.openapi(
     c.json({
       events: await services(c).events.listEvents(),
       active: await services(c).events.activeTransients(services(c).today()),
-    }),
+    })
 );
 
 nutritionEvents.openapi(
@@ -94,10 +98,10 @@ nutritionEvents.openapi(
   }),
   async (c) => {
     const { row, created } = await services(c).events.registerEvent(
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return created ? c.json({ event: row }, 201) : c.json({ event: row }, 200);
-  },
+  }
 );
 
 nutritionEvents.openapi(
@@ -108,15 +112,18 @@ nutritionEvents.openapi(
     summary: "Withdraw a recorded transient or dismiss an automatic switch",
     request: {
       params: z.object({
-        id: z.string().refine(
-          (value) =>
-            /^-?[1-9]\d*$/.test(value) &&
-            Number.isSafeInteger(Number(value)),
-          {
-            error:
-              "Use a non-zero whole-number nutrition event id from GET /nutrition-events: positive for recorded events, negative for automatic switches.",
-          },
-        ).transform(Number),
+        id: z
+          .string()
+          .refine(
+            (value) =>
+              /^-?[1-9]\d*$/u.test(value) &&
+              Number.isSafeInteger(Number(value)),
+            {
+              error:
+                "Use a non-zero whole-number nutrition event id from GET /nutrition-events: positive for recorded events, negative for automatic switches.",
+            }
+          )
+          .transform(Number),
       }),
       query: query({}),
     },
@@ -136,5 +143,5 @@ nutritionEvents.openapi(
   async (c) =>
     c.json({
       deleted: await services(c).events.withdrawEvent(c.req.valid("param").id),
-    }),
+    })
 );

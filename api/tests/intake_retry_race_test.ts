@@ -1,8 +1,10 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import d1 from "./d1.ts";
 import { api, resetNutrition, today, uuid } from "./helpers.ts";
 
-Deno.test("concurrent meal retries cannot expose or duplicate part of the meal", async () => {
+test("concurrent meal retries cannot expose or duplicate part of the meal", async () => {
   await resetNutrition();
   const ids: number[] = [];
   for (const name of ["Retry rice", "Retry oats"]) {
@@ -19,7 +21,10 @@ Deno.test("concurrent meal retries cannot expose or duplicate part of the meal",
   }
   const meal = await api.post("/meals", {
     name: "Retry lunch",
-    items: [{ food: ids[0], grams: 100 }, { food: ids[1], grams: 50 }],
+    items: [
+      { food: ids[0], grams: 100 },
+      { food: ids[1], grams: 50 },
+    ],
   });
   assertEquals(meal.status, 201);
   const input = { meal: meal.body.meal.id, day: today(), request_id: uuid() };
@@ -46,32 +51,31 @@ Deno.test("concurrent meal retries cannot expose or duplicate part of the meal",
       assert([0, 2].includes(read.body.entries.length));
       if (read.body.entries.length === 2) {
         assertEquals(
-          read.body.entries.map((e: { id: number }) => e.id).sort(),
-          created.body.entries.map((e: { id: number }) => e.id).sort(),
+          read.body.entries.map((e: { id: number }) => e.id).toSorted(),
+          created.body.entries.map((e: { id: number }) => e.id).toSorted()
         );
       }
     }
     assertEquals(created.body.entries.length, 2);
     assertEquals(
-      created.body.entries.map((e: { grams: number }) => e.grams).sort((
-        a: number,
-        b: number,
-      ) => a - b),
-      [50, 100],
+      created.body.entries
+        .map((e: { grams: number }) => e.grams)
+        .toSorted((a: number, b: number) => a - b),
+      [50, 100]
     );
     assertEquals(created.body.totals.kcal, 600);
     const replay = await api.post("/intake", input);
     assertEquals(replay.status, 200);
     assertEquals(replay.body, created.body);
     assertEquals(
-      (await db`select count(*) as n from intake_entries where request_id = ${input.request_id}`)[
-        0
-      ].n,
-      2,
+      (
+        await db`select count(*) as n from intake_entries where request_id = ${input.request_id}`
+      )[0].n,
+      2
     );
     assertEquals(
       (await api.get(`/intake?day=${today()}`)).body.entries.length,
-      2,
+      2
     );
   } finally {
     await db.end();

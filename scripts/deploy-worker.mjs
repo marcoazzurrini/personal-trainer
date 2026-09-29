@@ -1,16 +1,19 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import nodePath from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+
 import { buildWorker } from "./build-worker.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const wrangler = resolve(root, "node_modules/wrangler/bin/wrangler.js");
+const root = nodePath.resolve(import.meta.dirname, "..");
+const wrangler = nodePath.resolve(
+  root,
+  "node_modules/wrangler/bin/wrangler.js"
+);
 
 export async function verifyRelease(url, expected, options = {}) {
   const fetcher = options.fetcher ?? fetch;
-  const sleep = options.sleep ??
-    ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const sleep = options.sleep ?? delay;
   const attempts = options.attempts ?? 60;
   const target = new URL(url);
   if (target.protocol !== "https:") {
@@ -22,28 +25,33 @@ export async function verifyRelease(url, expected, options = {}) {
       const response = await fetcher(target, {
         redirect: "error",
         headers: { "Cache-Control": "no-cache" },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(10_000),
       });
       const body = response.ok ? await response.json() : null;
       if (
-        body?.status === "ok" && body.build === expected.digest &&
+        body?.status === "ok" &&
+        body.build === expected.digest &&
         body.revision === expected.revision &&
         response.headers.get("Cache-Control")?.includes("no-store")
-      ) return;
+      ) {
+        return;
+      }
     } catch {
       // A refused, timed-out or malformed probe is not evidence of a release.
     }
-    if (attempt + 1 < attempts) await sleep(5000);
+    if (attempt + 1 < attempts) {
+      await sleep(5000);
+    }
   }
   throw new Error(
-    "The expected Worker build did not become publicly ready. Deployment or migrations may already have changed production; inspect before retrying or rolling back.",
+    "The expected Worker build did not become publicly ready. Deployment or migrations may already have changed production; inspect before retrying or rolling back."
   );
 }
 
 export async function deployWorker() {
   const metadata = await buildWorker();
   const run = (args) =>
-    execFileSync(process.execPath, [wrangler, ...args], {
+    execFileSync("node", [wrangler, ...args], {
       cwd: root,
       stdio: "inherit",
       env: { ...process.env, WRANGLER_SEND_METRICS: "false" },
@@ -58,25 +66,28 @@ export async function deployWorker() {
     `Source build ${metadata.digest}`,
   ]);
   const built = JSON.parse(
-    await readFile(resolve(root, "dist/build.json"), "utf8"),
+    await readFile(nodePath.resolve(root, "dist/build.json"), "utf-8")
   );
   if (
-    built.digest !== metadata.digest || built.revision !== metadata.revision
+    built.digest !== metadata.digest ||
+    built.revision !== metadata.revision
   ) {
     throw new Error(
-      "Source changed while deploying. The deployed artifact must be inspected before declaring success.",
+      "Source changed while deploying. The deployed artifact must be inspected before declaring success."
     );
   }
-  const health = process.env.DEPLOY_HEALTH_URL ??
+  const health =
+    process.env.DEPLOY_HEALTH_URL ??
     "https://trainer.marcoazzurrini.com/api/health";
   await verifyRelease(health, metadata);
   console.log(
-    `Verified Worker build ${metadata.digest} at the public health endpoint.`,
+    `Verified Worker build ${metadata.digest} at the public health endpoint.`
   );
 }
 
 if (
-  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  process.argv[1] &&
+  nodePath.resolve(process.argv[1]) === import.meta.filename
 ) {
   await deployWorker();
 }

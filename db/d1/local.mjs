@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { getPlatformProxy } from "wrangler";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+
+import { getPlatformProxy } from "wrangler";
 
 // Ask SQLite itself for statement boundaries, including trigger bodies and
 // quoted semicolons. This is only a test loader; production uses Wrangler's
@@ -15,10 +16,12 @@ export function migrationStatements(source) {
     let remaining = source;
     while (true) {
       remaining = remaining.replace(
-        /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/,
-        "",
+        /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/u,
+        ""
       );
-      if (!remaining) break;
+      if (!remaining) {
+        break;
+      }
       const statement = local.prepare(remaining);
       const text = statement.sourceSQL;
       if (!text || !remaining.startsWith(text)) {
@@ -36,13 +39,13 @@ export function migrationStatements(source) {
 
 export async function localDatabase() {
   const configPath = fileURLToPath(
-    new URL("./wrangler.test.json", import.meta.url),
+    new URL("wrangler.test.json", import.meta.url)
   );
-  const config = JSON.parse(await readFile(configPath, "utf8"));
+  const config = JSON.parse(await readFile(configPath, "utf-8"));
   assert.equal(config.d1_databases.length, 1);
   assert.equal(
     config.d1_databases[0].database_id,
-    "00000000-0000-0000-0000-000000000000",
+    "00000000-0000-0000-0000-000000000000"
   );
   assert.equal(config.d1_databases[0].remote, false);
   assert.equal(config.d1_databases[0].binding, "DB");
@@ -53,13 +56,13 @@ export async function localDatabase() {
   });
   try {
     const schema = await readFile(
-      new URL("./migrations/0001_record.sql", import.meta.url),
-      "utf8",
+      new URL("migrations/0001_record.sql", import.meta.url),
+      "utf-8"
     );
     await platform.env.DB.batch(
       migrationStatements(schema).map((statement) =>
         platform.env.DB.prepare(statement)
-      ),
+      )
     );
     return { db: platform.env.DB, dispose: () => platform.dispose() };
   } catch (error) {

@@ -1,7 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { GOALS } from "./expenditure.ts";
-import { type AppEnv, services } from "../shared/services.ts";
+
 import { query } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { GOALS } from "./expenditure.ts";
 
 export const nutritionWeekly = new OpenAPIHono<AppEnv>();
 
@@ -32,31 +34,49 @@ const Week = z.object({
   days_flagged: z.int(),
   weigh_ins: z.int(),
   mean_kcal: z.int().nullable(),
-  mean_protein_g: z.int().nullable().describe(
-    "Mean known-protein floor over unflagged days with any known protein, not a total when coverage is partial. Wholly unknown days are excluded, never zero-filled.",
-  ),
+  mean_protein_g: z
+    .int()
+    .nullable()
+    .describe(
+      "Mean known-protein floor over unflagged days with any known protein, not a total when coverage is partial. Wholly unknown days are excluded, never zero-filled."
+    ),
   protein_coverage: z.object({
-    days_in_mean: z.int().describe(
-      "Denominator of mean_protein_g: unflagged days with at least one known protein entry, including explicit zero.",
-    ),
-    entries: z.int().describe(
-      "All intake entries on unflagged days, including days with wholly unknown protein.",
-    ),
-    unknown_entries: z.int().describe(
-      "Of those entries, how many have null protein. Zero does not establish coverage of missing or flagged days.",
-    ),
+    days_in_mean: z
+      .int()
+      .describe(
+        "Denominator of mean_protein_g: unflagged days with at least one known protein entry, including explicit zero."
+      ),
+    entries: z
+      .int()
+      .describe(
+        "All intake entries on unflagged days, including days with wholly unknown protein."
+      ),
+    unknown_entries: z
+      .int()
+      .describe(
+        "Of those entries, how many have null protein. Zero does not establish coverage of missing or flagged days."
+      ),
   }),
   trend_start_kg: z.number().nullable(),
   trend_end_kg: z.number().nullable(),
-  trend_delta_kg: z.number().nullable().describe(
-    "Actual end minus start trend weight, not normalized to seven days; null if an endpoint is missing.",
-  ),
-  rate_pct_bw_week: z.number().nullable().describe(
-    "Endpoint slope normalized to seven days as a percentage of starting weight; null without endpoints, positive elapsed days or positive starting weight.",
-  ),
-  implied_tdee_kcal: z.int().nullable().describe(
-    "Mean intake minus the daily endpoint slope times energy density; null without endpoints, positive elapsed days, intake or body composition.",
-  ),
+  trend_delta_kg: z
+    .number()
+    .nullable()
+    .describe(
+      "Actual end minus start trend weight, not normalized to seven days; null if an endpoint is missing."
+    ),
+  rate_pct_bw_week: z
+    .number()
+    .nullable()
+    .describe(
+      "Endpoint slope normalized to seven days as a percentage of starting weight; null without endpoints, positive elapsed days or positive starting weight."
+    ),
+  implied_tdee_kcal: z
+    .int()
+    .nullable()
+    .describe(
+      "Mean intake minus the daily endpoint slope times energy density; null without endpoints, positive elapsed days, intake or body composition."
+    ),
   target: WeekTarget.nullable(),
   events: z.array(WeekEvent),
 });
@@ -108,7 +128,7 @@ nutritionWeekly.openapi(
   async (c) =>
     c.json(
       await services(c).nutritionWeekly.finishedWeeks(
-        c.req.valid("query").weeks,
-      ),
-    ),
+        c.req.valid("query").weeks
+      )
+    )
 );

@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "types": ["bun", "node"]
+  },
+  "include": [
+    "api/**/*.ts",
+    "scripts/**/*.ts",
+    "scripts/**/*.mjs",
+    "db/d1/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".delta", "dist", ".wrangler", "web"]
+}

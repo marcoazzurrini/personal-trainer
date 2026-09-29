@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
-import { FLAGS } from "./constants.ts";
+
 import {
   body,
   dayParam,
@@ -13,6 +12,9 @@ import {
   query,
   requestId,
 } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { FLAGS } from "./constants.ts";
 
 export const intake = new OpenAPIHono<AppEnv>();
 
@@ -67,7 +69,7 @@ intake.openapi(
     },
   }),
   async (c) =>
-    c.json(await services(c).intake.viewDay(c.req.valid("query").day)),
+    c.json(await services(c).intake.viewDay(c.req.valid("query").day))
 );
 
 intake.openapi(
@@ -117,10 +119,10 @@ intake.openapi(
   }),
   async (c) => {
     const { view, created } = await services(c).intake.logIntake(
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return created ? c.json(view, 201) : c.json(view, 200);
-  },
+  }
 );
 
 intake.openapi(
@@ -171,12 +173,12 @@ intake.openapi(
   async (c) => {
     const { view, movedFrom } = await services(c).intake.correctEntry(
       c.req.valid("param").id,
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return c.json(
-      movedFrom === null ? view : { ...view, moved_from: movedFrom },
+      movedFrom === null ? view : { ...view, moved_from: movedFrom }
     );
-  },
+  }
 );
 
 intake.openapi(
@@ -198,7 +200,7 @@ intake.openapi(
     },
   }),
   async (c) =>
-    c.json(await services(c).intake.removeEntry(c.req.valid("param").id)),
+    c.json(await services(c).intake.removeEntry(c.req.valid("param").id))
 );
 
 // ---------------------------------------------------------------------------
@@ -236,10 +238,10 @@ days.openapi(
     c.json(
       await services(c).intake.flagDay(
         c.req.valid("param").day,
-        c.req.valid("json").flag,
+        c.req.valid("json").flag
       ),
-      201,
-    ),
+      201
+    )
 );
 
 days.openapi(
@@ -263,5 +265,5 @@ days.openapi(
   async (c) => {
     const { day, flag } = c.req.valid("param");
     return c.json(await services(c).intake.unflagDay(day, flag));
-  },
+  }
 );

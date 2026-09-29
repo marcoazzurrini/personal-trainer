@@ -1,9 +1,10 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import { api, daysAgo, resetNutrition, today, uuid } from "./helpers.ts";
 
-Deno.test("nutrition tracking", async (t) => {
+test("nutrition tracking", async (t) => {
   await resetNutrition();
-
   const yogurt = {
     name: "Greek Yogurt 0%",
     brand: "Fage",
@@ -14,8 +15,7 @@ Deno.test("nutrition tracking", async (t) => {
     source: "label",
     aliases: ["yogurt greco", "il solito yogurt"],
   };
-
-  await t.step("a food is saved once, with its aliases", async () => {
+  await t.test("a food is saved once, with its aliases", async () => {
     const { status, body } = await api.post("/foods", {
       ...yogurt,
       request_id: uuid(),
@@ -24,16 +24,14 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(body.food.name, "Greek Yogurt 0%");
     assertEquals(body.food.aliases, ["il solito yogurt", "yogurt greco"]);
   });
-
-  await t.step("it resolves by name and by alias, any case", async () => {
+  await t.test("it resolves by name and by alias, any case", async () => {
     const byName = await api.get("/foods/Greek%20Yogurt%200%25");
     assertEquals(byName.status, 200);
     const byAlias = await api.get("/foods/IL%20SOLITO%20YOGURT");
     assertEquals(byAlias.status, 200);
     assertEquals(byAlias.body.food.id, byName.body.food.id);
   });
-
-  await t.step(
+  await t.test(
     "a duplicate food is refused, a synonym redirected",
     async () => {
       const { status, body } = await api.post("/foods", {
@@ -42,16 +40,14 @@ Deno.test("nutrition tracking", async (t) => {
       });
       assertEquals(status, 409);
       assert(body.error.includes("aliases"));
-    },
+    }
   );
-
-  await t.step("an unknown food says how to source one", async () => {
+  await t.test("an unknown food says how to source one", async () => {
     const { status, body } = await api.get("/foods/pastiera");
     assertEquals(status, 422);
     assert(body.error.includes("never invented"));
   });
-
-  await t.step("macros that outrun the stated energy are refused", async () => {
+  await t.test("macros that outrun the stated energy are refused", async () => {
     // Per-serving macros pasted against a per-100g energy: the classic error.
     const { status, body } = await api.post("/foods", {
       name: "Mis-scaled Bar",
@@ -65,8 +61,7 @@ Deno.test("nutrition tracking", async (t) => {
     assert(body.error.includes("disagree"));
     assert(body.error.includes("sugar alcohols"));
   });
-
-  await t.step("a real sugar-free label can still be saved", async () => {
+  await t.test("a real sugar-free label can still be saved", async () => {
     // EU labelling counts polyols inside the carbohydrate figure but only
     // credits them ~2.4 kcal/g in the energy line, so a correct label
     // overshoots the 4/4/9 identity by ~50%. Without a symmetric override
@@ -82,7 +77,6 @@ Deno.test("nutrition tracking", async (t) => {
     const refused = await api.post("/foods", bar);
     assertEquals(refused.status, 422);
     assert(refused.body.error.includes("sugar alcohols"));
-
     const accepted = await api.post("/foods", {
       ...bar,
       energy_check: "override",
@@ -92,8 +86,7 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(accepted.status, 201);
     assertEquals(accepted.body.food.kcal_100g, 240);
   });
-
-  await t.step("unexplained energy needs a stated reason", async () => {
+  await t.test("unexplained energy needs a stated reason", async () => {
     const beer = {
       name: "Lager 5%",
       kcal_100g: 43,
@@ -105,14 +98,12 @@ Deno.test("nutrition tracking", async (t) => {
     const refused = await api.post("/foods", beer);
     assertEquals(refused.status, 422);
     assert(refused.body.error.includes("alcohol"));
-
     const noNote = await api.post("/foods", {
       ...beer,
       energy_check: "override",
     });
     assertEquals(noNote.status, 422);
     assert(noNote.body.error.includes("source_note"));
-
     const accepted = await api.post("/foods", {
       ...beer,
       energy_check: "override",
@@ -121,8 +112,7 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(accepted.status, 201);
   });
-
-  await t.step("near-zero foods pass on the absolute floor", async () => {
+  await t.test("near-zero foods pass on the absolute floor", async () => {
     const { status } = await api.post("/foods", {
       name: "Black Coffee",
       kcal_100g: 2,
@@ -134,8 +124,7 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(status, 201);
   });
-
-  await t.step("a food eaten in pieces converts units to grams", async () => {
+  await t.test("a food eaten in pieces converts units to grams", async () => {
     await api.post("/foods", {
       name: "Egg",
       kcal_100g: 143,
@@ -156,8 +145,7 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(egg.grams, 110);
     assertEquals(egg.kcal, 157.3); // 143 * 1.10
   });
-
-  await t.step("a food with no grams_per_unit refuses units", async () => {
+  await t.test("a food with no grams_per_unit refuses units", async () => {
     const { status, body } = await api.post("/intake", {
       food: "Black Coffee",
       units: 1,
@@ -165,10 +153,8 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(status, 422);
     assert(body.error.includes("grams_per_unit"));
   });
-
   let breakfastId = 0;
-
-  await t.step("a meal is created whole, with computed totals", async () => {
+  await t.test("a meal is created whole, with computed totals", async () => {
     await api.post("/foods", {
       name: "Honey",
       kcal_100g: 304,
@@ -194,52 +180,47 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(body.meal.totals.kcal, 174.8);
     assertEquals(body.meal.totals.protein_g, 20.7);
   });
-
-  await t.step("logging a meal writes one row per food", async () => {
+  await t.test("logging a meal writes one row per food", async () => {
     const { status, body } = await api.post("/intake", {
       meal: "la solita colazione",
       request_id: uuid(),
     });
     assertEquals(status, 201);
     const fromMeal = body.entries.filter(
-      (e: { meal_id: number | null }) => e.meal_id === breakfastId,
+      (e: { meal_id: number | null }) => e.meal_id === breakfastId
     );
     assertEquals(fromMeal.length, 2);
     assertEquals(
       fromMeal.every((e: { meal: string }) => e.meal === "Colazione"),
-      true,
+      true
     );
   });
-
   // Marco eats half his usual breakfast often enough that the alternative —
   // expanding the meal into four separate food entries at scaled grams — was
   // the routine workaround, and it threw the meal linkage away every time.
-  await t.step("a portion of a meal scales every item", async () => {
+  await t.test("a portion of a meal scales every item", async () => {
     const { status, body } = await api.post("/intake", {
       meal: "Colazione",
       scale: 0.5,
       request_id: uuid(),
     });
     assertEquals(status, 201);
-
     const find = (food: string, grams: number) =>
       body.entries.find(
         (e: { food: string; grams: number | null; meal_id: number | null }) =>
-          e.food === food && e.grams === grams && e.meal_id === breakfastId,
+          e.food === food && e.grams === grams && e.meal_id === breakfastId
       );
-
-    const yogurt = find("Greek Yogurt 0%", 100); // 200 g at half
-    const honey = find("Honey", 10); //             20 g at half
-    assert(yogurt, "the yogurt should be logged at half its grams");
-    assert(honey, "the honey should be logged at half its grams");
+    const loggedYogurt = find("Greek Yogurt 0%", 100); // 200 g at half
+    const loggedHoney = find("Honey", 10); //             20 g at half
+    assert(loggedYogurt, "the yogurt should be logged at half its grams");
+    assert(loggedHoney, "the honey should be logged at half its grams");
     // Macros follow the grams actually stored, not the recipe's.
-    assertEquals(yogurt.kcal, 57); // 57/100g
-    assertEquals(honey.kcal, 30.4); // 304/100g
+    assertEquals(loggedYogurt.kcal, 57); // 57/100g
+    assertEquals(loggedHoney.kcal, 30.4); // 304/100g
     // The linkage the workaround lost is the reason this exists.
-    assertEquals(yogurt.meal, "Colazione");
+    assertEquals(loggedYogurt.meal, "Colazione");
   });
-
-  await t.step("a portion belongs to a meal, and is bounded", async () => {
+  await t.test("a portion belongs to a meal, and is bounded", async () => {
     for (const scale of [0, -1, 11]) {
       const { status, body } = await api.post("/intake", {
         meal: "Colazione",
@@ -248,7 +229,6 @@ Deno.test("nutrition tracking", async (t) => {
       assertEquals(status, 422, String(scale));
       assert(body.error.includes("scale"), String(scale));
     }
-
     // A part of a single food is that food at fewer grams, so scale has no
     // meaning there and saying so beats silently ignoring it.
     const onFood = await api.post("/intake", {
@@ -259,8 +239,7 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(onFood.status, 422);
     assert(onFood.body.error.includes("meal"));
   });
-
-  await t.step("a different product is a new food, not an edit", async () => {
+  await t.test("a different product is a new food, not an edit", async () => {
     // The rule that makes retroactive food correction safe. A reformulated or
     // rebranded yogurt is a different thing, so it gets its own row and the
     // breakfast already logged keeps the numbers it was logged with. Editing
@@ -269,10 +248,9 @@ Deno.test("nutrition tracking", async (t) => {
     const logged = await api.get("/intake");
     const before = logged.body.entries.find(
       (e: { food: string; meal_id: number | null }) =>
-        e.food === "Greek Yogurt 0%" && e.meal_id === breakfastId,
+        e.food === "Greek Yogurt 0%" && e.meal_id === breakfastId
     );
     assertEquals(before.kcal, 114);
-
     await api.post("/foods", {
       name: "Greek Yogurt 0% (new recipe)",
       kcal_100g: 71,
@@ -282,25 +260,22 @@ Deno.test("nutrition tracking", async (t) => {
       source: "label",
       request_id: uuid(),
     });
-
     const after = await api.get("/intake");
     const still = after.body.entries.find(
       (e: { food: string; meal_id: number | null }) =>
-        e.food === "Greek Yogurt 0%" && e.meal_id === breakfastId,
+        e.food === "Greek Yogurt 0%" && e.meal_id === breakfastId
     );
     assertEquals(still.kcal, 114);
   });
-
-  await t.step("editing a meal changes future logs only", async () => {
+  await t.test("editing a meal changes future logs only", async () => {
     // The other half of the snapshot promise: the recipe evolves, history
     // does not. Honey doubles; the breakfast already logged keeps 60.8 kcal
     // of honey, and the next log gets 121.6.
     const before = await api.get("/intake");
     const loggedHoney = before.body.entries.find(
-      (e: { food: string }) => e.food === "Honey",
+      (e: { food: string }) => e.food === "Honey"
     );
     assertEquals(loggedHoney.kcal, 60.8);
-
     const edited = await api.patch("/meals/Colazione", {
       items: [
         { food: "il solito yogurt", grams: 200 },
@@ -309,36 +284,34 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(edited.status, 200);
     assertEquals(edited.body.meal.totals.kcal, 235.6);
-
     const after = await api.get("/intake");
     const stillLogged = after.body.entries.find(
-      (e: { food: string }) => e.food === "Honey",
+      (e: { food: string }) => e.food === "Honey"
     );
     assertEquals(stillLogged.kcal, 60.8, "history must not move");
-
     await api.post("/intake", { meal: "Colazione", request_id: uuid() });
     const relogged = await api.get("/intake");
     const fresh = relogged.body.entries.filter(
-      (e: { food: string }) => e.food === "Honey",
+      (e: { food: string }) => e.food === "Honey"
     );
-    assertEquals(fresh.some((e: { kcal: number }) => e.kcal === 121.6), true);
+    assertEquals(
+      fresh.some((e: { kcal: number }) => e.kcal === 121.6),
+      true
+    );
   });
-
-  await t.step("a past entry is corrected explicitly", async () => {
+  await t.test("a past entry is corrected explicitly", async () => {
     const day = await api.get("/intake");
-    const egg = day.body.entries.find((e: { food: string }) =>
-      e.food === "Egg"
+    const egg = day.body.entries.find(
+      (e: { food: string }) => e.food === "Egg"
     );
-
     // Re-scaling from the food: three eggs, not two.
     const rescaled = await api.patch(`/intake/${egg.id}`, { grams: 165 });
     assertEquals(rescaled.status, 200);
     const fixed = rescaled.body.entries.find(
-      (e: { id: number }) => e.id === egg.id,
+      (e: { id: number }) => e.id === egg.id
     );
     assertEquals(fixed.grams, 165);
     assertEquals(fixed.kcal, 236);
-
     // Re-scaling and overriding in one request would write a row whose
     // macros describe the grams while kcal says something else. Refused,
     // and the row is left as it was.
@@ -350,45 +323,41 @@ Deno.test("nutrition tracking", async (t) => {
     assert(contradictory.body.error.includes('"grams"'));
     const after = await api.get("/intake");
     const untouched = after.body.entries.find(
-      (e: { id: number }) => e.id === egg.id,
+      (e: { id: number }) => e.id === egg.id
     );
     assertEquals(untouched.grams, 165);
     assertEquals(untouched.kcal, 236);
-
     // A duplicate log is removed, not zeroed: a 0 kcal row would still count
     // as a logged entry and inflate adherence.
     const removed = await api.delete(`/intake/${egg.id}`);
     assertEquals(removed.status, 200);
     assertEquals(
       removed.body.entries.some((e: { id: number }) => e.id === egg.id),
-      false,
+      false
     );
   });
-
-  await t.step("an ad-hoc entry cannot re-scale from a food", async () => {
+  await t.test("an ad-hoc entry cannot re-scale from a food", async () => {
     const adhoc = await api.post("/intake", {
       adhoc_kcal: 300,
       note: "gelato",
       request_id: uuid(),
     });
     const entry = adhoc.body.entries.find(
-      (e: { note: string | null }) => e.note === "gelato",
+      (e: { note: string | null }) => e.note === "gelato"
     );
     const refused = await api.patch(`/intake/${entry.id}`, { grams: 100 });
     assertEquals(refused.status, 422);
     assert(refused.body.error.includes("ad-hoc"));
-
     const corrected = await api.patch(`/intake/${entry.id}`, { kcal: 250 });
     assertEquals(corrected.status, 200);
     assertEquals(
       corrected.body.entries.find((e: { id: number }) => e.id === entry.id)
         .kcal,
-      250,
+      250
     );
     await api.delete(`/intake/${entry.id}`);
   });
-
-  await t.step("an ad-hoc day is a first-class entry", async () => {
+  await t.test("an ad-hoc day is a first-class entry", async () => {
     const { status, body } = await api.post("/intake", {
       adhoc_kcal: 1200,
       note: "pizza and a beer out",
@@ -396,14 +365,13 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(status, 201);
     const adhoc = body.entries.find(
-      (e: { note: string | null }) => e.note === "pizza and a beer out",
+      (e: { note: string | null }) => e.note === "pizza and a beer out"
     );
     assertEquals(adhoc.food_id, null);
     assertEquals(adhoc.grams, null);
     assertEquals(adhoc.kcal, 1200);
   });
-
-  await t.step("totals report what they do not cover, per macro", async () => {
+  await t.test("totals report what they do not cover, per macro", async () => {
     const { body } = await api.get("/intake");
     // Only the ad-hoc entry is silent about protein, so protein is a floor
     // over 1200 unlogged kcal — that is the number the coach must not read
@@ -411,14 +379,12 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(body.totals.unaccounted.protein_g, { entries: 1, kcal: 1200 });
     assert(body.totals.kcal > 1200);
     assertEquals(typeof body.totals.protein_g, "number");
-
     // Fibre is missing from every food here, so its total is null rather than
     // a confident zero — and the fibre gap does not contaminate protein's.
     assertEquals(body.totals.fiber_g, null);
     assert(body.totals.unaccounted.fiber_g.entries > 1);
   });
-
-  await t.step("exactly one of meal, food, adhoc_kcal", async () => {
+  await t.test("exactly one of meal, food, adhoc_kcal", async () => {
     const none = await api.post("/intake", {});
     assertEquals(none.status, 422);
     const both = await api.post("/intake", {
@@ -429,8 +395,7 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(both.status, 422);
     assert(both.body.error.includes("exactly one"));
   });
-
-  await t.step("retrying a logged meal changes nothing", async () => {
+  await t.test("retrying a logged meal changes nothing", async () => {
     const id = uuid();
     const first = await api.post("/intake", {
       meal: "Colazione",
@@ -445,24 +410,20 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(retry.status, 200);
     assertEquals(retry.body.entries.length, count);
   });
-
-  await t.step("a day is flagged incomplete, and unflagged", async () => {
+  await t.test("a day is flagged incomplete, and unflagged", async () => {
     const day = today();
     const flagged = await api.post(`/days/${day}/flags`, {
       flag: "incomplete",
     });
     assertEquals(flagged.status, 201);
     assertEquals(flagged.body.flags, ["incomplete"]);
-
     const bad = await api.post(`/days/${day}/flags`, { flag: "lazy" });
     assertEquals(bad.status, 422);
-
     const cleared = await api.delete(`/days/${day}/flags/incomplete`);
     assertEquals(cleared.status, 200);
     assertEquals(cleared.body.flags, []);
   });
-
-  await t.step("body fat dedupes on day and method", async () => {
+  await t.test("body fat dedupes on day and method", async () => {
     const estimate = { day: today(), percent: 14.5, method: "bia" };
     const first = await api.post("/bodyfat", {
       ...estimate,
@@ -477,8 +438,7 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(conflicting.status, 409);
   });
-
-  await t.step("a food correction reaches everything logged", async () => {
+  await t.test("a food correction reaches everything logged", async () => {
     // The other half of the snapshot rule. A meal's recipe changing means
     // Marco ate differently, so history stands. A food's numbers changing
     // means they were always wrong — that is an error, not history.
@@ -492,13 +452,11 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(rice.status, 201);
     await api.post("/intake", { food: "White Rice", grams: 200 });
-
     const before = await api.get("/intake");
-    const cooked = before.body.entries.find((e: { food: string }) =>
-      e.food === "White Rice"
+    const cooked = before.body.entries.find(
+      (e: { food: string }) => e.food === "White Rice"
     );
     assertEquals(cooked.kcal, 260);
-
     // Those were the cooked-rice numbers; the label is raw.
     const fixed = await api.patch("/foods/White Rice", {
       kcal_100g: 360,
@@ -510,41 +468,34 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(fixed.status, 200);
     assertEquals(fixed.body.corrected_entries.count, 1);
     assert(fixed.body.note.includes("Corrected 1 logged entry"));
-
     const after = await api.get("/intake");
-    const corrected = after.body.entries.find((e: { food: string }) =>
-      e.food === "White Rice"
+    const corrected = after.body.entries.find(
+      (e: { food: string }) => e.food === "White Rice"
     );
     assertEquals(corrected.kcal, 720); // 360 * 2
     assertEquals(corrected.grams, 200, "the amount eaten never changed");
   });
-
-  await t.step("a correction still cannot break the energy check", async () => {
+  await t.test("a correction still cannot break the energy check", async () => {
     const { status, body } = await api.patch("/foods/White Rice", {
       kcal_100g: 50,
     });
     assertEquals(status, 422);
     assert(body.error.includes("disagree"));
   });
-
-  await t.step("an alias moves between foods", async () => {
+  await t.test("an alias moves between foods", async () => {
     await api.post("/foods/White Rice/aliases", { alias: "riso" });
     const taken = await api.post("/foods/Honey/aliases", { alias: "riso" });
     assertEquals(taken.status, 409);
-
     const removed = await api.delete("/foods/White Rice/aliases/riso");
     assertEquals(removed.status, 200);
     assertEquals(removed.body.food.aliases.includes("riso"), false);
-
     const moved = await api.post("/foods/Honey/aliases", { alias: "riso" });
     assertEquals(moved.status, 201);
   });
-
-  await t.step("a used food cannot be deleted, an unused one can", async () => {
+  await t.test("a used food cannot be deleted, an unused one can", async () => {
     const used = await api.delete("/foods/White Rice");
     assertEquals(used.status, 409);
     assert(used.body.error.includes("PATCH"));
-
     await api.post("/foods", {
       name: "Typo Foodd",
       kcal_100g: 100,
@@ -557,17 +508,15 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(unused.status, 200);
     assertEquals((await api.get("/foods/Typo Foodd")).status, 422);
   });
-
-  await t.step("a meal is retired by taking its aliases away", async () => {
+  await t.test("a meal is retired by taking its aliases away", async () => {
     // Meals are never deleted — the logged rows point at them. Retiring one
     // frees the word Marco actually says so a replacement can claim it.
     const freed = await api.delete(
-      "/meals/Colazione/aliases/la solita colazione",
+      "/meals/Colazione/aliases/la solita colazione"
     );
     assertEquals(freed.status, 200);
     assertEquals(freed.body.meal.aliases.length, 0);
     assertEquals((await api.delete("/meals/Colazione")).status, 404);
-
     const reused = await api.post("/meals", {
       name: "Colazione nuova",
       aliases: ["la solita colazione"],
@@ -575,10 +524,9 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(reused.status, 201);
   });
-
   // The date was wrong, the food was not. Before this the only repair was
   // delete + re-log, which retypes every ad-hoc number by hand.
-  await t.step("an entry logged on the wrong day can be moved", async () => {
+  await t.test("an entry logged on the wrong day can be moved", async () => {
     const yesterday = daysAgo(1);
     const logged = await api.post("/intake", {
       day: today(),
@@ -588,39 +536,35 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(logged.status, 201);
     const entry = logged.body.entries.find(
-      (e: { note: string | null }) => e.note === "pizza out",
+      (e: { note: string | null }) => e.note === "pizza out"
     );
-
     const moved = await api.patch(`/intake/${entry.id}`, { day: yesterday });
     assertEquals(moved.status, 200);
     // The reply is the day it landed on, not the one it left.
     assertEquals(moved.body.day, yesterday);
     assertEquals(moved.body.moved_from, today());
-
     // Same entry, same numbers — nothing was re-typed and nothing re-read.
     const there = moved.body.entries.find(
-      (e: { id: number }) => e.id === entry.id,
+      (e: { id: number }) => e.id === entry.id
     );
     assert(there, "the entry should be on the day it moved to");
     assertEquals(there.kcal, 1200);
     assertEquals(there.protein_g, 40);
     assertEquals(there.note, "pizza out");
-
     // And gone from the day it left.
     const source = await api.get(`/intake?day=${today()}`);
     assert(
       !source.body.entries.some((e: { id: number }) => e.id === entry.id),
-      "the entry should have left the original day",
+      "the entry should have left the original day"
     );
   });
-
-  await t.step("a move cannot land in the future", async () => {
+  await t.test("a move cannot land in the future", async () => {
     const logged = await api.post("/intake", {
       adhoc_kcal: 300,
       note: "moving target",
     });
     const entry = logged.body.entries.find(
-      (e: { note: string | null }) => e.note === "moving target",
+      (e: { note: string | null }) => e.note === "moving target"
     );
     const { status, body } = await api.patch(`/intake/${entry.id}`, {
       day: "2099-01-01",
@@ -628,8 +572,7 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(status, 422);
     assert(body.error.includes("future"));
   });
-
-  await t.step("a mistyped measurement can be removed", async () => {
+  await t.test("a mistyped measurement can be removed", async () => {
     const bad = await api.post("/bodyweight", {
       value_kg: 128.4, // meant 82.4
       measured_at: "2026-08-03T06:00:00Z",
@@ -640,12 +583,10 @@ Deno.test("nutrition tracking", async (t) => {
     assertEquals(gone.body.deleted.value_kg, 128.4);
     assertEquals((await api.get("/bodyweight")).body.bodyweight.length, 0);
   });
-
-  await t.step("request_id is required, not merely accepted", async () => {
+  await t.test("request_id is required, not merely accepted", async () => {
     const without = await api.postRaw("/intake", { adhoc_kcal: 100 });
     assertEquals(without.status, 422);
     assert(without.body.error.includes("retry"));
-
     // And it still does its job when sent.
     const id = uuid();
     const first = await api.postRaw("/intake", {
@@ -660,28 +601,24 @@ Deno.test("nutrition tracking", async (t) => {
     });
     assertEquals(retry.body.entries.length, count);
   });
-
-  await t.step("a malformed id is a prompt, not a 500", async () => {
-    for (
-      const call of [
-        api.delete("/intake/notanid"),
-        api.patch("/intake/notanid", { kcal: 1 }),
-        api.delete("/bodyfat/notanid"),
-        api.delete("/nutrition-events/notanid"),
-        api.delete("/bodyweight/notanid"),
-      ]
-    ) {
+  await t.test("a malformed id is a prompt, not a 500", async () => {
+    for (const call of [
+      api.delete("/intake/notanid"),
+      api.patch("/intake/notanid", { kcal: 1 }),
+      api.delete("/bodyfat/notanid"),
+      api.delete("/nutrition-events/notanid"),
+      api.delete("/bodyweight/notanid"),
+    ]) {
       const { status, body } = await call;
       assertEquals(status, 422);
       assert(
         body.error.includes("is not a valid") ||
           body.error.includes("whole-number nutrition event id"),
-        body.error,
+        body.error
       );
     }
   });
-
-  await t.step("nutrition-state is honest with no history", async () => {
+  await t.test("nutrition-state is honest with no history", async () => {
     // Today's logging exists but there is no weight series and no target, so
     // everything derived from those must be absent rather than defaulted.
     const { status, body } = await api.get("/nutrition-state");
@@ -702,35 +639,31 @@ Deno.test("nutrition tracking", async (t) => {
     // and weigh-in ones; the both-at-once case is covered as a unit test.
     assert(body.expenditure.blockers.length >= 2);
     assert(
-      body.expenditure.blockers.some((b: string) =>
-        b.includes("logged intake")
-      ),
+      body.expenditure.blockers.some((b: string) => b.includes("logged intake"))
     );
     assert(
-      body.expenditure.blockers.some((b: string) => b.includes("weigh-in day")),
+      body.expenditure.blockers.some((b: string) => b.includes("weigh-in day"))
     );
     assert(
       body.expenditure.blockers.some((b: string) => b.includes("21")),
-      "the window length belongs in the message, not just the docs",
+      "the window length belongs in the message, not just the docs"
     );
     assertEquals(body.latest_bodyfat.percent, 14.5);
     assertEquals(typeof body.adherence.days_logged_last_7, "number");
     assertEquals(typeof body.adherence.weigh_ins_last_7, "number");
   });
-
   // The two adherence numbers about weighing must be able to agree. They could
   // not: the count stopped before today and last_weigh_in did not, so a scale
   // that reported this morning produced "no weigh-ins in the last seven days,
   // most recently today". A coach hit exactly that pair and reported the sync
   // as broken.
-  await t.step("a weigh-in today counts as one, and says so", async () => {
+  await t.test("a weigh-in today counts as one, and says so", async () => {
     await resetNutrition();
     const { status } = await api.post("/bodyweight", {
       value_kg: 72.66,
       measured_at: new Date().toISOString(),
     });
     assertEquals(status, 201);
-
     const { body } = await api.get("/nutrition-state");
     assertEquals(body.adherence.weigh_ins_last_7, 1);
     assertEquals(body.adherence.weigh_ins_last_21, 1);

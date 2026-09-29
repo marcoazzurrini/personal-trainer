@@ -1,4 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import {
   api,
   daysBefore,
@@ -12,15 +14,17 @@ import {
   today,
   uuid,
 } from "./helpers.ts";
-
 // Two lines of training at once. The thing that has to hold is attribution:
 // one afternoon's work serving two plans, each plan judged against its own
 // dose in its own unit, and nothing ever counted for the wrong one.
-Deno.test("two plans running side by side", async (t) => {
+test("two plans running side by side", async (t) => {
   await resetTraining();
   await ensureCatalogue();
-
-  const { blockId, mesocycleId: hypId, mesocycle: hypMeso } = await seedPlan({
+  const {
+    blockId,
+    mesocycleId: hypId,
+    mesocycle: hypMeso,
+  } = await seedPlan({
     name: "Hyp",
     intent: "Grow. Double progression.",
     planned_weeks: 5,
@@ -35,7 +39,6 @@ Deno.test("two plans running side by side", async (t) => {
       },
     ],
   });
-
   const { mesocycleId: speedId } = await seedPlan({
     blockId,
     name: "Speed",
@@ -53,8 +56,7 @@ Deno.test("two plans running side by side", async (t) => {
       },
     ],
   });
-
-  await t.step(
+  await t.test(
     "rehab is a role inside a plan, not a track of its own",
     async () => {
       const bad = await api.post("/mesocycles", {
@@ -65,44 +67,42 @@ Deno.test("two plans running side by side", async (t) => {
         planned_weeks: 4,
         sessions_per_week: 3,
         started_on: lastMonday(),
-        exercises: [{
-          exercise: "band face pull",
-          role: "main",
-          priority: 1,
-          weekly_dose: 6,
-          weekly_dose_unit: "sets",
-        }],
+        exercises: [
+          {
+            exercise: "band face pull",
+            role: "main",
+            priority: 1,
+            weekly_dose: 6,
+            weekly_dose_unit: "sets",
+          },
+        ],
       });
       assertEquals(bad.status, 422);
       const facePull = hypMeso.exercises.find(
-        (e: { exercise: string }) => e.exercise === "Band Face Pull",
+        (e: { exercise: string }) => e.exercise === "Band Face Pull"
       );
       assertEquals(facePull.role, "rehab");
-    },
+    }
   );
-
-  await t.step('"current" refuses to guess between them', async () => {
+  await t.test('"current" refuses to guess between them', async () => {
     const { status, body } = await api.get("/mesocycles/current");
     assertEquals(status, 422);
     assert(body.error.includes("ambiguous"), body.error);
     assert(body.error.includes("current:"), body.error);
   });
-
-  await t.step('"current:<track>" names one', async () => {
+  await t.test('"current:<track>" names one', async () => {
     const speedNow = await api.get("/mesocycles/current:speed");
     assertEquals(speedNow.body.mesocycle.id, speedId);
     const hypNow = await api.get("/mesocycles/current:hypertrophy");
     assertEquals(hypNow.body.mesocycle.id, hypId);
-
     const nonsense = await api.get("/mesocycles/current:rowing");
     assertEquals(nonsense.status, 422);
     const absent = await api.get("/mesocycles/current:endurance");
     assertEquals(absent.status, 404);
   });
-
   // The heart of it: one bout, two plans, and the API works out which is which
   // from the exercise. Nothing in the payload says "mesocycle".
-  await t.step("one session serves both plans", async () => {
+  await t.test("one session serves both plans", async () => {
     const { status, body } = await api.post("/sessions", {
       date: today(),
       rationale: "Speed first while fresh, squats after.",
@@ -114,15 +114,15 @@ Deno.test("two plans running side by side", async (t) => {
     });
     assertEquals(status, 201);
     const byExercise = Object.fromEntries(
-      body.session.sets.map((
-        s: { exercise: string; mesocycle_id: number },
-      ) => [s.exercise, s.mesocycle_id]),
+      body.session.sets.map((s: { exercise: string; mesocycle_id: number }) => [
+        s.exercise,
+        s.mesocycle_id,
+      ])
     );
     assertEquals(byExercise["Sprint"], speedId);
     assertEquals(byExercise["Back Squat"], hypId);
   });
-
-  await t.step("work in no plan is off-plan, not misfiled", async () => {
+  await t.test("work in no plan is off-plan, not misfiled", async () => {
     const { body } = await api.post("/sessions", {
       date: today(),
       rationale: "kickabout",
@@ -130,58 +130,51 @@ Deno.test("two plans running side by side", async (t) => {
     });
     assertEquals(body.session.sets[0].mesocycle_id, null);
   });
-
-  await t.step("each plan sees only its own delivery", async () => {
+  await t.test("each plan sees only its own delivery", async () => {
     const { body } = await api.get("/training-state");
     assertEquals(body.mesocycles.length, 2);
-
     const speedState = body.mesocycles.find(
-      (m: { track: string }) => m.track === "speed",
+      (m: { track: string }) => m.track === "speed"
     );
     const sprint = speedState.exercises.find(
-      (e: { exercise: string }) => e.exercise === "Sprint",
+      (e: { exercise: string }) => e.exercise === "Sprint"
     );
     // 80 m delivered against a dose stated in km, expressed in km.
     assertEquals(sprint.delivered_this_week, 0.08);
     assertEquals(sprint.dose, 0.4);
     assertEquals(sprint.dose_unit, "km");
-
     const hypState = body.mesocycles.find(
-      (m: { track: string }) => m.track === "hypertrophy",
+      (m: { track: string }) => m.track === "hypertrophy"
     );
     const squat = hypState.exercises.find(
-      (e: { exercise: string }) => e.exercise === "Back Squat",
+      (e: { exercise: string }) => e.exercise === "Back Squat"
     );
     assertEquals(squat.delivered_this_week, 1);
     // The sprints are not in this plan's exercise list at all, so they cannot
     // leak into it however the sessions were arranged.
     assertEquals(hypState.exercises.length, 2);
-
     // Weeks are numbered from each plan's own Monday, so they are labelled
     // per plan rather than once for the conversation.
     assert(speedState.week !== undefined && hypState.week !== undefined);
   });
-
-  await t.step(
+  await t.test(
     "a session counted once serves both plans' filters",
     async () => {
       const speedSessions = await api.get("/sessions?mesocycle=current:speed");
       const hypSessions = await api.get(
-        "/sessions?mesocycle=current:hypertrophy",
+        "/sessions?mesocycle=current:hypertrophy"
       );
-      const speedIds = speedSessions.body.sessions.map((s: { id: number }) =>
-        s.id
+      const speedIds = speedSessions.body.sessions.map(
+        (s: { id: number }) => s.id
       );
-      const hypIds = hypSessions.body.sessions.map((s: { id: number }) => s.id);
+      const hypIds = new Set(
+        hypSessions.body.sessions.map((s: { id: number }) => s.id)
+      );
       // The mixed session appears under both; the kickabout under neither.
-      assertEquals(
-        speedIds.filter((id: number) => hypIds.includes(id)).length,
-        1,
-      );
-    },
+      assertEquals(speedIds.filter((id: number) => hypIds.has(id)).length, 1);
+    }
   );
-
-  await t.step("sprint work never reaches muscle volume", async () => {
+  await t.test("sprint work never reaches muscle volume", async () => {
     // A finished week holding both kinds of work, so the view has something to
     // include and something to leave out. Sprints are a conditioning stimulus:
     // they are real delivery against the speed plan's dose and must never
@@ -194,30 +187,28 @@ Deno.test("two plans running side by side", async (t) => {
         { exercise: "squat", weight_kg: 100, reps: 5, effort: "hard" },
       ],
     });
-
     const { body } = await api.get(
-      "/weekly-volume?mesocycle=current:hypertrophy",
+      "/weekly-volume?mesocycle=current:hypertrophy"
     );
     const byMuscle = Object.fromEntries(
-      body.weekly_volume.map((
-        r: { muscle: string; working_sets: number },
-      ) => [r.muscle, r.working_sets]),
+      body.weekly_volume.map((r: { muscle: string; working_sets: number }) => [
+        r.muscle,
+        r.working_sets,
+      ])
     );
     // Exactly the squat's muscles, at the squat's factors, from one set.
     assertEquals(byMuscle, { quads: 1, adductors: 1, glutes: 0.5 });
-
     // The same week, read as delivery, does count the sprint.
     const speedWeek = await api.get(
-      "/weekly-exercise-sets?mesocycle=current:speed",
+      "/weekly-exercise-sets?mesocycle=current:speed"
     );
     const sprint = speedWeek.body.weekly_exercise_sets.find(
-      (r: { exercise: string }) => r.exercise === "Sprint",
+      (r: { exercise: string }) => r.exercise === "Sprint"
     );
     assertEquals(sprint.distance_m, 40);
     assertEquals(sprint.delivered, 0.04); // km, the dose's unit
   });
-
-  await t.step(
+  await t.test(
     "off-plan lifting never bleeds into a plan's volume",
     async () => {
       // Benching with a friend, in no plan, in the same finished week as the
@@ -231,28 +222,25 @@ Deno.test("two plans running side by side", async (t) => {
           { exercise: "bench press", weight_kg: 80, reps: 8, effort: "hard" },
         ],
       });
-
       const hyp = await api.get("/weekly-volume?mesocycle=current:hypertrophy");
       const muscles = hyp.body.weekly_volume.map(
-        (r: { muscle: string }) => r.muscle,
+        (r: { muscle: string }) => r.muscle
       );
       assert(
         !muscles.includes("chest"),
-        `the off-plan bench leaked into the plan: ${muscles}`,
+        `the off-plan bench leaked into the plan: ${muscles}`
       );
-
       // The long view still counts it: a muscle does not care which plan
       // loaded it, and ?all is about the muscle.
       const all = await api.get("/weekly-volume?mesocycle=all");
       const chest = all.body.weekly_volume.find(
-        (r: { muscle: string }) => r.muscle === "chest",
+        (r: { muscle: string }) => r.muscle === "chest"
       );
       assert(chest, "off-plan work belongs in the long view");
       assertEquals(chest.working_sets, 1);
-    },
+    }
   );
-
-  await t.step("a redose does not rewrite past weeks", async () => {
+  await t.test("a redose does not rewrite past weeks", async () => {
     // Week 1 delivered its squat against a dose of 9. The redose is the
     // plan's current truth from today — but a dose history row is written
     // with it, and the delivery read joins the dose in force at each week's
@@ -266,24 +254,21 @@ Deno.test("two plans running side by side", async (t) => {
       ],
     });
     assertEquals(redose.status, 201);
-
     const { body } = await api.get(`/weekly-exercise-sets?mesocycle=${hypId}`);
     const week1 = body.weekly_exercise_sets.find(
       (r: { exercise: string; week: number }) =>
-        r.exercise === "Back Squat" && r.week === 1,
+        r.exercise === "Back Squat" && r.week === 1
     );
     assertEquals(week1.dose, 9, "the dose week 1 was actually judged against");
-
     // The plan itself carries the new current dose — the history changes
     // what past weeks report, never what the plan asks for now.
     const plan = await api.get(`/mesocycles/${hypId}`);
     const squat = plan.body.mesocycle.exercises.find(
-      (e: { exercise: string }) => e.exercise === "Back Squat",
+      (e: { exercise: string }) => e.exercise === "Back Squat"
     );
     assertEquals(squat.weekly_dose, 12);
   });
-
-  await t.step(
+  await t.test(
     "the week's shape is a row, and rewriting replaces it",
     async () => {
       const first = await api.post("/week-schedule", {
@@ -297,30 +282,27 @@ Deno.test("two plans running side by side", async (t) => {
       // schedule filed under the wrong week in the same breath as writing it.
       assertEquals(
         first.body.week_schedule.week_end,
-        daysBefore(thisMonday(), -6),
+        daysBefore(thisMonday(), -6)
       );
       const dow = new Date(`${today()}T00:00:00Z`).getUTCDay();
       if (dow === 0 || dow === 6) {
         assert(
           first.body.note.includes("week now ending"),
-          `a weekend default deserves a warning: ${JSON.stringify(first.body)}`,
+          `a weekend default deserves a warning: ${JSON.stringify(first.body)}`
         );
       } else {
         assertEquals(first.body.note ?? null, null);
       }
-
       const second = await api.post("/week-schedule", {
         schedule: "Mon lift, Tue sprint, Thu lift, Sat sprint + easy run",
       });
       assertEquals(second.status, 201);
-
       const { body } = await api.get("/training-state");
       assert(body.week_schedule.schedule.includes("Sat sprint"));
       assert(!body.week_schedule.schedule.endsWith("Thu lift"));
-    },
+    }
   );
-
-  await t.step(
+  await t.test(
     "a schedule for a week that is not a Monday is refused",
     async () => {
       const { status, body } = await api.post("/week-schedule", {
@@ -329,15 +311,13 @@ Deno.test("two plans running side by side", async (t) => {
       });
       assertEquals(status, 422);
       assert(body.error.includes("Monday"), body.error);
-    },
+    }
   );
-
-  await t.step("ending one plan leaves the other running", async () => {
+  await t.test("ending one plan leaves the other running", async () => {
     await endPlan(speedId);
     const { status, body } = await api.get("/mesocycles/current");
     assertEquals(status, 200); // no longer ambiguous
     assertEquals(body.mesocycle.id, hypId);
-
     // And the track is free again, which is what ending it is for.
     const again = await api.post("/mesocycles", {
       block_id: blockId,
@@ -347,25 +327,25 @@ Deno.test("two plans running side by side", async (t) => {
       planned_weeks: 4,
       sessions_per_week: 2,
       started_on: thisMonday(),
-      exercises: [{
-        exercise: "sprint",
-        role: "main",
-        priority: 1,
-        weekly_dose: 0.5,
-        weekly_dose_unit: "km",
-      }],
+      exercises: [
+        {
+          exercise: "sprint",
+          role: "main",
+          priority: 1,
+          weekly_dose: 0.5,
+          weekly_dose_unit: "km",
+        },
+      ],
     });
     assertEquals(again.status, 201);
   });
 });
-
 // An exercise in two active plans is the one case attribution cannot infer.
 // It should never happen — the same lift on two plans splits its own
 // progression record — but the guard is what makes the inference safe.
-Deno.test("an exercise on two plans is asked about, not guessed", async () => {
+test("an exercise on two plans is asked about, not guessed", async () => {
   await resetTraining();
   await ensureCatalogue();
-
   const { blockId } = await seedPlan({
     name: "hypertrophy plan",
     intent: "testing",
@@ -378,7 +358,6 @@ Deno.test("an exercise on two plans is asked about, not guessed", async () => {
     intent: "testing",
     exercises: [{ exercise: "squat", weekly_dose: 6 }],
   });
-
   const ambiguous = await api.post("/sessions", {
     request_id: uuid(),
     date: today(),
@@ -388,27 +367,27 @@ Deno.test("an exercise on two plans is asked about, not guessed", async () => {
   assertEquals(ambiguous.status, 422);
   assert(ambiguous.body.error.includes("more than one active plan"));
   assert(ambiguous.body.error.includes("mesocycle"));
-
   // Saying which resolves it — and the whole session was refused before, so
   // nothing was half-written.
   const sessions = await api.get("/sessions?limit=10");
   assertEquals(sessions.body.sessions.length, 0);
-
   const named = await api.post("/sessions", {
     date: today(),
     rationale: "the strength plan's squats",
-    sets: [{
-      exercise: "squat",
-      mesocycle: "current:strength",
-      weight_kg: 100,
-      reps: 5,
-      effort: "hard",
-    }],
+    sets: [
+      {
+        exercise: "squat",
+        mesocycle: "current:strength",
+        weight_kg: 100,
+        reps: 5,
+        effort: "hard",
+      },
+    ],
   });
   assertEquals(named.status, 201);
   const strength = await api.get("/mesocycles/current:strength");
   assertEquals(
     named.body.session.sets[0].mesocycle_id,
-    strength.body.mesocycle.id,
+    strength.body.mesocycle.id
   );
 });

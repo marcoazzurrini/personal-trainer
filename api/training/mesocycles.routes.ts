@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
-import { DOSE_UNITS, ROLES, TRACKS } from "./rules.ts";
+
 import {
   body,
   date,
@@ -13,6 +12,9 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { DOSE_UNITS, ROLES, TRACKS } from "./rules.ts";
 
 export const mesocycles = new OpenAPIHono<AppEnv>();
 
@@ -28,7 +30,10 @@ const reference = () => z.union([z.string().min(1), z.number()]).optional();
 // mistake with a particular explanation, and the document should carry the
 // reason rather than only the refusal.
 const refusedField = (why: string) =>
-  z.unknown().optional().meta({ description: `Refused. ${why}` });
+  z
+    .unknown()
+    .optional()
+    .meta({ description: `Refused. ${why}` });
 
 const PlanExerciseRow = z.object({
   id: z.int(),
@@ -73,7 +78,7 @@ const Recorded = Decision.omit({ prior_intent: true }).extend({
   mesocycle_id: z.int(),
 });
 
-const planEntryShape = {
+const planEntryFields = {
   exercise: reference(),
   role: oneOf(ROLES),
   priority: int({ min: 1 }),
@@ -81,14 +86,14 @@ const planEntryShape = {
   weekly_dose_unit: oneOf(DOSE_UNITS),
   notes: optionalText(),
   weekly_sets: refusedField(
-    'The weekly dose is "weekly_dose" plus "weekly_dose_unit", so that work in metres and minutes can be dosed too.',
+    'The weekly dose is "weekly_dose" plus "weekly_dose_unit", so that work in metres and minutes can be dosed too.'
   ),
   load_target: refusedField(
-    "Load targets are not stored in tables: the intent carries the plan's goals and its progression mechanism.",
+    "Load targets are not stored in tables: the intent carries the plan's goals and its progression mechanism."
   ),
 };
 
-const planEntry = () => body(planEntryShape, 'an entry in "exercises"');
+const planEntry = () => body(planEntryFields, 'an entry in "exercises"');
 
 mesocycles.openapi(
   createRoute({
@@ -148,10 +153,10 @@ mesocycles.openapi(
   }),
   async (c) => {
     const { mesocycle, created } = await services(c).plans.createMesocycle(
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return created ? c.json({ mesocycle }, 201) : c.json({ mesocycle }, 200);
-  },
+  }
 );
 
 mesocycles.openapi(
@@ -176,9 +181,9 @@ mesocycles.openapi(
   async (c) =>
     c.json({
       mesocycle: await services(c).plans.mesocycleByRef(
-        c.req.valid("param").id,
+        c.req.valid("param").id
       ),
-    }),
+    })
 );
 
 mesocycles.openapi(
@@ -198,10 +203,10 @@ mesocycles.openapi(
             schema: body({
               name: text(),
               intent: refusedField(
-                "The intent is the plan; changing it is a decision.",
+                "The intent is the plan; changing it is a decision."
               ),
               ended_on: refusedField(
-                "Ending a plan is a plan change, so it carries its reason.",
+                "Ending a plan is a plan change, so it carries its reason."
               ),
             }),
           },
@@ -227,9 +232,9 @@ mesocycles.openapi(
     c.json({
       mesocycle: await services(c).plans.renameMesocycle(
         c.req.valid("param").id,
-        c.req.valid("json"),
+        c.req.valid("json")
       ),
-    }),
+    })
 );
 
 mesocycles.openapi(
@@ -251,27 +256,34 @@ mesocycles.openapi(
               why: text(),
               intent: optionalText(),
               add: z.array(planEntry()).optional(),
-              remove: z.array(z.union([z.string(), z.number()])).optional()
+              remove: z
+                .array(z.union([z.string(), z.number()]))
+                .optional()
                 .meta({
                   description:
                     "Exercise references to drop from the plan's list.",
                 }),
-              redose: z.array(
-                body({
-                  exercise: reference(),
-                  weekly_dose: number(),
-                  weekly_dose_unit: oneOf(DOSE_UNITS),
-                }, 'an entry in "redose"'),
-              ).optional(),
+              redose: z
+                .array(
+                  body(
+                    {
+                      exercise: reference(),
+                      weekly_dose: number(),
+                      weekly_dose_unit: oneOf(DOSE_UNITS),
+                    },
+                    'an entry in "redose"'
+                  )
+                )
+                .optional(),
               ended_on: optionalDate().meta({
                 description:
                   "Ends the plan, freeing its track for the next one. Earlier than planned is a plan cut short, and this is the reason it was. Null reopens a plan ended by mistake.",
               }),
               weekly_sets: refusedField(
-                'Dose changes are "redose", for exercises already in the plan.',
+                'Dose changes are "redose", for exercises already in the plan.'
               ),
               load_targets: refusedField(
-                "A change to a goal or to the progression mechanism is an intent change.",
+                "A change to a goal or to the progression mechanism is an intent change."
               ),
               request_id: requestId(),
             }),
@@ -314,15 +326,13 @@ mesocycles.openapi(
     },
   }),
   async (c) => {
-    const { mesocycle, decision, created } = await services(c).plans
-      .recordDecision(
-        c.req.valid("param").id,
-        c.req.valid("json"),
-      );
+    const { mesocycle, decision, created } = await services(
+      c
+    ).plans.recordDecision(c.req.valid("param").id, c.req.valid("json"));
     return created
       ? c.json({ mesocycle, decision }, 201)
       : c.json({ mesocycle, decision }, 200);
-  },
+  }
 );
 
 mesocycles.openapi(
@@ -349,5 +359,5 @@ mesocycles.openapi(
     },
   }),
   async (c) =>
-    c.json(await services(c).plans.decisionLog(c.req.valid("param").id)),
+    c.json(await services(c).plans.decisionLog(c.req.valid("param").id))
 );

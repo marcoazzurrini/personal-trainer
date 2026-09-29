@@ -1,12 +1,16 @@
-import type { Context } from "@hono/hono";
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 // Thrown anywhere in a route; the app-level onError turns it into JSON.
 // The client is an LLM: every message states what was wrong and what a
 // correct call looks like.
 export class ApiError extends Error {
-  constructor(public status: ContentfulStatusCode, message: string) {
+  public status: ContentfulStatusCode;
+
+  // oxlint-disable-next-line unicorn/custom-error-definition -- Keep the existing Error name used by callers; only status belongs to this envelope.
+  constructor(status: ContentfulStatusCode, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
@@ -21,7 +25,9 @@ export class ApiError extends Error {
 // — is refusing something else, and those sites state their own status and
 // often run a second query to say what the caller should have sent instead.
 export function requireRow<T>(rows: readonly T[], message: string): T {
-  if (rows.length === 0) throw new ApiError(404, message);
+  if (rows.length === 0) {
+    throw new ApiError(404, message);
+  }
   return rows[0];
 }
 
@@ -33,7 +39,7 @@ export function requireRow<T>(rows: readonly T[], message: string): T {
 // name here against the live catalog — a constraint renamed in a migration
 // would otherwise demote its message to the generic fallback with nothing
 // going red.
-export const constraintMessages: Record<string, string> = {
+export const constraintMessages = {
   exercises_name_key:
     "An exercise with that name already exists (names are case-insensitive). Fetch GET /exercises to see it.",
   exercise_aliases_alias_key:
@@ -79,6 +85,7 @@ export const constraintMessages: Record<string, string> = {
     "That food is already in the meal. A second helping is more grams on the existing item, not a second row.",
   intake_entries_food_grams_pair:
     "food and grams arrive together: send both (a food entry) or neither (an ad-hoc entry with adhoc_kcal).",
+  // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- This is the database constraint name, not a local structural label.
   intake_entries_macro_shape:
     "A food entry derives macros from its food and grams. An explicit override must carry complete macros and its food revision; an ad-hoc estimate must carry kcal.",
   intake_entries_request_food_key:
@@ -104,11 +111,14 @@ export const constraintMessages: Record<string, string> = {
 // 422 because that is what validate.ts threw: the request parsed, and was
 // refused on what it said.
 export function validationHook(
-  // deno-lint-ignore no-explicit-any
-  result: { success: boolean; error?: any },
-  c: Context,
+  result:
+    | { success: true }
+    | { success: false; error: { issues: { message: string }[] } },
+  c: Context
 ): Response | undefined {
-  if (result.success) return undefined;
+  if (result.success) {
+    return undefined;
+  }
   const message = result.error.issues
     .map((i: { message: string }) => i.message)
     .join(" ");
@@ -130,6 +140,7 @@ export function internalError(diagnostic: Diagnostic, method: string): string {
   }`;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Exception boundary: arbitrary thrown values must reach the safe diagnostic envelope.
 export function errorResponse(err: unknown, c: Context): Response {
   if (err instanceof ApiError) {
     return c.json({ error: err.message }, err.status);
@@ -145,6 +156,8 @@ export function errorResponse(err: unknown, c: Context): Response {
   // No raw exception messages, details, causes or stacks: database/provider
   // errors can embed credentials and personal input. The outer request logger
   // owns the record; standalone routers used in tests get the same safe fallback.
-  if (!c.get("diagnostic")) console.error(JSON.stringify(diagnostic));
+  if (!c.get("diagnostic")) {
+    console.error(JSON.stringify(diagnostic));
+  }
   return c.json({ error }, 500);
 }

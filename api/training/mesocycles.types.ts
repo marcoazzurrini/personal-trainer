@@ -67,14 +67,12 @@ export interface DecisionInput {
   why: string;
   intent?: string | null;
   add?: PlanEntry[];
-  remove?: Array<string | number>;
-  redose?: Array<
-    {
-      exercise?: string | number;
-      weekly_dose: number;
-      weekly_dose_unit: DoseUnit;
-    }
-  >;
+  remove?: (string | number)[];
+  redose?: {
+    exercise?: string | number;
+    weekly_dose: number;
+    weekly_dose_unit: DoseUnit;
+  }[];
   ended_on?: string | null;
   weekly_sets?: unknown;
   load_targets?: unknown;

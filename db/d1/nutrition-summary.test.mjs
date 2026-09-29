@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
-import { readdir, readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import { before, test } from "node:test";
+import { fileURLToPath } from "node:url";
+
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+
 import { migrationStatements } from "./local.mjs";
 
 let script;
@@ -13,7 +15,7 @@ before(async () => {
   const compiled = await build({
     entryPoints: [
       fileURLToPath(
-        new URL("./nutrition-summary.test.worker.ts", import.meta.url),
+        new URL("nutrition-summary.test.worker.ts", import.meta.url)
       ),
     ],
     bundle: true,
@@ -25,22 +27,22 @@ before(async () => {
   });
   assert.ok(
     !Object.keys(compiled.metafile.inputs).some((name) =>
-      /api\/db\.ts$|node_modules\/postgres\//.test(name)
+      /api\/db\.ts$|node_modules\/postgres\//u.test(name)
     ),
-    "Summary reads must not load PostgreSQL or its environment reader.",
+    "Summary reads must not load PostgreSQL or its environment reader."
   );
   script = compiled.outputFiles[0].text;
-  assert.doesNotMatch(script, /\bDeno\b/);
-  const directory = new URL("./migrations/", import.meta.url);
+  assert.doesNotMatch(script, /\bDeno\b/u);
+  const directory = new URL("migrations/", import.meta.url);
   const files = (await readdir(directory))
     .filter((name) => name.endsWith(".sql"))
-    .sort();
+    .toSorted();
   migrations = migrationStatements(
     (
       await Promise.all(
-        files.map((name) => readFile(new URL(name, directory), "utf8")),
+        files.map((name) => readFile(new URL(name, directory), "utf-8"))
       )
-    ).join("\n"),
+    ).join("\n")
   );
 });
 
@@ -84,7 +86,7 @@ async function fixture(t) {
         `INSERT INTO nutrition_targets
       (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target,
        decision, clipped, clipped_reasons, phase_switch_suppressed, created_at)
-      VALUES (?, ?, ?, ?, 150, 'Synthetic plan', ?, ?, ?, '2026-01-01T00:00:00.123456Z') RETURNING id`,
+      VALUES (?, ?, ?, ?, 150, 'Synthetic plan', ?, ?, ?, '2026-01-01T00:00:00.123456Z') RETURNING id`
       )
       .bind(
         day,
@@ -93,7 +95,7 @@ async function fixture(t) {
         extra.kcal ?? 2000,
         extra.clipped ? 1 : 0,
         JSON.stringify(extra.reasons ?? []),
-        extra.suppressed ? 1 : 0,
+        extra.suppressed ? 1 : 0
       )
       .first();
     return result.id;
@@ -103,14 +105,14 @@ async function fixture(t) {
       "INSERT INTO intake_entries (day, kcal, protein_g) VALUES (?, ?, ?)",
       day,
       Math.round(kcal * 10),
-      protein === null ? null : Math.round(protein * 10),
+      protein === null ? null : Math.round(protein * 10)
     );
   const weight = (day, kg, time = "06:00:00.000000") =>
     run(
       "INSERT INTO bodyweight (value_kg, measured_at, measured_date) VALUES (?, ?, ?)",
       Math.round(kg * 100),
       `${day}T${time}Z`,
-      day,
+      day
     );
   return { db, run, call, target, intake, weight };
 }
@@ -152,8 +154,8 @@ test("empty state retains unknowns, thirteen completed days, and bounded 104-wee
         d.protein_g === null &&
         d.weight_kg === null &&
         d.entries === 0 &&
-        d.incomplete === false,
-    ),
+        d.incomplete === false
+    )
   );
   assert.deepEqual(state.adherence, {
     days_logged_last_7: 0,
@@ -219,7 +221,7 @@ test("state preserves scaled live food values, null floors, target winners and r
   const f = await fixture(t);
   await f.run(
     `INSERT INTO foods (id, name, name_key, source, kcal_100g, protein_100g, carbs_100g, fat_100g)
-    VALUES (1, 'Synthetic food', 'synthetic food', 'label', 1000, 15, 100, 50)`,
+    VALUES (1, 'Synthetic food', 'synthetic food', 'label', 1000, 15, 100, 50)`
   );
   await f.run(`INSERT INTO intake_entries (day, food_id, grams, created_at)
     VALUES ('2026-03-30', 1, 900, '2026-03-30T00:00:00.123456Z')`);
@@ -229,7 +231,7 @@ test("state preserves scaled live food values, null floors, target winners and r
   await f.intake("2026-03-23", 100);
   await f.intake("2026-03-29", 100);
   await f.run(
-    "INSERT INTO day_flags(day, flag) VALUES ('2026-03-28', 'incomplete')",
+    "INSERT INTO day_flags(day, flag) VALUES ('2026-03-28', 'incomplete')"
   );
   await f.weight("2026-03-09", 81);
   await f.weight("2026-03-10", 80.7);
@@ -251,7 +253,7 @@ test("state preserves scaled live food values, null floors, target winners and r
   assert.equal(state.today_so_far.entries[0].protein_g, 1.4);
   assert.equal(
     state.today_so_far.entries[0].created_at,
-    "2026-03-30T00:00:00.123Z",
+    "2026-03-30T00:00:00.123Z"
   );
   assert.equal(state.today_so_far.totals.kcal, 100.1);
   assert.equal(state.today_so_far.totals.fiber_g, null);
@@ -283,7 +285,7 @@ test("state preserves scaled live food values, null floors, target winners and r
   assert.ok(
     state.expenditure.blockers.some((b) =>
       b.includes("1 weigh-in day since the window closed")
-    ),
+    )
   );
   assert.deepEqual(
     state.recent_days.find((d) => d.day === "2026-03-28"),
@@ -294,10 +296,10 @@ test("state preserves scaled live food values, null floors, target winners and r
       entries: 0,
       incomplete: true,
       weight_kg: null,
-    },
+    }
   );
   await f.run(
-    "UPDATE foods SET kcal_100g = 2000, macro_revision = macro_revision + 1 WHERE id = 1",
+    "UPDATE foods SET kcal_100g = 2000, macro_revision = macro_revision + 1 WHERE id = 1"
   );
   state = (await f.call("nutritionState")).result;
   assert.equal(state.today_so_far.totals.kcal, 190.1);
@@ -313,7 +315,7 @@ test("weekly coverage excludes flagged days, preserves zero protein and uses ela
   await f.intake("2026-03-23", 200.2);
   await f.intake("2026-03-24", 500, 100);
   await f.run(
-    "INSERT INTO day_flags(day, flag) VALUES ('2026-03-24', 'incomplete'), ('2026-03-26', 'incomplete')",
+    "INSERT INTO day_flags(day, flag) VALUES ('2026-03-24', 'incomplete'), ('2026-03-26', 'incomplete')"
   );
   await f.intake("2026-03-25", 400);
   await f.intake("2026-03-27", 600, 0);
@@ -323,10 +325,10 @@ test("weekly coverage excludes flagged days, preserves zero protein and uses ela
   }
   await f.weight("2026-03-23", 99, "09:00:00.000000");
   await f.run(
-    "INSERT INTO bodyfat_estimates(day, percent, method) VALUES ('2026-03-23', 125, 'visual')",
+    "INSERT INTO bodyfat_estimates(day, percent, method) VALUES ('2026-03-23', 125, 'visual')"
   );
   await f.target("2026-03-23", "cut", { rate: -40 });
-  let week = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks[0];
+  let [week] = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks;
   assert.equal(week.days_logged, 4);
   assert.equal(week.days_flagged, 2);
   assert.equal(week.weigh_ins, 7);
@@ -341,7 +343,9 @@ test("weekly coverage excludes flagged days, preserves zero protein and uses ela
   assert.equal(week.target.rate_pct_bw_week, -0.4);
   assert.equal(week.trend_start_kg, 80);
   let ema = 80;
-  for (let i = 1; i < 7; i++) ema = 0.1 * (80 - i * 0.2) + 0.9 * ema;
+  for (let i = 1; i < 7; i++) {
+    ema = 0.1 * (80 - i * 0.2) + 0.9 * ema;
+  }
   const end = Math.round(ema * 100) / 100;
   assert.equal(week.trend_end_kg, end);
   const slope = (end - 80) / 6;
@@ -349,14 +353,14 @@ test("weekly coverage excludes flagged days, preserves zero protein and uses ela
   const density = p * 1020 + (1 - p) * 9440;
   assert.equal(
     week.implied_tdee_kcal,
-    Math.round((300.3 + 400 + 600) / 3 - slope * density),
+    Math.round((300.3 + 400 + 600) / 3 - slope * density)
   );
   assert.equal(
     week.rate_pct_bw_week,
-    Math.round(((slope * 7) / 80) * 10000) / 100,
+    Math.round(((slope * 7) / 80) * 10_000) / 100
   );
   await f.run("DELETE FROM bodyfat_estimates");
-  week = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks[0];
+  [week] = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks;
   assert.equal(week.implied_tdee_kcal, null);
   assert.notEqual(week.trend_delta_kg, null);
 });
@@ -383,11 +387,11 @@ test("goal switches compare full history before filters, including backdates, su
   assert.ok(state.active_transients.some((e) => e.note === "inclusive cutoff"));
   assert.ok(
     !state.active_transients.some(
-      (e) => e.day < "2026-03-16" || e.day > "2026-03-30",
-    ),
+      (e) => e.day < "2026-03-16" || e.day > "2026-03-30"
+    )
   );
   assert.ok(!state.active_transients.some((e) => e.id === -winner));
-  let week = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks[0];
+  let [week] = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks;
   assert.equal(week.target.changed_during_week, true);
   assert.deepEqual(
     week.events.map((e) => [e.day, e.note]),
@@ -395,11 +399,11 @@ test("goal switches compare full history before filters, including backdates, su
       ["2026-03-23", "cut -> maintain"],
       ["2026-03-25", "gain -> maintain"],
       ["2026-03-25", "independent manual event"],
-    ],
+    ]
   );
   // Backdating a continuation changes the predecessor outside this week.
   await f.target("2026-03-22", "maintain");
-  week = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks[0];
+  [week] = (await f.call("finishedWeeks", { weeks: 1 })).result.weeks;
   assert.ok(!week.events.some((e) => e.day === "2026-03-23"));
   assert.equal(week.events[0].note, "gain -> maintain");
 });
@@ -407,7 +411,7 @@ test("goal switches compare full history before filters, including backdates, su
 test("expenditure uses completed weeks, holds stale estimates and damps only effective transients", async (t) => {
   const f = await fixture(t);
   await f.run(
-    "INSERT INTO bodyfat_estimates(day, percent, method) VALUES ('2026-03-01', 150, 'visual')",
+    "INSERT INTO bodyfat_estimates(day, percent, method) VALUES ('2026-03-01', 150, 'visual')"
   );
   for (let i = 0; i < 28; i++) {
     const day = addDays("2026-03-02", i);
@@ -421,7 +425,7 @@ test("expenditure uses completed weeks, holds stale estimates and damps only eff
   assert.equal(state.expenditure.tdee_kcal, 2100);
   assert.equal(state.expenditure.as_of, "2026-03-29");
   await f.run(
-    "UPDATE nutrition_targets SET phase_switch_suppressed = 1 WHERE effective_from = '2026-03-25'",
+    "UPDATE nutrition_targets SET phase_switch_suppressed = 1 WHERE effective_from = '2026-03-25'"
   );
   await f.target("2026-03-30", "gain");
   state = (await f.call("nutritionState")).result;

@@ -7,4 +7,4 @@
 // coach token. Mount order is the auth property, so it stays where the
 // middleware is, in index.ts (body/index.ts says why at length).
 
-export { mcp } from "./mcp.routes.ts";
+export { createMcpRoutes } from "./mcp.routes.ts";

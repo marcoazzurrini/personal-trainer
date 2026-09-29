@@ -20,9 +20,7 @@
     {
       "name": "Back Squat",
       "equipment": "barbell",
-      "aliases": [
-        "squat"
-      ],
+      "aliases": ["squat"],
       "systemic_fatigue": "high",
       "muscles": [
         {
@@ -78,9 +76,7 @@
     {
       "name": "Pause Back Squat",
       "equipment": "barbell",
-      "aliases": [
-        "pause squat"
-      ],
+      "aliases": ["pause squat"],
       "systemic_fatigue": "high",
       "muscles": [
         {
@@ -142,10 +138,7 @@
     {
       "name": "Bulgarian Split Squat",
       "equipment": "dumbbell",
-      "aliases": [
-        "rfess",
-        "rear foot elevated split squat"
-      ],
+      "aliases": ["rfess", "rear foot elevated split squat"],
       "muscles": [
         {
           "muscle": "quads",
@@ -164,10 +157,7 @@
     {
       "name": "Walking Lunge",
       "equipment": "dumbbell",
-      "aliases": [
-        "lunges",
-        "lunge"
-      ],
+      "aliases": ["lunges", "lunge"],
       "muscles": [
         {
           "muscle": "quads",
@@ -205,9 +195,7 @@
     {
       "name": "Step-Up",
       "equipment": "dumbbell",
-      "aliases": [
-        "step ups"
-      ],
+      "aliases": ["step ups"],
       "muscles": [
         {
           "muscle": "quads",
@@ -222,10 +210,7 @@
     {
       "name": "Deadlift",
       "equipment": "barbell",
-      "aliases": [
-        "conventional deadlift",
-        "dl"
-      ],
+      "aliases": ["conventional deadlift", "dl"],
       "systemic_fatigue": "high",
       "muscles": [
         {
@@ -253,9 +238,7 @@
     {
       "name": "Romanian Deadlift",
       "equipment": "barbell",
-      "aliases": [
-        "rdl"
-      ],
+      "aliases": ["rdl"],
       "systemic_fatigue": "high",
       "muscles": [
         {
@@ -275,10 +258,7 @@
     {
       "name": "Stiff-Leg Deadlift",
       "equipment": "barbell",
-      "aliases": [
-        "sldl",
-        "stiff leg deadlift"
-      ],
+      "aliases": ["sldl", "stiff leg deadlift"],
       "systemic_fatigue": "high",
       "muscles": [
         {
@@ -359,10 +339,7 @@
     {
       "name": "Nordic Hamstring Curl",
       "equipment": "bodyweight",
-      "aliases": [
-        "nordic curl",
-        "nordics"
-      ],
+      "aliases": ["nordic curl", "nordics"],
       "muscles": [
         {
           "muscle": "hamstrings",
@@ -373,9 +350,7 @@
     {
       "name": "Back Extension",
       "equipment": "bodyweight",
-      "aliases": [
-        "hyperextension"
-      ],
+      "aliases": ["hyperextension"],
       "muscles": [
         {
           "muscle": "lower back",
@@ -394,9 +369,7 @@
     {
       "name": "Standing Calf Raise",
       "equipment": "bodyweight",
-      "aliases": [
-        "calf raise"
-      ],
+      "aliases": ["calf raise"],
       "muscles": [
         {
           "muscle": "calves",
@@ -418,10 +391,7 @@
     {
       "name": "Bench Press",
       "equipment": "barbell",
-      "aliases": [
-        "bench",
-        "bp"
-      ],
+      "aliases": ["bench", "bp"],
       "muscles": [
         {
           "muscle": "chest",
@@ -440,10 +410,7 @@
     {
       "name": "Incline Bench Press",
       "equipment": "barbell",
-      "aliases": [
-        "incline bench",
-        "incline press"
-      ],
+      "aliases": ["incline bench", "incline press"],
       "muscles": [
         {
           "muscle": "chest",
@@ -462,10 +429,7 @@
     {
       "name": "Close-Grip Bench Press",
       "equipment": "barbell",
-      "aliases": [
-        "cgbp",
-        "close grip bench"
-      ],
+      "aliases": ["cgbp", "close grip bench"],
       "muscles": [
         {
           "muscle": "triceps",
@@ -484,9 +448,7 @@
     {
       "name": "Dumbbell Bench Press",
       "equipment": "dumbbell",
-      "aliases": [
-        "db bench"
-      ],
+      "aliases": ["db bench"],
       "muscles": [
         {
           "muscle": "chest",
@@ -505,10 +467,7 @@
     {
       "name": "Push-Up",
       "equipment": "bodyweight",
-      "aliases": [
-        "pushup",
-        "push ups"
-      ],
+      "aliases": ["pushup", "push ups"],
       "muscles": [
         {
           "muscle": "chest",
@@ -546,9 +505,7 @@
     {
       "name": "Dip",
       "equipment": "bodyweight",
-      "aliases": [
-        "dips"
-      ],
+      "aliases": ["dips"],
       "muscles": [
         {
           "muscle": "chest",
@@ -567,11 +524,7 @@
     {
       "name": "Overhead Press",
       "equipment": "barbell",
-      "aliases": [
-        "ohp",
-        "military press",
-        "barbell overhead press"
-      ],
+      "aliases": ["ohp", "military press", "barbell overhead press"],
       "muscles": [
         {
           "muscle": "shoulders",
@@ -590,10 +543,7 @@
     {
       "name": "Dumbbell Overhead Press",
       "equipment": "dumbbell",
-      "aliases": [
-        "db ohp",
-        "dumbbell shoulder press"
-      ],
+      "aliases": ["db ohp", "dumbbell shoulder press"],
       "muscles": [
         {
           "muscle": "shoulders",
@@ -623,10 +573,7 @@
     {
       "name": "Lateral Raise",
       "equipment": "dumbbell",
-      "aliases": [
-        "side raise",
-        "lateral raises"
-      ],
+      "aliases": ["side raise", "lateral raises"],
       "muscles": [
         {
           "muscle": "shoulders",
@@ -648,10 +595,7 @@
     {
       "name": "Pull-Up",
       "equipment": "bodyweight",
-      "aliases": [
-        "pullup",
-        "pull ups"
-      ],
+      "aliases": ["pullup", "pull ups"],
       "muscles": [
         {
           "muscle": "lats",
@@ -674,10 +618,7 @@
     {
       "name": "Chin-Up",
       "equipment": "bodyweight",
-      "aliases": [
-        "chinup",
-        "chin ups"
-      ],
+      "aliases": ["chinup", "chin ups"],
       "muscles": [
         {
           "muscle": "lats",
@@ -719,11 +660,7 @@
     {
       "name": "Barbell Row",
       "equipment": "barbell",
-      "aliases": [
-        "bent over row",
-        "bb row",
-        "barbell rows"
-      ],
+      "aliases": ["bent over row", "bb row", "barbell rows"],
       "systemic_fatigue": "high",
       "muscles": [
         {
@@ -775,11 +712,7 @@
     {
       "name": "One-Arm Dumbbell Row",
       "equipment": "dumbbell",
-      "aliases": [
-        "db row",
-        "single arm row",
-        "dumbbell row"
-      ],
+      "aliases": ["db row", "single arm row", "dumbbell row"],
       "muscles": [
         {
           "muscle": "lats",
@@ -798,9 +731,7 @@
     {
       "name": "Inverted Row",
       "equipment": "bodyweight",
-      "aliases": [
-        "bodyweight row"
-      ],
+      "aliases": ["bodyweight row"],
       "muscles": [
         {
           "muscle": "upper back",
@@ -819,10 +750,7 @@
     {
       "name": "Barbell Shrug",
       "equipment": "barbell",
-      "aliases": [
-        "shrug",
-        "shrugs"
-      ],
+      "aliases": ["shrug", "shrugs"],
       "muscles": [
         {
           "muscle": "upper back",
@@ -837,10 +765,7 @@
     {
       "name": "Band Face Pull",
       "equipment": "band",
-      "aliases": [
-        "face pull",
-        "face pulls"
-      ],
+      "aliases": ["face pull", "face pulls"],
       "muscles": [
         {
           "muscle": "upper back",
@@ -855,10 +780,7 @@
     {
       "name": "Band Pull-Apart",
       "equipment": "band",
-      "aliases": [
-        "pull apart",
-        "pull aparts"
-      ],
+      "aliases": ["pull apart", "pull aparts"],
       "muscles": [
         {
           "muscle": "upper back",
@@ -873,11 +795,7 @@
     {
       "name": "Barbell Curl",
       "equipment": "barbell",
-      "aliases": [
-        "curl",
-        "bb curl",
-        "curls"
-      ],
+      "aliases": ["curl", "bb curl", "curls"],
       "muscles": [
         {
           "muscle": "biceps",
@@ -892,9 +810,7 @@
     {
       "name": "Dumbbell Curl",
       "equipment": "dumbbell",
-      "aliases": [
-        "db curl"
-      ],
+      "aliases": ["db curl"],
       "muscles": [
         {
           "muscle": "biceps",
@@ -905,9 +821,7 @@
     {
       "name": "Hammer Curl",
       "equipment": "dumbbell",
-      "aliases": [
-        "hammer curls"
-      ],
+      "aliases": ["hammer curls"],
       "muscles": [
         {
           "muscle": "biceps",
@@ -922,11 +836,7 @@
     {
       "name": "Skull Crusher",
       "equipment": "barbell",
-      "aliases": [
-        "skullcrusher",
-        "lying triceps extension",
-        "skull crushers"
-      ],
+      "aliases": ["skullcrusher", "lying triceps extension", "skull crushers"],
       "muscles": [
         {
           "muscle": "triceps",
@@ -937,10 +847,7 @@
     {
       "name": "Overhead Triceps Extension",
       "equipment": "dumbbell",
-      "aliases": [
-        "french press",
-        "overhead extension"
-      ],
+      "aliases": ["french press", "overhead extension"],
       "muscles": [
         {
           "muscle": "triceps",
@@ -962,10 +869,7 @@
     {
       "name": "Ab Wheel Rollout",
       "equipment": "other",
-      "aliases": [
-        "ab rollout",
-        "ab wheel"
-      ],
+      "aliases": ["ab rollout", "ab wheel"],
       "muscles": [
         {
           "muscle": "abs",
@@ -980,10 +884,7 @@
     {
       "name": "Hanging Knee Raise",
       "equipment": "bodyweight",
-      "aliases": [
-        "knee raise",
-        "knee raises"
-      ],
+      "aliases": ["knee raise", "knee raises"],
       "muscles": [
         {
           "muscle": "abs",
@@ -998,10 +899,7 @@
     {
       "name": "Hanging Leg Raise",
       "equipment": "bodyweight",
-      "aliases": [
-        "leg raise",
-        "leg raises"
-      ],
+      "aliases": ["leg raise", "leg raises"],
       "muscles": [
         {
           "muscle": "abs",
@@ -1018,9 +916,7 @@
       "equipment": "other",
       "stimulus_type": "power",
       "measure": "reps",
-      "aliases": [
-        "box jumps"
-      ],
+      "aliases": ["box jumps"],
       "muscles": [
         {
           "muscle": "quads",
@@ -1037,9 +933,7 @@
       "equipment": "bodyweight",
       "stimulus_type": "power",
       "measure": "distance",
-      "aliases": [
-        "broad jumps"
-      ],
+      "aliases": ["broad jumps"],
       "muscles": [
         {
           "muscle": "quads",
@@ -1056,9 +950,7 @@
       "equipment": "bodyweight",
       "stimulus_type": "conditioning",
       "measure": "distance_duration",
-      "aliases": [
-        "sprints"
-      ],
+      "aliases": ["sprints"],
       "muscles": [
         {
           "muscle": "hamstrings",
@@ -1083,11 +975,7 @@
       "equipment": "bodyweight",
       "stimulus_type": "conditioning",
       "measure": "distance_duration",
-      "aliases": [
-        "easy runs",
-        "zone 2 run",
-        "corsa lenta"
-      ],
+      "aliases": ["easy runs", "zone 2 run", "corsa lenta"],
       "notes": "Conversational pace. Logged as one set per bout: distance, time, or both.",
       "muscles": [
         {
@@ -1113,10 +1001,7 @@
       "equipment": "bodyweight",
       "stimulus_type": "conditioning",
       "measure": "distance_duration",
-      "aliases": [
-        "tempo runs",
-        "threshold run"
-      ],
+      "aliases": ["tempo runs", "threshold run"],
       "notes": "Sustained hard-but-repeatable pace. One set per bout; intervals are one set per repeat.",
       "muscles": [
         {

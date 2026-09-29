@@ -1,8 +1,10 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "node:test";
+
 import { JwtError, verifyJwt, verifyWebSessionJwt } from "../access/jwt.ts";
+import { assertEquals, assertRejects } from "./assertions.ts";
 import { webSigner } from "./web_signer.ts";
 
-Deno.test("web sessions and connector tokens have disjoint claim policies", async () => {
+test("web sessions and connector tokens have disjoint claim policies", async () => {
   const signer = await webSigner();
   const now = 1_800_000_000;
   const good = {
@@ -20,55 +22,56 @@ Deno.test("web sessions and connector tokens have disjoint claim policies", asyn
   };
   assertEquals(
     (await verifyWebSessionJwt(await signer.sign(good), options)).sub,
-    "owner",
+    "owner"
   );
-  for (
-    const patch of [
-      { iss: "https://other.example.test" },
-      { sub: "" },
-      { sub: undefined },
-      { client_id: "another_app" },
-      { client_id: undefined },
-      { sid: undefined },
-      { sid: "" },
-      { sid: 42 },
-      { exp: now - 61 },
-      { exp: undefined },
-      { exp: "tomorrow" },
-      { nbf: now + 61 },
-      { aud: "https://trainer.example.test/api/mcp" },
-      { aud: [] },
-      { aud: null },
-      { act: { sub: "admin" } },
-    ]
-  ) {
+  for (const patch of [
+    { iss: "https://other.example.test" },
+    { sub: "" },
+    { sub: undefined },
+    { client_id: "another_app" },
+    { client_id: undefined },
+    { sid: undefined },
+    { sid: "" },
+    { sid: 42 },
+    { exp: now - 61 },
+    { exp: undefined },
+    { exp: "tomorrow" },
+    { nbf: now + 61 },
+    { aud: "https://trainer.example.test/api/mcp" },
+    { aud: [] },
+    { aud: null },
+    { act: { sub: "admin" } },
+  ]) {
     await assertRejects(
       () =>
-        signer.sign({ ...good, ...patch }).then((token) =>
-          verifyWebSessionJwt(token, options)
-        ),
-      JwtError,
+        signer
+          .sign({ ...good, ...patch })
+          .then((token) => verifyWebSessionJwt(token, options)),
+      JwtError
     );
   }
   const impostor = await webSigner();
   await assertRejects(
     () =>
       impostor.sign(good).then((token) => verifyWebSessionJwt(token, options)),
-    JwtError,
+    JwtError
   );
   for (const malformed of ["not-a-token", "a.b.c", "e30.e30.e30"]) {
     await assertRejects(
       () => verifyWebSessionJwt(malformed, options),
-      JwtError,
+      JwtError
     );
   }
-  await assertRejects(() =>
-    signer.sign(good).then((token) =>
-      verifyJwt(token, {
-        issuer: good.iss,
-        audience: "https://trainer.example.test/api/mcp",
-        jwks: signer.jwks,
-        now,
-      })
-    ), JwtError);
+  await assertRejects(
+    () =>
+      signer.sign(good).then((token) =>
+        verifyJwt(token, {
+          issuer: good.iss,
+          audience: "https://trainer.example.test/api/mcp",
+          jwks: signer.jwks,
+          now,
+        })
+      ),
+    JwtError
+  );
 });

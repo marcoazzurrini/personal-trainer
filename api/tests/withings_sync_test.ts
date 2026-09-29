@@ -1,25 +1,25 @@
+import { test } from "node:test";
+
+import { withingsStore } from "../body/withings.ts";
+import type { Bindings, Invocation } from "../environment.ts";
+import { buildMetadata } from "../shared/build.ts";
+import { instant } from "../shared/d1.ts";
+import worker from "../worker.ts";
 import {
   assert,
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "@std/assert";
-
+} from "./assertions.ts";
 // Exercise the real D1 store against a loopback provider. Configuration belongs
 // to this store and invocation; no process environment or production secrets.
 import d1, { database } from "./d1.ts";
-import { instant } from "../shared/d1.ts";
-import { buildMetadata } from "../shared/build.ts";
-import { withingsStore } from "../body/withings.ts";
-import worker from "../worker.ts";
-import type { Bindings, Invocation } from "../environment.ts";
 
 interface Call {
   path: string;
   params: Record<string, string>;
   auth: string | null;
 }
-
 // One weigh-in as Withings sends it: milligrams and an exponent.
 function weighGroup(grpid: number, epoch: number, valueKg: number) {
   return {
@@ -31,356 +31,349 @@ function weighGroup(grpid: number, epoch: number, valueKg: number) {
     measures: [{ value: Math.round(valueKg * 1000), type: 1, unit: -3 }],
   };
 }
-
-Deno.test(
-  "the sync between Withings and the bodyweight table",
-  async (t) => {
-    const calls: Call[] = [];
-    let measureReply: unknown = { status: 0, body: {} };
-    let oauthReply: unknown = { status: 0, body: {} };
-    let hold: Promise<void> | undefined;
-    let entered: (() => void) | undefined;
-    const stub = Deno.serve(
-      { hostname: "127.0.0.1", port: 0, onListen() {} },
-      async (req) => {
-        const url = new URL(req.url);
-        calls.push({
-          path: url.pathname,
-          params: Object.fromEntries(new URLSearchParams(await req.text())),
-          auth: req.headers.get("authorization"),
-        });
-        entered?.();
-        await hold;
-        return Response.json(
-          url.pathname === "/v2/oauth2" ? oauthReply : measureReply,
-        );
-      },
-    );
-    const env: Bindings = {
-      DB: database,
-      WITHINGS_CLIENT_ID: "test-client",
-      WITHINGS_CLIENT_SECRET: "test-secret",
-      WITHINGS_API_BASE: `http://127.0.0.1:${stub.addr.port}`,
+test("the sync between Withings and the bodyweight table", async (t) => {
+  const calls: Call[] = [];
+  interface MeasureFixture {
+    status: number;
+    body?: {
+      updatetime?: number | string;
+      measuregrps?:
+        | (Omit<ReturnType<typeof weighGroup>, "measures"> & {
+            measures: { value: number | string; type: number; unit: number }[];
+          })[]
+        | null;
     };
-    const { catchUp, catchUpIfDue, syncNotifiedWindow } = withingsStore(
-      database,
-      {
-        clientId: env.WITHINGS_CLIENT_ID,
-        clientSecret: env.WITHINGS_CLIENT_SECRET,
-        apiBase: env.WITHINGS_API_BASE,
-      },
-    );
-    const sql = d1();
-
-    async function seedAuth(opts: { expiresInMs?: number } = {}) {
-      await sql`delete from withings_auth`;
-      await sql`
+    error?: string;
+  }
+  interface OAuthFixture {
+    status: number;
+    body: {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+  }
+  let measureReply: MeasureFixture = { status: 0, body: {} };
+  let oauthReply: OAuthFixture = { status: 0, body: {} };
+  let hold: Promise<void> | undefined;
+  let entered: (() => void) | undefined;
+  const stub = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: async (req) => {
+      const url = new URL(req.url);
+      calls.push({
+        path: url.pathname,
+        params: Object.fromEntries(new URLSearchParams(await req.text())),
+        auth: req.headers.get("authorization"),
+      });
+      entered?.();
+      await hold;
+      return Response.json(
+        url.pathname === "/v2/oauth2" ? oauthReply : measureReply
+      );
+    },
+  });
+  const env: Bindings = {
+    DB: database,
+    WITHINGS_CLIENT_ID: "test-client",
+    WITHINGS_CLIENT_SECRET: "test-secret",
+    WITHINGS_API_BASE: `http://127.0.0.1:${stub.port}`,
+  };
+  const { catchUp, catchUpIfDue, syncNotifiedWindow } = withingsStore(
+    database,
+    {
+      clientId: env.WITHINGS_CLIENT_ID,
+      clientSecret: env.WITHINGS_CLIENT_SECRET,
+      apiBase: env.WITHINGS_API_BASE,
+    }
+  );
+  const sql = d1();
+  function lastCall(): Call {
+    const call = calls.at(-1);
+    assert(call, "the provider must receive a request");
+    return call;
+  }
+  async function seedAuth(
+    opts: {
+      expiresInMs?: number;
+    } = {}
+  ) {
+    await sql`delete from withings_auth`;
+    await sql`
         insert into withings_auth
           (id, withings_user_id, access_token, refresh_token,
            access_token_expires_at)
         values
           (1, 'user-1', 'live-token', 'stored-refresh',
-           ${
-        instant(
-          new Date(Date.now() + (opts.expiresInMs ?? 3_600_000)).toISOString(),
-        )
-      })`;
-    }
-
-    async function watermarkEpoch(): Promise<number | null> {
-      const [row] = await sql`
+           ${instant(new Date(Date.now() + (opts.expiresInMs ?? 3_600_000)).toISOString())})`;
+  }
+  async function watermarkEpoch(): Promise<number | null> {
+    const [row] = await sql`
         select last_sync_at as at
         from withings_auth where id = 1`;
-      return row.at === null ? null : Math.floor(Date.parse(row.at) / 1000);
-    }
-
-    // Instants safely in the past, so the future-instant guard stays quiet.
-    const base = Math.floor(Date.now() / 1000) - 3 * 86_400;
-    const [t1, t2, t3] = [base, base + 3_600, base + 7_200];
-
-    try {
-      await t.step("the first catch-up asks for everything", async () => {
-        await seedAuth();
+    return row.at === null ? null : Math.floor(Date.parse(row.at) / 1000);
+  }
+  // Instants safely in the past, so the future-instant guard stays quiet.
+  const base = Math.floor(Date.now() / 1000) - 3 * 86_400;
+  const [t1, t2, t3] = [base, base + 3600, base + 7200];
+  try {
+    await t.test("the first catch-up asks for everything", async () => {
+      await seedAuth();
+      measureReply = {
+        status: 0,
+        body: {
+          updatetime: base + 100,
+          measuregrps: [
+            weighGroup(1, t1, 82.4),
+            // An objective, not a measurement — must be ignored, not written.
+            { ...weighGroup(2, t2, 80), category: 2 },
+          ],
+        },
+      };
+      const summary = await catchUp();
+      assertEquals(summary, {
+        range: "since 0",
+        fetched: 2,
+        written: 1,
+        duplicate: 0,
+        ignored: 1,
+        refused: 0,
+      });
+      const call = lastCall();
+      assertEquals(call.path, "/measure");
+      assertEquals(call.params.lastupdate, "0");
+      assertEquals(call.auth, "Bearer live-token");
+      const [row] = await sql`
+        select value_kg / 100.0 as kg from bodyweight
+        where source = 'withings'
+          and measured_at = ${instant(new Date(t1 * 1000).toISOString())}`;
+      assertEquals(row.kg, 82.4);
+    });
+    await t.test("the watermark is Withings' clock, not ours", async () => {
+      assertEquals(await watermarkEpoch(), base + 100);
+    });
+    await t.test(
+      "a redelivery is a duplicate, and asks since the mark",
+      async () => {
         measureReply = {
           status: 0,
           body: {
-            updatetime: base + 100,
+            updatetime: base + 200,
+            measuregrps: [weighGroup(1, t1, 82.4)],
+          },
+        };
+        const summary = await catchUp();
+        assertEquals(summary.written, 0);
+        assertEquals(summary.duplicate, 1);
+        assertEquals(lastCall().params.lastupdate, String(base + 100));
+        assertEquals(await watermarkEpoch(), base + 200);
+      }
+    );
+    await t.test(
+      "malformed success cannot import even its valid prefix or advance the checkpoint",
+      async () => {
+        const before = await sql`select * from bodyweight order by id`;
+        const valid = weighGroup(99, t3 + 60, 81.5);
+        for (const body of [
+          {},
+          { updatetime: "invalid", measuregrps: [valid] },
+          { updatetime: base + 999, measuregrps: null },
+          {
+            updatetime: base + 999,
             measuregrps: [
-              weighGroup(1, t1, 82.4),
-              // An objective, not a measurement — must be ignored, not written.
-              { ...weighGroup(2, t2, 80.0), category: 2 },
+              valid,
+              {
+                ...valid,
+                measures: [{ type: 1, value: "81500", unit: -3 }],
+              },
+            ],
+          },
+          {
+            updatetime: base + 999,
+            measuregrps: [valid, { ...valid, date: 1e20 }],
+          },
+        ]) {
+          measureReply = { status: 0, body };
+          await assertRejects(() => catchUp(), Error, "malformed");
+          await assertRejects(
+            () => syncNotifiedWindow(t3, t3 + 60),
+            Error,
+            "malformed"
+          );
+          assertEquals(await watermarkEpoch(), base + 200);
+          assertEquals(await sql`select * from bodyweight order by id`, before);
+        }
+      }
+    );
+    await t.test(
+      "a notified window widens by the margin and leaves the watermark alone",
+      async () => {
+        // The invariant the file's longest comment defends: a window sync
+        // asked about ninety seconds around one weigh-in and learned nothing
+        // about anything else, so it must not declare more time examined.
+        measureReply = {
+          status: 0,
+          body: {
+            updatetime: base + 900,
+            measuregrps: [weighGroup(3, t3, 82.1)],
+          },
+        };
+        const summary = await syncNotifiedWindow(t3, t3);
+        assertEquals(summary.written, 1);
+        const call = lastCall();
+        assertEquals(call.params.startdate, String(t3 - 60));
+        assertEquals(call.params.enddate, String(t3 + 60));
+        assertEquals(call.params.lastupdate);
+        // Still where the last lastupdate pass left it — not base+900.
+        assertEquals(await watermarkEpoch(), base + 200);
+      }
+    );
+    await t.test(
+      "an edited reading is refused without aborting the pass",
+      async () => {
+        // Withings redelivers an instant that already has a different value
+        // (a weigh-in edited in their app). The conflict is counted, the
+        // reading after it is still written, and the watermark still moves —
+        // an aborted pass would replay the same conflict every six hours
+        // forever.
+        measureReply = {
+          status: 0,
+          body: {
+            updatetime: base + 300,
+            measuregrps: [
+              weighGroup(4, t1, 83), // t1 already holds 82.4
+              weighGroup(5, t2, 82.2),
             ],
           },
         };
         const summary = await catchUp();
-        assertEquals(summary, {
-          range: "since 0",
-          fetched: 2,
-          written: 1,
-          duplicate: 0,
-          ignored: 1,
-          refused: 0,
-        });
-        const call = calls.at(-1)!;
-        assertEquals(call.path, "/measure");
-        assertEquals(call.params.lastupdate, "0");
-        assertEquals(call.auth, "Bearer live-token");
+        assertEquals(summary.refused, 1);
+        assertEquals(summary.written, 1);
+        assertEquals(await watermarkEpoch(), base + 300);
+      }
+    );
+    await t.test(
+      "a spent token refreshes first and persists what came back",
+      async () => {
+        await seedAuth({ expiresInMs: 30_000 }); // inside the 60 s margin
+        oauthReply = {
+          status: 0,
+          body: {
+            access_token: "new-access",
+            refresh_token: "new-refresh",
+            expires_in: 3600,
+          },
+        };
+        measureReply = {
+          status: 0,
+          body: { updatetime: base + 400, measuregrps: [] },
+        };
+        await catchUp();
+        const [refresh, measure] = calls.slice(-2);
+        assertEquals(refresh.path, "/v2/oauth2");
+        assertEquals(refresh.params.grant_type, "refresh_token");
+        assertEquals(refresh.params.refresh_token, "stored-refresh");
+        assertEquals(measure.auth, "Bearer new-access");
         const [row] = await sql`
-        select value_kg / 100.0 as kg from bodyweight
-        where source = 'withings'
-          and measured_at = ${instant(new Date(t1 * 1000).toISOString())}`;
-        assertEquals(row.kg, 82.4);
-      });
-
-      await t.step("the watermark is Withings' clock, not ours", async () => {
-        assertEquals(await watermarkEpoch(), base + 100);
-      });
-
-      await t.step(
-        "a redelivery is a duplicate, and asks since the mark",
-        async () => {
-          measureReply = {
-            status: 0,
-            body: {
-              updatetime: base + 200,
-              measuregrps: [weighGroup(1, t1, 82.4)],
-            },
-          };
-          const summary = await catchUp();
-          assertEquals(summary.written, 0);
-          assertEquals(summary.duplicate, 1);
-          assertEquals(calls.at(-1)!.params.lastupdate, String(base + 100));
-          assertEquals(await watermarkEpoch(), base + 200);
-        },
-      );
-
-      await t.step(
-        "malformed success cannot import even its valid prefix or advance the checkpoint",
-        async () => {
-          const before = await sql`select * from bodyweight order by id`;
-          const valid = weighGroup(99, t3 + 60, 81.5);
-          for (
-            const body of [
-              {},
-              { updatetime: "invalid", measuregrps: [valid] },
-              { updatetime: base + 999, measuregrps: null },
-              {
-                updatetime: base + 999,
-                measuregrps: [valid, {
-                  ...valid,
-                  measures: [{ type: 1, value: "81500", unit: -3 }],
-                }],
-              },
-              {
-                updatetime: base + 999,
-                measuregrps: [valid, { ...valid, date: 1e20 }],
-              },
-            ]
-          ) {
-            measureReply = { status: 0, body };
-            await assertRejects(() => catchUp(), Error, "malformed");
-            await assertRejects(
-              () => syncNotifiedWindow(t3, t3 + 60),
-              Error,
-              "malformed",
-            );
-            assertEquals(await watermarkEpoch(), base + 200);
-            assertEquals(
-              await sql`select * from bodyweight order by id`,
-              before,
-            );
-          }
-        },
-      );
-
-      await t.step(
-        "a notified window widens by the margin and leaves the watermark alone",
-        async () => {
-          // The invariant the file's longest comment defends: a window sync
-          // asked about ninety seconds around one weigh-in and learned nothing
-          // about anything else, so it must not declare more time examined.
-          measureReply = {
-            status: 0,
-            body: {
-              updatetime: base + 900,
-              measuregrps: [weighGroup(3, t3, 82.1)],
-            },
-          };
-          const summary = await syncNotifiedWindow(t3, t3);
-          assertEquals(summary.written, 1);
-          const call = calls.at(-1)!;
-          assertEquals(call.params.startdate, String(t3 - 60));
-          assertEquals(call.params.enddate, String(t3 + 60));
-          assertEquals(call.params.lastupdate, undefined);
-          // Still where the last lastupdate pass left it — not base+900.
-          assertEquals(await watermarkEpoch(), base + 200);
-        },
-      );
-
-      await t.step(
-        "an edited reading is refused without aborting the pass",
-        async () => {
-          // Withings redelivers an instant that already has a different value
-          // (a weigh-in edited in their app). The conflict is counted, the
-          // reading after it is still written, and the watermark still moves —
-          // an aborted pass would replay the same conflict every six hours
-          // forever.
-          measureReply = {
-            status: 0,
-            body: {
-              updatetime: base + 300,
-              measuregrps: [
-                weighGroup(4, t1, 83.0), // t1 already holds 82.4
-                weighGroup(5, t2, 82.2),
-              ],
-            },
-          };
-          const summary = await catchUp();
-          assertEquals(summary.refused, 1);
-          assertEquals(summary.written, 1);
-          assertEquals(await watermarkEpoch(), base + 300);
-        },
-      );
-
-      await t.step(
-        "a spent token refreshes first and persists what came back",
-        async () => {
-          await seedAuth({ expiresInMs: 30_000 }); // inside the 60 s margin
-          oauthReply = {
-            status: 0,
-            body: {
-              access_token: "new-access",
-              refresh_token: "new-refresh",
-              expires_in: 3_600,
-            },
-          };
-          measureReply = {
-            status: 0,
-            body: { updatetime: base + 400, measuregrps: [] },
-          };
-          await catchUp();
-          const [refresh, measure] = calls.slice(-2);
-          assertEquals(refresh.path, "/v2/oauth2");
-          assertEquals(refresh.params.grant_type, "refresh_token");
-          assertEquals(refresh.params.refresh_token, "stored-refresh");
-          assertEquals(measure.auth, "Bearer new-access");
-          const [row] = await sql`
         select access_token, refresh_token from withings_auth where id = 1`;
-          assertEquals(row.access_token, "new-access");
-          assertEquals(row.refresh_token, "new-refresh");
-        },
-      );
-
-      await t.step(
-        "the scheduled catch-up is throttled by a single claim",
-        async () => {
-          await sql`update withings_auth set last_sync_attempt_at = ${
-            instant(new Date().toISOString())
-          }`;
+        assertEquals(row.access_token, "new-access");
+        assertEquals(row.refresh_token, "new-refresh");
+      }
+    );
+    await t.test(
+      "the scheduled catch-up is throttled by a single claim",
+      async () => {
+        await sql`update withings_auth set last_sync_attempt_at = ${instant(new Date().toISOString())}`;
+        const before = calls.length;
+        assertEquals(await catchUpIfDue(), null);
+        assertEquals(calls.length, before); // nothing reached the stub
+        await sql`
+        update withings_auth
+        set last_sync_attempt_at = ${instant(new Date(Date.now() - 7 * 3_600_000).toISOString())}`;
+        const summary = await catchUpIfDue();
+        assert(summary !== null && "range" in summary);
+      }
+    );
+    await t.test("a failing catch-up is swallowed, never thrown", async () => {
+      // Scheduled work reports failure without exposing provider details.
+      await sql`
+        update withings_auth
+        set last_sync_attempt_at = ${instant(new Date(Date.now() - 7 * 3_600_000).toISOString())}`;
+      measureReply = { status: 401, error: "invalid token" };
+      const result = await catchUpIfDue();
+      assert(result !== null && "error" in result);
+      assertStringIncludes(result.error, "details withheld");
+      assert(!result.error.includes("invalid token"));
+    });
+    await t.test(
+      "health is read-only while a scheduled provider pass is tracked to completion",
+      async () => {
+        await sql`update withings_auth set last_sync_attempt_at = ${instant(new Date(Date.now() - 7 * 3_600_000).toISOString())}`;
+        measureReply = {
+          status: 0,
+          body: { updatetime: base + 500, measuregrps: [] },
+        };
+        const gate: PromiseWithResolvers<void> = Promise.withResolvers();
+        const started: PromiseWithResolvers<void> = Promise.withResolvers();
+        const pending: Promise<unknown>[] = [];
+        const invocation: Invocation = {
+          waitUntil(work) {
+            pending.push(work);
+          },
+          passThroughOnException() {
+            /* No upstream origin exists in this in-process invocation. */
+          },
+        };
+        hold = gate.promise;
+        entered = () => started.resolve();
+        try {
           const before = calls.length;
-          assertEquals(await catchUpIfDue(), null);
-          assertEquals(calls.length, before); // nothing reached the stub
-          await sql`
-        update withings_auth
-        set last_sync_attempt_at = ${
-            instant(new Date(Date.now() - 7 * 3_600_000).toISOString())
-          }`;
-          const summary = await catchUpIfDue();
-          assert(summary !== null && "range" in summary!);
-        },
-      );
-
-      await t.step(
-        "a failing catch-up is swallowed, never thrown",
-        async () => {
-          // Scheduled work reports failure without exposing provider details.
-          await sql`
-        update withings_auth
-        set last_sync_attempt_at = ${
-            instant(new Date(Date.now() - 7 * 3_600_000).toISOString())
-          }`;
-          measureReply = { status: 401, error: "invalid token" };
-          const result = await catchUpIfDue();
-          assert(result !== null && "error" in result!);
-          assertStringIncludes(
-            (result as { error: string }).error,
-            "details withheld",
-          );
-          assert(
-            !(result as { error: string }).error.includes("invalid token"),
-          );
-        },
-      );
-
-      await t.step(
-        "health is read-only while a scheduled provider pass is tracked to completion",
-        async () => {
-          await sql`update withings_auth set last_sync_attempt_at = ${
-            instant(new Date(Date.now() - 7 * 3_600_000).toISOString())
-          }`;
-          measureReply = {
-            status: 0,
-            body: { updatetime: base + 500, measuregrps: [] },
-          };
-          const gate = Promise.withResolvers<void>();
-          const started = Promise.withResolvers<void>();
-          const pending: Promise<unknown>[] = [];
-          const invocation: Invocation = {
-            waitUntil(work) {
-              pending.push(work);
-            },
-            passThroughOnException() {},
-          };
-          hold = gate.promise;
-          entered = started.resolve;
-          try {
-            const before = calls.length;
-            const health = async () => {
-              const at = performance.now();
-              const response = await worker.fetch(
-                new Request("http://127.0.0.1/api/health"),
-                env,
-                invocation,
-              );
-              assertEquals(response.status, 200);
-              assertEquals(await response.json(), {
-                status: "ok",
-                revision: buildMetadata.revision,
-                build: buildMetadata.digest,
-              });
-              assertEquals(response.headers.get("cache-control"), "no-store");
-              assert(performance.now() - at < 1000);
-            };
-            await health();
-            await Promise.all(pending);
-            assertEquals(calls.length, before);
-            assertEquals(await watermarkEpoch(), base + 400);
-            pending.length = 0;
-            worker.scheduled(
-              { scheduledTime: Date.now(), cron: "0 */6 * * *" },
+          const health = async () => {
+            const at = performance.now();
+            const response = await worker.fetch(
+              new Request("http://127.0.0.1/api/health"),
               env,
-              invocation,
+              invocation
             );
-            assertEquals(pending.length, 1);
-            await started.promise;
-            await health();
-            assertEquals(calls.length, before + 1);
-            assertEquals(await watermarkEpoch(), base + 400);
-            gate.resolve();
-            await Promise.all(pending);
-            assertEquals(await watermarkEpoch(), base + 500);
-          } finally {
-            gate.resolve();
-            hold = undefined;
-            entered = undefined;
-            await Promise.all(pending);
-          }
-        },
-      );
-    } finally {
-      await sql`delete from bodyweight where source = 'withings'`;
-      await sql`delete from withings_auth`;
-      await stub.shutdown();
-    }
-  },
-);
+            assertEquals(response.status, 200);
+            assertEquals(await response.json(), {
+              status: "ok",
+              revision: buildMetadata.revision,
+              build: buildMetadata.digest,
+            });
+            assertEquals(response.headers.get("cache-control"), "no-store");
+            assert(performance.now() - at < 1000);
+          };
+          await health();
+          await Promise.all(pending);
+          assertEquals(calls.length, before);
+          assertEquals(await watermarkEpoch(), base + 400);
+          pending.length = 0;
+          worker.scheduled(
+            { scheduledTime: Date.now(), cron: "0 */6 * * *" },
+            env,
+            invocation
+          );
+          assertEquals(pending.length, 1);
+          await started.promise;
+          await health();
+          assertEquals(calls.length, before + 1);
+          assertEquals(await watermarkEpoch(), base + 400);
+          gate.resolve();
+          await Promise.all(pending);
+          assertEquals(await watermarkEpoch(), base + 500);
+        } finally {
+          gate.resolve();
+          hold = undefined;
+          entered = undefined;
+          await Promise.all(pending);
+        }
+      }
+    );
+  } finally {
+    await sql`delete from bodyweight where source = 'withings'`;
+    await sql`delete from withings_auth`;
+    await stub.stop(true);
+  }
+});

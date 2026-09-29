@@ -1,12 +1,7 @@
 import { bodyfatStore } from "../body/bodyfat.ts";
 import { bodyweightStore } from "../body/bodyweight.ts";
-import {
-  type Clock,
-  type Database,
-  romeDate,
-  rows,
-  systemClock,
-} from "../shared/d1.ts";
+import { romeDate, rows, systemClock } from "../shared/d1.ts";
+import type { Clock, Database } from "../shared/d1.ts";
 import { addDays, lastFinishedSunday, mondayOf } from "../shared/dates.ts";
 import { energyDensity, fatMassKg, weeklyTrendChange } from "./expenditure.ts";
 import type { Week, WeekEvent } from "./weekly.types.ts";
@@ -35,13 +30,13 @@ interface WeekRow {
 
 export function nutritionWeeklyStore(db: Database, clock: Clock = systemClock) {
   async function finishedWeeks(
-    weeks: number,
+    weeks: number
   ): Promise<{ weeks: Week[]; note: string }> {
     const end = lastFinishedSunday(romeDate(clock().toISOString()));
     const from = addDays(end, 1 - weeks * 7);
     const trend = await bodyweightStore(db, clock).loadTrend();
-    const bodyfat = (await bodyfatStore(db, clock).latestBodyfat())?.percent ??
-      null;
+    const bodyfat =
+      (await bodyfatStore(db, clock).latestBodyfat())?.percent ?? null;
 
     // Four reads even at the public maximum of 104 weeks. Never issue a D1
     // subrequest per week, or bind a growing list of dates/target ids.
@@ -86,7 +81,7 @@ export function nutritionWeeklyStore(db: Database, clock: Clock = systemClock) {
       end,
       end,
       weeks,
-      weeks,
+      weeks
     );
 
     // The view compares the entire winning target history before this filter.
@@ -96,7 +91,7 @@ export function nutritionWeeklyStore(db: Database, clock: Clock = systemClock) {
       SELECT day, kind, note FROM nutrition_effective_events
       WHERE day >= ? AND day <= ? ORDER BY day, id`,
       from,
-      end,
+      end
     );
     const eventsByWeek = new Map<string, WeekEvent[]>();
     for (const event of events) {
@@ -110,9 +105,10 @@ export function nutritionWeeklyStore(db: Database, clock: Clock = systemClock) {
       const start = byDay.get(row.week_start);
       const finish = byDay.get(row.week_end);
       const trendEnd = finish?.trend_kg ?? null;
-      const density = trendEnd === null || bodyfat === null
-        ? null
-        : energyDensity(fatMassKg(trendEnd, bodyfat));
+      const density =
+        trendEnd === null || bodyfat === null
+          ? null
+          : energyDensity(fatMassKg(trendEnd, bodyfat));
       return {
         week_start: row.week_start,
         week_end: row.week_end,
@@ -120,9 +116,8 @@ export function nutritionWeeklyStore(db: Database, clock: Clock = systemClock) {
         days_flagged: row.days_flagged,
         weigh_ins: row.weigh_ins,
         mean_kcal: row.mean_kcal === null ? null : Math.round(row.mean_kcal),
-        mean_protein_g: row.mean_protein_g === null
-          ? null
-          : Math.round(row.mean_protein_g),
+        mean_protein_g:
+          row.mean_protein_g === null ? null : Math.round(row.mean_protein_g),
         protein_coverage: {
           days_in_mean: row.protein_days,
           entries: row.protein_entries,
@@ -131,14 +126,17 @@ export function nutritionWeeklyStore(db: Database, clock: Clock = systemClock) {
         trend_start_kg: start?.trend_kg ?? null,
         trend_end_kg: trendEnd,
         ...weeklyTrendChange(start, finish, row.mean_kcal, density),
-        target: row.kcal_target === null ? null : {
-          kcal: row.kcal_target,
-          protein_g: row.protein_g_target,
-          goal: row.target_goal,
-          rate_pct_bw_week: row.target_rate_pct_bw_week,
-          effective_from: row.target_effective_from,
-          changed_during_week: Boolean(row.target_changed),
-        },
+        target:
+          row.kcal_target === null
+            ? null
+            : {
+                kcal: row.kcal_target,
+                protein_g: row.protein_g_target,
+                goal: row.target_goal,
+                rate_pct_bw_week: row.target_rate_pct_bw_week,
+                effective_from: row.target_effective_from,
+                changed_during_week: Boolean(row.target_changed),
+              },
         events: eventsByWeek.get(row.week_start) ?? [],
       };
     });

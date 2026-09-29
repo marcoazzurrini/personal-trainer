@@ -1,33 +1,32 @@
 // Local-only harness. Every key, token and database is synthetic.
-import { Hono } from "@hono/hono";
-import { tokenStore } from "../../api/access/tokens.ts";
-import {
-  createMcpRoutes,
-  type McpConfig,
-} from "../../api/access/mcp.routes.ts";
-import {
-  createWebAuthorizer,
-  type WebAuthConfig,
-} from "../../api/access/web.ts";
+import { Hono } from "hono";
+import type { ErrorHandler } from "hono";
+
 import { timingSafeEqual } from "../../api/access/jwt.ts";
-import { ApiError } from "../../api/shared/errors.ts";
+import { createMcpRoutes } from "../../api/access/mcp.routes.ts";
+import type { McpConfig } from "../../api/access/mcp.routes.ts";
+import { tokenStore } from "../../api/access/tokens.ts";
+import { createWebAuthorizer } from "../../api/access/web.ts";
+import type { WebAuthConfig } from "../../api/access/web.ts";
 import type { Database } from "../../api/shared/d1.ts";
+import { ApiError } from "../../api/shared/errors.ts";
+
+const handleError: ErrorHandler = (error, c) =>
+  c.json(
+    { error: error.message },
+    error instanceof ApiError ? error.status : 500
+  );
 
 export default {
   async fetch(
     request: Request,
-    env: { DB: Database; MCP: McpConfig; WEB: WebAuthConfig },
+    env: { DB: Database; MCP: McpConfig; WEB: WebAuthConfig }
   ) {
     const app = new Hono();
-    app.onError((error, c) =>
-      c.json(
-        { error: error.message },
-        error instanceof ApiError ? error.status : 500,
-      )
-    );
+    app.onError(handleError);
     const store = tokenStore(
       env.DB,
-      () => new Date(request.headers.get("x-clock") ?? "2026-08-30T12:00:00Z"),
+      () => new Date(request.headers.get("x-clock") ?? "2026-08-30T12:00:00Z")
     );
     app.route("/api/mcp", createMcpRoutes(env.MCP, store));
     app.post("/tokens/:method", async (c) => {
@@ -35,7 +34,7 @@ export default {
       return c.json(
         c.req.param("method") === "mint"
           ? await store.issueToken(value)
-          : await store.verifyToken(value),
+          : await store.verifyToken(value)
       );
     });
     app.post("/compare", async (c) => {
@@ -46,7 +45,7 @@ export default {
       await createWebAuthorizer(env.WEB)(
         c.req.header("authorization")?.slice(7) ?? "",
         c.req.method,
-        c.req.path,
+        c.req.path
       );
       return c.json({ ok: true });
     });

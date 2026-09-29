@@ -1,6 +1,10 @@
-import { assert, assertEquals } from "@std/assert";
-import { BASE, TOKEN } from "./helpers.ts";
+import { readdir, readFile } from "node:fs/promises";
+import { test } from "node:test";
 
+import { z } from "zod";
+
+import { assert, assertEquals } from "./assertions.ts";
+import { BASE, TOKEN } from "./helpers.ts";
 // Auth as a property of the whole surface, not of the routes someone
 // remembered to test.
 //
@@ -25,14 +29,19 @@ import { BASE, TOKEN } from "./helpers.ts";
 //
 // auth_test.ts checks expiry, revocation and malformed JSON; this is the
 // matrix that catches a new route landing on the wrong side of the line.
-
 const API_DIR = "api";
-
-// deno-lint-ignore no-explicit-any
-const spec: any = await (await fetch(`${BASE}/openapi.json`, {
-  headers: { Authorization: `Bearer ${TOKEN}` },
-})).json();
-
+const spec = z
+  .object({
+    openapi: z.string(),
+    paths: z.record(z.string(), z.record(z.string(), z.unknown())),
+  })
+  .parse(
+    await (
+      await fetch(`${BASE}/openapi.json`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      })
+    ).json()
+  );
 // Tokenless by design, each with the story that stands in for the token.
 // /health is the uptime probe, and the reference pair publishes the shape of
 // the surface and never its contents — public because a browser cannot put a
@@ -43,7 +52,10 @@ const spec: any = await (await fetch(`${BASE}/openapi.json`, {
 // discovery document belongs to the plugin's connector: it is what a client
 // reads before it has a token — it says where to sign in and nothing else,
 // the way /openapi.json says the shape and never the data.
-const PUBLIC: Array<{ method: string; path: string }> = [
+const PUBLIC: {
+  method: string;
+  path: string;
+}[] = [
   { method: "GET", path: "/health" },
   { method: "GET", path: "/openapi.json" },
   { method: "GET", path: "/reference" },
@@ -51,23 +63,19 @@ const PUBLIC: Array<{ method: string; path: string }> = [
   { method: "GET", path: "/withings/callback" },
   { method: "HEAD", path: "/withings/notify" },
 ];
-
 // Routers mounted above the middleware, whose public routes are listed above
 // and whose other routes answer for themselves.
 const MOUNTED_PUBLIC_PREFIXES = ["/withings", "/mcp"];
-
 // A tokenless request is refused before any handler runs, so a placeholder is
 // enough to reach the middleware and nothing downstream ever sees it.
 function probeable(path: string): string {
-  return path.replace(/^\/api/, "").replace(/\{[^}]+\}/g, "x");
+  return path.replace(/^\/api/u, "").replaceAll(/\{[^}]+\}/gu, "x");
 }
-
-Deno.test("every documented operation refuses a tokenless request", async (t) => {
-  const paths = Object.entries(spec.paths) as Array<[string, object]>;
+test("every documented operation refuses a tokenless request", async (t) => {
+  const paths = Object.entries(spec.paths);
   assert(paths.length > 0, "the document describes no paths to check");
-
   for (const [path, methods] of paths) {
-    await t.step(path, async () => {
+    await t.test(path, async () => {
       for (const method of Object.keys(methods)) {
         const res = await fetch(`${BASE}${probeable(path)}`, {
           method: method.toUpperCase(),
@@ -82,8 +90,7 @@ Deno.test("every documented operation refuses a tokenless request", async (t) =>
     });
   }
 });
-
-Deno.test("a wrong token is as refused as none", async () => {
+test("a wrong token is as refused as none", async () => {
   // One probe per HTTP method that writes, so the middleware is known to sit
   // in front of writes as well as reads.
   for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
@@ -95,52 +102,50 @@ Deno.test("a wrong token is as refused as none", async () => {
     await res.body?.cancel();
   }
 });
-
-Deno.test("the tokenless surfaces answer without credentials", async (t) => {
+test("the tokenless surfaces answer without credentials", async (t) => {
   // Public means public: none of these may have quietly slid behind the
   // middleware either.
   for (const { method, path } of PUBLIC) {
-    await t.step(`${method} ${path}`, async () => {
+    await t.test(`${method} ${path}`, async () => {
       const res = await fetch(`${BASE}${path}`, { method });
       assertEquals(res.status, 200);
       await res.body?.cancel();
     });
   }
-
-  await t.step("the document describes the routes mounted after it", () => {
+  await t.test("the document describes the routes mounted after it", () => {
     assertEquals(spec.openapi, "3.0.0");
     // Registered above the middleware but built per request, which is the
     // whole point of it existing there.
     assert(
       Object.keys(spec.paths).length > 0,
-      "the document describes no paths: app.doc() stopped seeing later mounts",
+      "the document describes no paths: app.doc() stopped seeing later mounts"
     );
   });
-
-  await t.step("the reference page opens", async () => {
+  await t.test("the reference page opens", async () => {
     const page = await fetch(`${BASE}/reference`);
     assert((await page.text()).includes("createApiReference"));
   });
 });
-
 // --- What the document cannot see ------------------------------------------
-
 // The check above is only as complete as the claim that /openapi.json plus the
 // PUBLIC list is the whole surface. Two things escape the document, and both
 // are scanned for rather than trusted.
-
 async function filesUnder(dir: string): Promise<string[]> {
   const found: string[] = [];
-  for await (const entry of Deno.readDir(dir)) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = `${dir}/${entry.name}`;
-    if (path === `${API_DIR}/tests`) continue;
-    if (entry.isDirectory) found.push(...await filesUnder(path));
-    else if (entry.name.endsWith(".ts")) found.push(path);
+    if (path === `${API_DIR}/tests`) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      found.push(...(await filesUnder(path)));
+    } else if (entry.name.endsWith(".ts")) {
+      found.push(path);
+    }
   }
-  return found.sort();
+  return found.toSorted();
 }
-
-Deno.test("no plain router serves traffic unseen", async () => {
+test("no plain router serves traffic unseen", async () => {
   // A route on a plain Hono router never reaches /openapi.json — openapi_test
   // exempts them for that reason, since they cannot be declared. That makes
   // them the one place a public route is invisible to both files, so each is
@@ -149,54 +154,57 @@ Deno.test("no plain router serves traffic unseen", async () => {
     [
       `${API_DIR}/body/withings.routes.ts`,
       "the two routes Withings itself calls, public because Withings cannot " +
-      "send our token. Guarded by believing nothing in the body: the payload " +
-      "carries no weight, and one naming the wrong account is dropped.",
+        "send our token. Guarded by believing nothing in the body: the payload " +
+        "carries no weight, and one naming the wrong account is dropped.",
     ],
     [
       `${API_DIR}/access/mcp.routes.ts`,
       "the plugin's connector, guarded by a sign-in token from the hosted " +
-      "authorization server checked on every call rather than by the coach " +
-      "token. A tokenless call is " +
-      "answered 401 with where to sign in; its one credential-free route is " +
-      "the discovery document, which says that and nothing else.",
+        "authorization server checked on every call rather than by the coach " +
+        "token. A tokenless call is " +
+        "answered 401 with where to sign in; its one credential-free route is " +
+        "the discovery document, which says that and nothing else.",
     ],
   ]);
-
   const found: string[] = [];
   for (const file of await filesUnder(API_DIR)) {
-    if ((await Deno.readTextFile(file)).includes("new Hono(")) {
-      if (!allowed.has(file)) found.push(file);
+    if (
+      (await readFile(file, "utf-8")).includes("new Hono(") &&
+      !allowed.has(file)
+    ) {
+      found.push(file);
     }
   }
-
   assertEquals(
     found,
     [],
     `a plain Hono router holds routes that /openapi.json cannot describe and ` +
       `this file cannot probe:\n  ${found.join("\n  ")}\nUse OpenAPIHono, or ` +
-      `add it above with what guards it and whether its routes are public.`,
+      `add it above with what guards it and whether its routes are public.`
   );
 });
-
-Deno.test("nothing is registered on the app but the public three", async () => {
+test("nothing is registered on the app but the public three", async () => {
   // The composition root is the other way out: a route registered directly on
   // `app` rather than mounted, above the middleware and therefore public
   // forever. These three are, deliberately. A fourth has to be argued for
   // here before it can serve.
-  const source = await Deno.readTextFile(`${API_DIR}/index.ts`);
+  const source = await readFile(`${API_DIR}/index.ts`, "utf-8");
   const registered = [
-    ...source.matchAll(/app\.(?:get|post|patch|put|delete|doc)\("([^"]+)"/g),
+    ...source.matchAll(
+      /app\.(?:get|post|patch|put|delete|doc)\("(?<path>[^"]+)"/gu
+    ),
   ].map((m) => m[1]);
-
   assertEquals(
-    registered.sort(),
-    PUBLIC.filter((p) =>
-      !MOUNTED_PUBLIC_PREFIXES.some((prefix) => p.path.startsWith(prefix))
-    ).map((p) => p.path).sort(),
+    registered.toSorted(),
+    PUBLIC.filter(
+      (p) =>
+        !MOUNTED_PUBLIC_PREFIXES.some((prefix) => p.path.startsWith(prefix))
+    )
+      .map((p) => p.path)
+      .toSorted()
   );
 });
-
-Deno.test("the connector refuses a tokenless call and says where to sign in", async () => {
+test("the connector refuses a tokenless call and says where to sign in", async () => {
   // The third kind of route, named so it is not mistaken for either of the
   // other two: neither behind the coach token nor public, but guarded by a
   // credential of its own. What a tokenless caller gets is the pointer to
@@ -206,7 +214,7 @@ Deno.test("the connector refuses a tokenless call and says where to sign in", as
   const challenge = res.headers.get("www-authenticate") ?? "";
   assert(
     challenge.startsWith("Bearer resource_metadata="),
-    `no pointer to sign in: ${challenge}`,
+    `no pointer to sign in: ${challenge}`
   );
   assertEquals(Object.keys(await res.json()), ["error"]);
 });

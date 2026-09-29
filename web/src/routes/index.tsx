@@ -1,16 +1,9 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+
 import { loadDashboard } from "../dashboard";
 import { weightView } from "../weight";
 import { WeightChart } from "../weight-chart";
-
-export const Route = createFileRoute("/")({
-  loader: () => loadDashboard(),
-  pendingComponent: () => (
-    <main className="page" role="status">Loading your record…</main>
-  ),
-  component: Dashboard,
-});
 
 const day = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
@@ -24,7 +17,7 @@ const instant = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Rome",
 });
 
-function Dashboard() {
+const Dashboard = () => {
   const result = Route.useLoaderData();
   const router = useRouter();
   const [days, setDays] = useState<number | null>(90);
@@ -33,18 +26,18 @@ function Dashboard() {
   // browser's back/forward snapshot after a sign-out in another document.
   useEffect(() => {
     const restored = (event: PageTransitionEvent) => {
-      if (event.persisted) globalThis.location.reload();
+      if (event.persisted) {
+        globalThis.location.reload();
+      }
     };
     globalThis.addEventListener("pageshow", restored);
     return () => globalThis.removeEventListener("pageshow", restored);
   }, []);
   const refresh = async () => {
     setRefreshing(true);
-    try {
-      await router.invalidate();
-    } finally {
+    await router.invalidate().finally(() => {
       setRefreshing(false);
-    }
+    });
   };
   const signedIn = result.status !== "signed-out";
   const view = result.status === "ready" ? weightView(result.data, days) : null;
@@ -56,7 +49,9 @@ function Dashboard() {
         </a>
         {signedIn && (
           <form action="/auth/sign-out" method="post">
-            <button className="quiet" type="submit">Sign out</button>
+            <button className="quiet" type="submit">
+              Sign out
+            </button>
           </form>
         )}
       </header>
@@ -74,7 +69,9 @@ function Dashboard() {
             Sign in with your existing account. Only your account can open this
             dashboard.
           </p>
-          <a className="button" href="/auth/sign-in">Sign in</a>
+          <a className="button" href="/auth/sign-in">
+            Sign in
+          </a>
         </section>
       )}
       {result.status === "forbidden" && (
@@ -100,13 +97,13 @@ function Dashboard() {
             <div className="card stat">
               <p>Latest measurement</p>
               <strong>
-                {view.latest
-                  ? (
-                    <>
-                      {view.latest.value_kg.toFixed(1)} <span>kg</span>
-                    </>
-                  )
-                  : "Not recorded"}
+                {view.latest ? (
+                  <>
+                    {view.latest.value_kg.toFixed(1)} <span>kg</span>
+                  </>
+                ) : (
+                  "Not recorded"
+                )}
               </strong>
               <small>
                 {view.latest
@@ -117,19 +114,19 @@ function Dashboard() {
             <div className="card stat">
               <p>Latest trend</p>
               <strong>
-                {view.latestTrend
-                  ? (
-                    <>
-                      {view.latestTrend.trend_kg.toFixed(1)} <span>kg</span>
-                    </>
-                  )
-                  : "Not available"}
+                {view.latestTrend ? (
+                  <>
+                    {view.latestTrend.trend_kg.toFixed(1)} <span>kg</span>
+                  </>
+                ) : (
+                  "Not available"
+                )}
               </strong>
               <small>
                 {view.latestTrend
                   ? `${day.format(new Date(view.latestTrend.day))}${
-                    view.latestTrend.interpolated ? " · interpolated day" : ""
-                  }`
+                      view.latestTrend.interpolated ? " · interpolated day" : ""
+                    }`
                   : "Calculated by the API when data is available"}
               </small>
             </div>
@@ -150,47 +147,48 @@ function Dashboard() {
                 ))}
               </div>
             </div>
-            {view.measurements.length > 0 && view.trend.length === 0
-              ? (
-                <div className="empty" role="status">
-                  <h3>No trend is available for this window.</h3>
-                  <p>
-                    The measurements are listed below. No replacement trend was
-                    calculated.
-                  </p>
-                </div>
-              )
-              : view.trend.length > 0
-              ? (
-                <>
-                  <ul className="legend">
-                    <li>
-                      <span className="raw-key" />Measurements
-                    </li>
-                    <li>
-                      <span className="trend-key" />API trend
-                    </li>
-                  </ul>
-                  <WeightChart
-                    measurements={view.measurements}
-                    trend={view.trend}
-                  />
-                  <p className="caption">
-                    Hollow markers identify interpolated days in the API trend.
-                    Missing days remain gaps. The vertical axis does not start
-                    at zero.
-                  </p>
-                </>
-              )
-              : (
-                <div className="empty">
-                  <h3>No weight measurements yet.</h3>
-                  <p>
-                    Once the API has a weigh-in, your history will appear here.
-                    No sample data is shown.
-                  </p>
-                </div>
-              )}
+            {view.measurements.length > 0 && view.trend.length === 0 && (
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- This live region contains headings; output permits only phrasing content.
+              <div className="empty" role="status">
+                <h3>No trend is available for this window.</h3>
+                <p>
+                  The measurements are listed below. No replacement trend was
+                  calculated.
+                </p>
+              </div>
+            )}
+            {view.trend.length > 0 && (
+              <>
+                <ul className="legend">
+                  <li>
+                    <span className="raw-key" />
+                    Measurements
+                  </li>
+                  <li>
+                    <span className="trend-key" />
+                    API trend
+                  </li>
+                </ul>
+                <WeightChart
+                  measurements={view.measurements}
+                  trend={view.trend}
+                />
+                <p className="caption">
+                  Hollow markers identify interpolated days in the API trend.
+                  Missing days remain gaps. The vertical axis does not start at
+                  zero.
+                </p>
+              </>
+            )}
+            {view.measurements.length === 0 && view.trend.length === 0 && (
+              <div className="empty">
+                <h3>No weight measurements yet.</h3>
+                <p>
+                  Once the API has a weigh-in, your history will appear here. No
+                  sample data is shown.
+                </p>
+              </div>
+            )}
             <div className="chart-footer">
               <p className="caption">
                 Dates use Europe/Rome. Windows end at the latest recorded
@@ -224,7 +222,7 @@ function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...view.measurements].reverse().map((row) => (
+                    {view.measurements.toReversed().map((row) => (
                       <tr key={row.id}>
                         <td>{instant.format(new Date(row.measured_at))}</td>
                         <td>{row.value_kg.toFixed(1)}</td>
@@ -244,4 +242,15 @@ function Dashboard() {
       </footer>
     </main>
   );
-}
+};
+
+export const Route = createFileRoute("/")({
+  loader: () => loadDashboard(),
+  pendingComponent: () => (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- Preserve the loading announcement; this is not a calculation or form result.
+    <main className="page" role="status">
+      Loading your record…
+    </main>
+  ),
+  component: Dashboard,
+});

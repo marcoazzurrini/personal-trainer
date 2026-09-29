@@ -3,9 +3,15 @@
 //
 // Import-free on purpose, like surfaces/github.ts: no database and no clock
 // beyond Date.now(). Everything here can be exercised against a
-// stub server in a plain `deno test`, which matters because the two ways this
+// stub server in a plain `bun test`, which matters because the two ways this
 // integration fails are both invisible in production — a token that quietly
 // stops refreshing, and a filter that quietly lets the wrong numbers through.
+
+// oxlint-disable-next-line typescript/consistent-type-definitions -- A closed type alias is assignable to fetch's HeadersInit record; an open interface has no implicit index signature.
+type WithingsHeaders = {
+  "content-type": string;
+  authorization?: string;
+};
 
 export interface WithingsConfig {
   apiBase: string; // https://wbsapi.withings.net, or the stub in tests
@@ -15,6 +21,7 @@ export interface WithingsConfig {
 
 // Routes translate this into a logged failure rather than an error response:
 // a notification we could not service is not the notifier's problem.
+// eslint-disable-next-line unicorn/custom-error-definition -- Preserve the existing Error name; routes classify provider failures with instanceof WithingsError.
 export class WithingsError extends Error {}
 
 /**
@@ -32,47 +39,55 @@ async function callWithings(
   cfg: WithingsConfig,
   path: string,
   params: Record<string, string>,
-  accessToken?: string,
-): Promise<Record<string, unknown>> {
-  const signal = AbortSignal.timeout(5_000);
+  accessToken?: string
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- This transport validates only the envelope; refreshTokens and getWeights validate their distinct payloads before use.
+): Promise<unknown> {
+  const signal = AbortSignal.timeout(5000);
   let res: Response;
   let json: { status?: unknown; body?: unknown; error?: unknown } | null;
   try {
+    const headers: WithingsHeaders = {
+      "content-type": "application/x-www-form-urlencoded",
+    };
+    if (accessToken) {
+      headers.authorization = `Bearer ${accessToken}`;
+    }
     res = await fetch(`${cfg.apiBase}${path}`, {
       signal,
       method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-      },
+      headers,
       body: new URLSearchParams(params),
     });
 
-    json = await res.json().catch((err) => {
-      if (signal.aborted) throw err;
+    json = await res.json().catch((error) => {
+      if (signal.aborted) {
+        throw error;
+      }
       return null;
     });
   } catch {
     throw new WithingsError(
       `Withings ${
         signal.aborted ? "timed out after 5 seconds" : "could not be reached"
-      }. Sync did not complete; the checkpoint is unchanged. A token refresh may already have occurred upstream; do not assume it rolled back. Check synchronization before retrying.`,
+      }. Sync did not complete; the checkpoint is unchanged. A token refresh may already have occurred upstream; do not assume it rolled back. Check synchronization before retrying.`
     );
   }
 
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- Withings uses the numeric JSON status, not HTTP success, to identify its response envelope.
   if (json === null || typeof json.status !== "number") {
     throw new WithingsError(
-      `Withings replied ${res.status} to ${path} with a body that is not a Withings response. Either the API base is wrong or something is answering in its place.`,
+      `Withings replied ${res.status} to ${path} with a body that is not a Withings response. Either the API base is wrong or something is answering in its place.`
     );
   }
   if (json.status !== 0) {
     throw new WithingsError(
       `Withings refused ${path} with status ${json.status}${
+        // eslint-disable-next-line anti-slop/no-runtime-typeof -- Include provider error text only when the raw response field is a string.
         typeof json.error === "string" ? ` (${json.error})` : ""
-      }. HTTP was ${res.status}; the status field is the one that means anything.`,
+      }. HTTP was ${res.status}; the status field is the one that means anything.`
     );
   }
-  return (json.body ?? {}) as Record<string, unknown>;
+  return json.body ?? {};
 }
 
 // --- Tokens ----------------------------------------------------------------
@@ -97,33 +112,37 @@ export interface TokenSet {
 export async function refreshTokens(
   cfg: WithingsConfig,
   refreshToken: string,
-  now: () => number = Date.now,
+  now: () => number = Date.now
 ): Promise<TokenSet> {
-  const body = await callWithings(cfg, "/v2/oauth2", {
+  const rawBody = await callWithings(cfg, "/v2/oauth2", {
     action: "requesttoken",
     grant_type: "refresh_token",
     client_id: cfg.clientId,
     client_secret: cfg.clientSecret,
     refresh_token: refreshToken,
-  }) as {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-  };
+  });
+  const body = isObject(rawBody) ? rawBody : {};
 
-  const expiresAt = typeof body.expires_in === "number"
-    ? new Date(now() + body.expires_in * 1000)
-    : new Date(NaN);
+  const expiresAt =
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Compute expiry only from a numeric provider field; all other values keep the existing invalid-date refusal.
+    typeof body.expires_in === "number"
+      ? new Date(now() + body.expires_in * 1000)
+      : new Date(Number.NaN);
   if (
-    typeof body.access_token !== "string" || body.access_token.trim() === "" ||
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- The refresh response must contain a nonempty access token before any credentials are persisted.
+    typeof body.access_token !== "string" ||
+    body.access_token.trim() === "" ||
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- A refresh token is independently required; never persist a partial token set.
     typeof body.refresh_token !== "string" ||
     body.refresh_token.trim() === "" ||
-    typeof body.expires_in !== "number" || body.expires_in <= 0 ||
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the raw expiry's numeric type before its existing positivity and safe-integer checks.
+    typeof body.expires_in !== "number" ||
+    body.expires_in <= 0 ||
     !Number.isSafeInteger(body.expires_in) ||
     !Number.isFinite(expiresAt.getTime())
   ) {
     throw new WithingsError(
-      "Withings accepted the refresh but did not return an access token, a refresh token and an expiry. Refusing to persist a partial token set.",
+      "Withings accepted the refresh but did not return an access token, a refresh token and an expiry. Refusing to persist a partial token set."
     );
   }
 
@@ -168,21 +187,27 @@ const CATEGORY_REAL = "1"; // as opposed to 2, a user's stated objective
 export async function getWeights(
   cfg: WithingsConfig,
   accessToken: string,
-  range: MeasureRange,
+  range: MeasureRange
 ): Promise<MeasureResponse> {
-  const window: Record<string, string> = "lastupdate" in range
-    ? { lastupdate: String(range.lastupdate) }
-    : {
-      startdate: String(range.startdate),
-      enddate: String(range.enddate),
-    };
+  const window: Record<string, string> =
+    "lastupdate" in range
+      ? { lastupdate: String(range.lastupdate) }
+      : {
+          startdate: String(range.startdate),
+          enddate: String(range.enddate),
+        };
 
-  const body = await callWithings(cfg, "/measure", {
-    action: "getmeas",
-    meastype: MEASTYPE_WEIGHT,
-    category: CATEGORY_REAL,
-    ...window,
-  }, accessToken);
+  const body = await callWithings(
+    cfg,
+    "/measure",
+    {
+      action: "getmeas",
+      meastype: MEASTYPE_WEIGHT,
+      category: CATEGORY_REAL,
+      ...window,
+    },
+    accessToken
+  );
 
   // Validate the whole batch before selection or any record writes. A missing
   // array is not an empty history, and our clock cannot vouch for unseen data.
@@ -195,49 +220,60 @@ export async function getWeights(
   for (const [i, group] of body.measuregrps.entries()) {
     const path = `body.measuregrps[${i}]`;
     if (
-      !isObject(group) || !Number.isSafeInteger(group.grpid) ||
-      !Number.isSafeInteger(group.category) || !isEpoch(group.date) ||
+      !isObject(group) ||
+      !Number.isSafeInteger(group.grpid) ||
+      !Number.isSafeInteger(group.category) ||
+      !isEpoch(group.date) ||
       !Array.isArray(group.measures)
     ) {
       throw malformedMeasurements(
-        `${path} (grpid, category, date and measures)`,
+        `${path} (grpid, category, date and measures)`
       );
     }
     for (const [j, measure] of group.measures.entries()) {
       if (
-        !isObject(measure) || !Number.isSafeInteger(measure.type) ||
-        typeof measure.value !== "number" || !Number.isFinite(measure.value) ||
+        !isObject(measure) ||
+        !Number.isSafeInteger(measure.type) ||
+        // eslint-disable-next-line anti-slop/no-runtime-typeof -- A provider measurement value must be numeric before checking finiteness or scaling.
+        typeof measure.value !== "number" ||
+        !Number.isFinite(measure.value) ||
+        // eslint-disable-next-line anti-slop/no-runtime-typeof -- A provider unit must be numeric before the safe-integer and scaled-value checks.
         typeof measure.unit !== "number" ||
         !Number.isSafeInteger(measure.unit) ||
         !Number.isFinite(
-          scaleToKg({ value: measure.value, unit: measure.unit }),
+          scaleToKg({ value: measure.value, unit: measure.unit })
         )
       ) {
         throw malformedMeasurements(
-          `${path}.measures[${j}] (type, value and unit)`,
+          `${path}.measures[${j}] (type, value and unit)`
         );
       }
     }
   }
   return {
     updatetime: body.updatetime,
+    // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- The loops above validate every field consumed by selection; attrib and deviceid remain unchecked provider passthrough as before.
     groups: body.measuregrps as MeasureGroup[],
   };
 }
 
+// eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- This guard only identifies a provider JSON object; each token or measurement field is validated by its parser.
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isEpoch(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) &&
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
     value >= 0 &&
-    Number.isFinite(new Date(value * 1000).getTime());
+    Number.isFinite(new Date(value * 1000).getTime())
+  );
 }
 
 function malformedMeasurements(field: string): WithingsError {
   return new WithingsError(
-    `Withings accepted /measure but returned malformed ${field}. Refusing the measurement batch; no readings or sync checkpoint may be advanced from this response.`,
+    `Withings accepted /measure but returned malformed ${field}. Refusing the measurement batch; no readings or sync checkpoint may be advanced from this response.`
   );
 }
 
@@ -323,7 +359,7 @@ export function selectWeights(groups: readonly MeasureGroup[]): Selection {
  * delivery paths are safe.
  */
 function scaleToKg(measure: Pick<Measure, "value" | "unit">): number {
-  const kg = measure.value * Math.pow(10, measure.unit);
+  const kg = measure.value * 10 ** measure.unit;
   return Math.round(kg * 100) / 100;
 }
 

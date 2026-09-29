@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   healthResponse,
   readBuildDigest,
@@ -12,8 +13,11 @@ describe("dashboard build revision", () => {
     try {
       expect(readBuildRevision("a".repeat(40))).toBe("a".repeat(40));
     } finally {
-      if (prior === undefined) delete process.env.BUILD_REVISION;
-      else process.env.BUILD_REVISION = prior;
+      if (prior === undefined) {
+        delete process.env.BUILD_REVISION;
+      } else {
+        process.env.BUILD_REVISION = prior;
+      }
     }
   });
 
@@ -23,7 +27,7 @@ describe("dashboard build revision", () => {
 
   it.each(["", "HEAD", "a".repeat(7), "A".repeat(40), "a".repeat(41), 1])(
     "refuses malformed metadata %j",
-    (value) => expect(() => readBuildRevision(value)).toThrow("invalid"),
+    (value) => expect(() => readBuildRevision(value)).toThrow("invalid")
   );
 });
 
@@ -38,15 +42,14 @@ describe("dashboard build digest", () => {
     "A".repeat(64),
     "__TRAINER_WEB_BUILD_DIGEST_PLACEHOLDER__",
     1,
-  ])(
-    "rejects unstamped or malformed digest %j",
-    (value) => expect(() => readBuildDigest(value)).toThrow("invalid"),
+  ])("rejects unstamped or malformed digest %j", (value) =>
+    expect(() => readBuildDigest(value)).toThrow("invalid")
   );
   it("exposes the immutable digest on the readiness endpoint", async () => {
     const response = healthResponse(
       new Request("https://dashboard.example.test/api/health"),
       () => null,
-      () => "c".repeat(64),
+      () => "c".repeat(64)
     );
     expect(await response.json()).toEqual({
       status: "ok",
@@ -60,7 +63,7 @@ describe("dashboard health", () => {
   it("returns only uncached build metadata", async () => {
     const response = healthResponse(
       new Request("https://dashboard.example.test/api/health"),
-      () => "a".repeat(40),
+      () => "a".repeat(40)
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
@@ -77,7 +80,7 @@ describe("dashboard health", () => {
       new Request("https://dashboard.example.test/api/health", {
         method: "HEAD",
       }),
-      () => null,
+      () => null
     );
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("");
@@ -90,7 +93,7 @@ describe("dashboard health", () => {
       }),
       () => {
         throw new Error("Must not run");
-      },
+      }
     );
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET, HEAD");
@@ -103,13 +106,13 @@ describe("dashboard health", () => {
         new Request("https://dashboard.example.test/api/health", { method }),
         () => {
           throw new Error("private build details");
-        },
+        }
       );
       expect(response.status).toBe(503);
       expect(response.headers.get("cache-control")).toBe("private, no-store");
       expect(await response.text()).toBe(
-        method === "HEAD" ? "" : '{"status":"error"}',
+        method === "HEAD" ? "" : '{"status":"error"}'
       );
-    },
+    }
   );
 });

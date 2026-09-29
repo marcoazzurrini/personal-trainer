@@ -1,20 +1,27 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals, assertStringIncludes } from "./assertions.ts";
 import { BASE } from "./helpers.ts";
 
-Deno.test("reference page pins the reviewed Scalar browser bytes with SRI", async () => {
+test("reference page pins the reviewed Scalar browser bytes with SRI", async () => {
   const res = await fetch(`${BASE}/reference`);
   assertEquals(res.status, 200);
-  assertStringIncludes(res.headers.get("content-type")!, "text/html");
+  const contentType = res.headers.get("content-type");
+  assert(
+    contentType !== null,
+    "Reference page must include a content-type header."
+  );
+  assertStringIncludes(contentType, "text/html");
   const html = await res.text();
-  const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="[^"]+"[^>]*>/g)];
+  const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="[^"]+"[^>]*>/gu)];
   assertEquals(scripts.length, 1);
   assertStringIncludes(
     scripts[0][0],
-    'src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.67.0/dist/browser/standalone.js"',
+    'src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.67.0/dist/browser/standalone.js"'
   );
   assertStringIncludes(
     scripts[0][0],
-    'integrity="sha384-6c7Vmx+i0yi8gBbltn0x1cavD+zsMGw2xmXXVyacPJLIGBxwaVimW5TW0WiW17Ir"',
+    'integrity="sha384-6c7Vmx+i0yi8gBbltn0x1cavD+zsMGw2xmXXVyacPJLIGBxwaVimW5TW0WiW17Ir"'
   );
   assertStringIncludes(scripts[0][0], 'crossorigin="anonymous"');
   assertStringIncludes(html, "url: 'openapi.json'");

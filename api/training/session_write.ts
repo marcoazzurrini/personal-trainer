@@ -1,15 +1,11 @@
+import { databaseError, statement } from "../shared/d1.ts";
+import type { Database, Statement } from "../shared/d1.ts";
 import { ApiError } from "../shared/errors.ts";
-import {
-  type Database,
-  databaseError,
-  type Statement,
-  statement,
-} from "../shared/d1.ts";
 
 /** Retry only the batch's failed version assertion, never an uncertain write. */
 export async function retrySessionWrite<T>(
   id: number,
-  operation: () => Promise<T>,
+  operation: () => Promise<T>
 ): Promise<T> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -19,7 +15,7 @@ export async function retrySessionWrite<T>(
     } catch (error) {
       if (
         !(error instanceof Error) ||
-        !/CHECK constraint failed: api_session_changed\b/.test(error.message)
+        !/CHECK constraint failed: api_session_changed\b/u.test(error.message)
       ) {
         throw databaseError(error);
       }
@@ -27,21 +23,21 @@ export async function retrySessionWrite<T>(
   }
   throw new ApiError(
     409,
-    `The session kept changing. Nothing was saved by this request. Read GET /sessions/${id} before retrying.`,
+    `The session kept changing. Nothing was saved by this request. Read GET /sessions/${id} before retrying.`
   );
 }
 
 export function sessionVersion(
   db: Database,
   id: number,
-  version: number,
+  version: number
 ): Statement {
   return statement(
     db,
     `INSERT INTO api_write_assertions (id, version_matches)
     VALUES (1, COALESCE((SELECT write_version = ? FROM sessions WHERE id = ?), 0))`,
     version,
-    id,
+    id
   );
 }
 
@@ -50,7 +46,7 @@ export function affectedRows(db: Database, expected: number): Statement {
   return statement(
     db,
     `UPDATE api_write_assertions SET rows_match = (changes() = ?) WHERE id = 1`,
-    expected,
+    expected
   );
 }
 

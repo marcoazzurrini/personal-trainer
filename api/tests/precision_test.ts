@@ -1,12 +1,17 @@
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+
 import fc from "fast-check";
+
+import { assertEquals } from "./assertions.ts";
 import { api, daysAgo, resetNutrition, today, uuid } from "./helpers.ts";
 
-Deno.test("bodyweight retries compare at storage precision and normalize timestamp offsets", async () => {
+test("bodyweight retries compare at storage precision and normalize timestamp offsets", async () => {
   await resetNutrition();
-  for (
-    const [value, stored] of [[82.344, 82.34], [82.345, 82.35], [82.456, 82.46]]
-  ) {
+  for (const [value, stored] of [
+    [82.344, 82.34],
+    [82.345, 82.35],
+    [82.456, 82.46],
+  ]) {
     const input = {
       value_kg: value,
       measured_at: `${daysAgo(1)}T08:00:00+02:00`,
@@ -27,21 +32,22 @@ Deno.test("bodyweight retries compare at storage precision and normalize timesta
     assertEquals(
       (await api.post("/bodyweight", { ...input, value_kg: stored + 0.02 }))
         .status,
-      409,
+      409
     );
   }
   assertEquals((await api.get("/bodyweight")).body.bodyweight.length, 3);
 });
-
-Deno.test("bodyfat retries compare at storage precision without hiding different readings", async () => {
+test("bodyfat retries compare at storage precision without hiding different readings", async () => {
   await resetNutrition();
   let age = 1;
-  for (
-    const [percent, stored] of [[14.54, 14.5], [14.55, 14.6], [14.56, 14.6]]
-  ) {
+  for (const [percent, stored] of [
+    [14.54, 14.5],
+    [14.55, 14.6],
+    [14.56, 14.6],
+  ]) {
     const input = {
       percent,
-      day: daysAgo(age++),
+      day: daysAgo((age += 1)),
       method: "bia",
       request_id: uuid(),
     };
@@ -55,13 +61,12 @@ Deno.test("bodyfat retries compare at storage precision without hiding different
     }
     assertEquals(
       (await api.post("/bodyfat", { ...input, percent: stored + 0.2 })).status,
-      409,
+      409
     );
   }
   assertEquals((await api.get("/bodyfat")).body.bodyfat_estimates.length, 3);
 });
-
-Deno.test("stored intake quantities determine macros on create, retry and correction", async () => {
+test("stored intake quantities determine macros on create, retry and correction", async () => {
   // Generate hundredths, not values already rounded to the database scale.
   // Each attempt owns its records, including fast-check shrinking attempts.
   await fc.assert(
@@ -70,16 +75,18 @@ Deno.test("stored intake quantities determine macros on create, retry and correc
       async (hundredths) => {
         await resetNutrition();
         assertEquals(
-          (await api.post("/foods", {
-            name: "Precision food",
-            kcal_100g: 400,
-            protein_100g: 10,
-            carbs_100g: 90,
-            fat_100g: 0,
-            source: "label",
-            grams_per_unit: 1,
-          })).status,
-          201,
+          (
+            await api.post("/foods", {
+              name: "Precision food",
+              kcal_100g: 400,
+              protein_100g: 10,
+              carbs_100g: 90,
+              fat_100g: 0,
+              source: "label",
+              grams_per_unit: 1,
+            })
+          ).status,
+          201
         );
         const input = {
           food: "Precision food",
@@ -90,7 +97,7 @@ Deno.test("stored intake quantities determine macros on create, retry and correc
         const created = await api.post("/intake", input);
         assertEquals(created.status, 201);
         assertEquals(created.body.entries.length, 1);
-        const id = created.body.entries[0].id;
+        const [{ id }] = created.body.entries;
         const check = (
           entry: {
             grams: number;
@@ -100,7 +107,7 @@ Deno.test("stored intake quantities determine macros on create, retry and correc
             fat_g: number;
             fiber_g: null;
           },
-          amount: number,
+          amount: number
         ) => {
           // Integer decimal oracle, independent of the production rounding helper.
           const tenths = Math.floor((amount + 5) / 10);
@@ -128,8 +135,8 @@ Deno.test("stored intake quantities determine macros on create, retry and correc
         });
         assertEquals(again.status, 200);
         assertEquals(again.body, corrected.body);
-      },
+      }
     ),
-    { numRuns: 30, examples: [[104], [105], [106], [150], [1615]] },
+    { numRuns: 30, examples: [[104], [105], [106], [150], [1615]] }
   );
 });

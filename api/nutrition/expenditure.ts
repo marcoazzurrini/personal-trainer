@@ -18,8 +18,8 @@
 // without a stack, and it is the only arithmetic in the system where being
 // quietly wrong would be invisible for weeks.
 
-import { daysBetween } from "../shared/dates.ts";
 import type { TrendPoint } from "../body/trend.ts";
+import { daysBetween } from "../shared/dates.ts";
 
 export const MIN_WINDOW_DAYS = 14;
 export const DEFAULT_WINDOW_DAYS = 21;
@@ -37,20 +37,20 @@ const FORBES_C = 10.4; // kg
 // estimate upward throughout a cut — the estimate would drift high exactly
 // when the target most needs to be right. Fine as a conversational
 // explanation, never as the arithmetic.
-export function energyDensity(fatMassKg: number): number {
-  const p = FORBES_C / (FORBES_C + fatMassKg); // dFFM/dBW
+export function energyDensity(fatMass: number): number {
+  const p = FORBES_C / (FORBES_C + fatMass); // dFFM/dBW
   return p * RHO_FFM + (1 - p) * RHO_FM;
 }
 
 export function fatMassKg(weightKg: number, bodyfatPercent: number): number {
-  return weightKg * bodyfatPercent / 100;
+  return (weightKg * bodyfatPercent) / 100;
 }
 
 // The basis for a protein target in a deficit: muscle retention is the point,
 // and it scales with the mass being retained, not with the fat being lost.
 export function fatFreeMassKg(
   weightKg: number,
-  bodyfatPercent: number,
+  bodyfatPercent: number
 ): number {
   return weightKg * (1 - bodyfatPercent / 100);
 }
@@ -67,38 +67,40 @@ export function weeklyTrendChange(
   start: Pick<TrendPoint, "day" | "trend_kg"> | undefined,
   finish: Pick<TrendPoint, "day" | "trend_kg"> | undefined,
   meanKcal: number | null,
-  density: number | null,
-): {
-  trend_delta_kg: number | null;
-  rate_pct_bw_week: number | null;
-  implied_tdee_kcal: number | null;
-} {
-  const delta = start && finish && Number.isFinite(start.trend_kg) &&
-      Number.isFinite(finish.trend_kg)
-    ? finish.trend_kg - start.trend_kg
-    : null;
-  const elapsed = start && finish ? daysBetween(start.day, finish.day) : NaN;
-  const slope = delta !== null && Number.isFinite(elapsed) && elapsed > 0
-    ? delta / elapsed
-    : null;
+  density: number | null
+) {
+  const delta =
+    start &&
+    finish &&
+    Number.isFinite(start.trend_kg) &&
+    Number.isFinite(finish.trend_kg)
+      ? finish.trend_kg - start.trend_kg
+      : null;
+  const elapsed =
+    start && finish ? daysBetween(start.day, finish.day) : Number.NaN;
+  const slope =
+    delta !== null && Number.isFinite(elapsed) && elapsed > 0
+      ? delta / elapsed
+      : null;
   return {
     trend_delta_kg: delta === null ? null : round(delta, 2),
-    rate_pct_bw_week: slope === null || !start || start.trend_kg <= 0
-      ? null
-      : round(slope * 7 / start.trend_kg * 100, 2),
-    implied_tdee_kcal: slope === null || meanKcal === null ||
-        !Number.isFinite(meanKcal) || density === null ||
-        !Number.isFinite(density) || density <= 0
-      ? null
-      : Math.round(meanKcal - slope * density),
+    rate_pct_bw_week:
+      slope === null || !start || start.trend_kg <= 0
+        ? null
+        : round(((slope * 7) / start.trend_kg) * 100, 2),
+    implied_tdee_kcal:
+      slope === null ||
+      meanKcal === null ||
+      !Number.isFinite(meanKcal) ||
+      density === null ||
+      !Number.isFinite(density) ||
+      density <= 0
+        ? null
+        : Math.round(meanKcal - slope * density),
   };
 }
 
-export type ExpenditureStatus =
-  | "ok"
-  | "damped"
-  | "stale"
-  | "insufficient_data";
+export type ExpenditureStatus = "ok" | "damped" | "stale" | "insufficient_data";
 
 export interface WindowInput {
   /** Whole-week-aligned window, oldest day first. */
@@ -144,7 +146,7 @@ export interface Expenditure {
 
 function insufficient(
   blockers: string[],
-  window: Expenditure["window"],
+  window: Expenditure["window"]
 ): Expenditure {
   return {
     status: "insufficient_data",
@@ -180,14 +182,15 @@ export function backSolve(input: WindowInput): Expenditure {
   if (days.length === 0) {
     return insufficient(
       ["There is no finished day to estimate over yet."],
-      null,
+      null
     );
   }
 
-  const from = days[0];
-  const to = days[days.length - 1];
-  const inWindow = trend.filter((p) =>
-    daysBetween(from, p.day) >= 0 && daysBetween(p.day, to) >= 0
+  const [from] = days;
+  // SAFETY: the empty days case returns above.
+  const to = days.at(-1) as string;
+  const inWindow = trend.filter(
+    (p) => daysBetween(from, p.day) >= 0 && daysBetween(p.day, to) >= 0
   );
   const weighInDays = inWindow.filter((p) => !p.interpolated).length;
   const usable = days.filter((d) => !excludedDays.has(d) && intakeByDay.has(d));
@@ -207,12 +210,12 @@ export function backSolve(input: WindowInput): Expenditure {
 
   if (days.length < MIN_WINDOW_DAYS) {
     blockers.push(
-      `The window is only ${days.length} days and the estimate needs at least ${MIN_WINDOW_DAYS}.`,
+      `The window is only ${days.length} days and the estimate needs at least ${MIN_WINDOW_DAYS}.`
     );
   }
   if (usable.length < MIN_WINDOW_DAYS) {
     blockers.push(
-      `Only ${usable.length} of the ${days.length} days in the window have logged intake, and the estimate needs ${MIN_WINDOW_DAYS} (days flagged incomplete are excluded on purpose, not counted as zero).`,
+      `Only ${usable.length} of the ${days.length} days in the window have logged intake, and the estimate needs ${MIN_WINDOW_DAYS} (days flagged incomplete are excluded on purpose, not counted as zero).`
     );
   }
   if (weighInDays < MIN_WEIGH_INS_PER_WEEK * weeks) {
@@ -223,12 +226,12 @@ export function backSolve(input: WindowInput): Expenditure {
     blockers.push(
       `${weighInDays} weigh-in day${
         weighInDays === 1 ? "" : "s"
-      } in the estimate's window (${from} – ${to}); the trend needs at least ${MIN_WEIGH_INS_PER_WEEK} a week to carry a slope worth back-solving. Daily weighing is the one habit that keeps this working through a logging lapse.`,
+      } in the estimate's window (${from} – ${to}); the trend needs at least ${MIN_WEIGH_INS_PER_WEEK} a week to carry a slope worth back-solving. Daily weighing is the one habit that keeps this working through a logging lapse.`
     );
   }
   if (bodyfatPercent === null) {
     blockers.push(
-      "No body-fat estimate on record. The energy density of a weight change depends on body composition — without it the back-solve would have to assume a flat 7,700 kcal/kg, which is biased for a lean trainee. POST /bodyfat with a rough figure (BIA, DXA, or an honest visual guess); precision is not critical, presence is.",
+      "No body-fat estimate on record. The energy density of a weight change depends on body composition — without it the back-solve would have to assume a flat 7,700 kcal/kg, which is biased for a lean trainee. POST /bodyfat with a rough figure (BIA, DXA, or an honest visual guess); precision is not critical, presence is."
     );
   }
   // The bodyfatPercent half is redundant with the blocker pushed just above;
@@ -239,20 +242,26 @@ export function backSolve(input: WindowInput): Expenditure {
   }
 
   if (inWindow.length < 2) {
-    return insufficient([
-      "Not enough trend points in the window to measure a slope.",
-    ], windowInfo);
+    return insufficient(
+      ["Not enough trend points in the window to measure a slope."],
+      windowInfo
+    );
   }
 
-  const trendFrom = inWindow[0];
-  const trendTo = inWindow[inWindow.length - 1];
+  const [trendFrom] = inWindow;
+  // SAFETY: fewer than two in-window points return above.
+  const trendTo = inWindow.at(-1) as TrendPoint;
   const span = daysBetween(trendFrom.day, trendTo.day);
   if (span <= 0) {
     return insufficient(["The trend does not span the window."], windowInfo);
   }
 
-  const meanIntake = usable.reduce((sum, d) => sum + intakeByDay.get(d)!, 0) /
-    usable.length;
+  const meanIntake =
+    usable.reduce(
+      // SAFETY: usable contains only keys in intakeByDay, which is unchanged during this reduction.
+      (sum, d) => sum + (intakeByDay.get(d) as number),
+      0
+    ) / usable.length;
   const slope = (trendTo.trend_kg - trendFrom.trend_kg) / span; // kg/day
   const fm = fatMassKg(trendTo.trend_kg, bodyfatPercent);
   const density = energyDensity(fm);
@@ -264,13 +273,12 @@ export function backSolve(input: WindowInput): Expenditure {
 
   const coverage = Math.min(
     usable.length / days.length,
-    weighInDays / days.length,
+    weighInDays / days.length
   );
 
   return {
     status: "ok",
-    reason:
-      `Back-solved over ${usable.length} logged days and ${weighInDays} weigh-ins in a ${days.length}-day window.`,
+    reason: `Back-solved over ${usable.length} logged days and ${weighInDays} weigh-ins in a ${days.length}-day window.`,
     blockers: [],
     tdee_kcal: Math.round(tdee),
     band_kcal: bandFor(coverage),
@@ -295,27 +303,30 @@ export const DAMP_MAX_STEP_KCAL = 100;
 export function damp(
   current: Expenditure,
   previousTdee: number | null,
-  transient: { kind: string; day: string } | null,
+  transient: { kind: string; day: string } | null
 ): Expenditure {
   if (
-    current.status !== "ok" || current.tdee_kcal === null ||
-    previousTdee === null || transient === null
+    current.status !== "ok" ||
+    current.tdee_kcal === null ||
+    previousTdee === null ||
+    transient === null
   ) {
     return current;
   }
   const step = current.tdee_kcal - previousTdee;
-  if (Math.abs(step) <= DAMP_THRESHOLD_KCAL) return current;
+  if (Math.abs(step) <= DAMP_THRESHOLD_KCAL) {
+    return current;
+  }
 
-  const capped = previousTdee +
-    Math.sign(step) * DAMP_MAX_STEP_KCAL;
+  const capped = previousTdee + Math.sign(step) * DAMP_MAX_STEP_KCAL;
   return {
     ...current,
     status: "damped",
     tdee_kcal: capped,
     band_kcal: Math.max(current.band_kcal ?? 250, 250),
-    reason: `The raw back-solve moved ${
-      Math.round(step)
-    } kcal/day week over week, which no metabolism does. A ${transient.kind} is registered on ${transient.day}, so this is water and glycogen being absorbed — the update is capped at ${DAMP_MAX_STEP_KCAL} kcal/day until it settles. Expect one to two weeks.`,
+    reason: `The raw back-solve moved ${Math.round(
+      step
+    )} kcal/day week over week, which no metabolism does. A ${transient.kind} is registered on ${transient.day}, so this is water and glycogen being absorbed — the update is capped at ${DAMP_MAX_STEP_KCAL} kcal/day until it settles. Expect one to two weeks.`,
   };
 }
 
@@ -349,11 +360,7 @@ export const MAX_RECOMP_DEFICIT_KCAL = 200;
 export const GOALS = ["cut", "maintain", "gain", "recomp"] as const;
 export type Goal = (typeof GOALS)[number];
 
-export type ClipReason =
-  | "rate"
-  | "deficit"
-  | "recomp_deficit"
-  | "surplus";
+export type ClipReason = "rate" | "deficit" | "recomp_deficit" | "surplus";
 
 export interface TargetComputation {
   kcal_target: number;
@@ -370,7 +377,7 @@ export function targetFromRate(
   ratePctBwWeek: number,
   trendWeightKg: number,
   energyDensityKcalPerKg: number,
-  goal: Goal,
+  goal: Goal
 ): TargetComputation {
   // The rate ceilings bind first: they are statements about what the body
   // will tolerate, so they should shape the target rather than be discovered
@@ -391,7 +398,7 @@ export function targetFromRate(
     reasons.push("rate");
   }
 
-  const desiredSlope = rate / 100 * trendWeightKg / 7; // kg/day
+  const desiredSlope = ((rate / 100) * trendWeightKg) / 7; // kg/day
   let kcal = tdee + desiredSlope * energyDensityKcalPerKg;
 
   if (tdee - kcal > MAX_DEFICIT_KCAL) {
@@ -417,7 +424,10 @@ export function targetFromRate(
   // Left alone when no kcal cap fired, so an unclipped rate stays exact.
   const kcalBound = reasons.some((r) => r !== "rate");
   const rateUsed = kcalBound
-    ? round((kcal - tdee) / energyDensityKcalPerKg / trendWeightKg * 7 * 100, 4)
+    ? round(
+        ((kcal - tdee) / energyDensityKcalPerKg / trendWeightKg) * 7 * 100,
+        4
+      )
     : rate;
 
   return {
@@ -451,11 +461,13 @@ export function proteinFromMultiplier(
   basis: ProteinBasis,
   multiplier: number,
   trendWeightKg: number,
-  bodyfatPercent: number | null,
+  bodyfatPercent: number | null
 ): ProteinComputation {
-  const mass = basis === "ffm"
-    ? fatFreeMassKg(trendWeightKg, bodyfatPercent!)
-    : trendWeightKg;
+  const mass =
+    basis === "ffm"
+      ? // eslint-disable-next-line typescript/no-non-null-assertion -- The target writer requires body fat before selecting the ffm basis; retain the pure arithmetic contract.
+        fatFreeMassKg(trendWeightKg, bodyfatPercent!)
+      : trendWeightKg;
   return {
     protein_g_target: Math.round(multiplier * mass),
     basis,

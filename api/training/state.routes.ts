@@ -1,7 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
-import { Entry as ContextEntry } from "./user_context.routes.ts";
+
 import { clock, query } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { Entry as ContextEntry } from "./user_context.routes.ts";
 
 // The declaration only; state.ts holds what it answers with.
 
@@ -121,5 +123,5 @@ trainingState.openapi(
       },
     },
   }),
-  async (c) => c.json(await services(c).trainingState.trainingState()),
+  async (c) => c.json(await services(c).trainingState.trainingState())
 );

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
+import { once } from "node:events";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createServer } from "node:net";
+import nodePath from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
+
 import { stopWorker, workerFixture } from "./worker-fixture.mts";
 
 const origin = "https://dashboard.example.test";
@@ -20,15 +23,19 @@ const environment = {
 
 async function files(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
-  return (await Promise.all(entries.map((entry) => {
-    const path = join(directory, entry.name);
-    return entry.isDirectory() ? files(path) : [path];
-  }))).flat();
+  return (
+    await Promise.all(
+      entries.map((entry) => {
+        const path = nodePath.join(directory, entry.name);
+        return entry.isDirectory() ? files(path) : [path];
+      })
+    )
+  ).flat();
 }
 
 test("the Workers deployment is portable and contains no local credentials", async () => {
   const config = JSON.parse(
-    await readFile(".output/server/wrangler.json", "utf8"),
+    await readFile(".output/server/wrangler.json", "utf-8")
   );
   assert.equal(config.main, "index.mjs");
   assert.equal(config.no_bundle, true);
@@ -42,26 +49,29 @@ test("the Workers deployment is portable and contains no local credentials", asy
   ]);
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
-  for (
-    const key of ["account_id", "d1_databases", "kv_namespaces", "hyperdrive"]
-  ) {
+  for (const key of [
+    "account_id",
+    "d1_databases",
+    "kv_namespaces",
+    "hyperdrive",
+  ]) {
     assert.equal(config[key], undefined);
   }
   const output = await files(".output");
   assert.ok(output.some((path) => path.endsWith("manifest.webmanifest")));
   assert.ok(
     !output.some((path) =>
-      /(?:^|\/)\.env|\.dev\.vars|build-revision\.txt/.test(path)
-    ),
+      /(?:^|\/)\.env|\.dev\.vars|build-revision\.txt/u.test(path)
+    )
   );
-  for (const path of output.filter((path) => /\.(?:mjs|js|json)$/.test(path))) {
-    const content = await readFile(path, "utf8");
-    for (
-      const value of [
-        environment.WORKOS_API_KEY,
-        environment.WORKOS_COOKIE_PASSWORD,
-      ]
-    ) {
+  for (const path of output.filter((file) =>
+    /\.(?:mjs|js|json)$/u.test(file)
+  )) {
+    const content = await readFile(path, "utf-8");
+    for (const value of [
+      environment.WORKOS_API_KEY,
+      environment.WORKOS_COOKIE_PASSWORD,
+    ]) {
       assert.ok(!content.includes(value), `${path} includes a runtime secret`);
     }
   }
@@ -83,15 +93,13 @@ test(
       child.stderr.on("data", (chunk) => {
         output += chunk;
       });
-      const status = await new Promise((resolve) =>
-        child.once("exit", resolve)
-      );
+      const [status] = await once(child, "exit");
       assert.equal(status, 0, output);
-      assert.match(output, /dry.run/i);
+      assert.match(output, /dry.run/iu);
     } finally {
       await fixture.dispose();
     }
-  },
+  }
 );
 
 test(
@@ -100,20 +108,18 @@ test(
     timeout: 60_000,
   },
   async (t) => {
-    for (
-      const redirect of [
-        environment.WORKOS_REDIRECT_URI,
-        "http://dashboard.example.test/auth/callback",
-        "",
-      ]
-    ) {
+    for (const redirect of [
+      environment.WORKOS_REDIRECT_URI,
+      "http://dashboard.example.test/auth/callback",
+      "",
+    ]) {
       await t.test(redirect || "missing callback", async () => {
         const reservation = createServer();
-        await new Promise((resolve) =>
-          reservation.listen(0, "127.0.0.1", resolve)
-        );
-        const port = reservation.address().port;
-        await new Promise((resolve) => reservation.close(resolve));
+        const listening = once(reservation, "listening");
+        reservation.listen(0, "127.0.0.1");
+        await listening;
+        const { port } = reservation.address();
+        await promisify(reservation.close.bind(reservation))();
         const fixture = await workerFixture({
           ...environment,
           WORKOS_REDIRECT_URI: redirect,
@@ -156,7 +162,7 @@ test(
           assert.ok(health, output || "Worker did not start");
           assert.equal(
             health.headers.get("cache-control"),
-            "private, no-store",
+            "private, no-store"
           );
           assert.equal(health.headers.get("set-cookie"), null);
           if (redirect !== environment.WORKOS_REDIRECT_URI) {
@@ -168,11 +174,11 @@ test(
           const metadata = await health.json();
           assert.equal(metadata.status, "ok");
           const expected = JSON.parse(
-            await readFile(".output/build.json", "utf8"),
+            await readFile(".output/build.json", "utf-8")
           );
           assert.equal(metadata.revision, expected.revision);
           assert.equal(metadata.build, expected.digest);
-          assert.match(metadata.build, /^[a-f0-9]{64}$/);
+          assert.match(metadata.build, /^[a-f0-9]{64}$/u);
           assert.notEqual(metadata.revision, environment.BUILD_REVISION);
           const head = await request("/api/health", "HEAD");
           assert.equal(head.status, 200);
@@ -182,7 +188,7 @@ test(
           assert.equal(home.status, 200);
           assert.equal(home.headers.get("cache-control"), "private, no-store");
           const html = await home.text();
-          assert.match(html, /Sign in/);
+          assert.match(html, /Sign in/u);
           assert.ok(!html.includes(environment.WORKOS_API_KEY));
           assert.ok(!html.includes(environment.WORKOS_COOKIE_PASSWORD));
           const login = await request("/auth/sign-in");
@@ -199,7 +205,7 @@ test(
           assert.equal(missing.status, 404);
           assert.equal(
             missing.headers.get("cache-control"),
-            "private, no-store",
+            "private, no-store"
           );
         } finally {
           await stopWorker(child);
@@ -207,5 +213,5 @@ test(
         }
       });
     }
-  },
+  }
 );

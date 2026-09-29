@@ -1,7 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
-import { EFFORTS, KINDS } from "./rules.ts";
-import { setCorrectionShape } from "./set_correction.schema.ts";
+
 import {
   body,
   date,
@@ -17,6 +15,10 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { EFFORTS, KINDS } from "./rules.ts";
+import { setCorrectionFields } from "./set_correction.schema.ts";
 
 export const sessions = new OpenAPIHono<AppEnv>();
 
@@ -74,7 +76,7 @@ const AppendedSet = SetRow.omit({
 // What a set entry may carry. Named here rather than inferred, because a
 // nested object is where a guessed field is most likely to go unnoticed:
 // "target_rpe" on one set of fifteen answers 201 and is simply not there.
-const setEntryShape = {
+const setEntryFields = {
   exercise: reference(),
   kind: oneOf(KINDS).default("working"),
   mesocycle: reference(),
@@ -91,7 +93,7 @@ const setEntryShape = {
   notes: optionalText(),
 };
 
-const setEntry = () => body(setEntryShape, 'an entry in "sets"');
+const setEntry = () => body(setEntryFields, 'an entry in "sets"');
 
 sessions.openapi(
   createRoute({
@@ -126,7 +128,7 @@ sessions.openapi(
     return c.json({
       sessions: await services(c).sessions.listSessions(limit ?? 20, mesocycle),
     });
-  },
+  }
 );
 
 sessions.openapi(
@@ -151,9 +153,9 @@ sessions.openapi(
   async (c) =>
     c.json({
       session: await services(c).sessions.sessionDetail(
-        c.req.valid("param").id,
+        c.req.valid("param").id
       ),
-    }),
+    })
 );
 
 sessions.openapi(
@@ -172,13 +174,15 @@ sessions.openapi(
             schema: body({
               date: date(),
               rationale: text(),
-              sets: z.array(setEntry(), {
-                error: () =>
-                  '"sets" must be a non-empty array. Upcoming session: [{exercise, kind?, target_weight_kg, target_reps}] — or target_distance_m / target_duration_s for work measured that way. Retro-logged: the same fields without the target_ prefix, plus effort on rep-counted working sets.',
-              }).min(1, {
-                error: () =>
-                  '"sets" must be a non-empty array. Upcoming session: [{exercise, kind?, target_weight_kg, target_reps}] — or target_distance_m / target_duration_s for work measured that way. Retro-logged: the same fields without the target_ prefix, plus effort on rep-counted working sets.',
-              }),
+              sets: z
+                .array(setEntry(), {
+                  error: () =>
+                    '"sets" must be a non-empty array. Upcoming session: [{exercise, kind?, target_weight_kg, target_reps}] — or target_distance_m / target_duration_s for work measured that way. Retro-logged: the same fields without the target_ prefix, plus effort on rep-counted working sets.',
+                })
+                .min(1, {
+                  error: () =>
+                    '"sets" must be a non-empty array. Upcoming session: [{exercise, kind?, target_weight_kg, target_reps}] — or target_distance_m / target_duration_s for work measured that way. Retro-logged: the same fields without the target_ prefix, plus effort on rep-counted working sets.',
+                }),
               request_id: requestId(),
             }),
           },
@@ -211,10 +215,10 @@ sessions.openapi(
   }),
   async (c) => {
     const { session, created } = await services(c).sessions.writeSession(
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return created ? c.json({ session }, 201) : c.json({ session }, 200);
-  },
+  }
 );
 
 sessions.openapi(
@@ -231,7 +235,7 @@ sessions.openapi(
       body: {
         content: {
           "application/json": {
-            schema: body({ ...setEntryShape, request_id: requestId() }),
+            schema: body({ ...setEntryFields, request_id: requestId() }),
           },
         },
       },
@@ -257,10 +261,10 @@ sessions.openapi(
   async (c) => {
     const { set, created } = await services(c).sessions.appendSet(
       c.req.valid("param").id,
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return created ? c.json({ set }, 201) : c.json({ set }, 200);
-  },
+  }
 );
 
 sessions.openapi(
@@ -283,12 +287,13 @@ sessions.openapi(
               overall_feel: optionalText(),
               notes: optionalText(),
               rationale: text().optional(),
-              sets: z.array(
-                body(
-                  { id: int({ min: 1 }), ...setCorrectionShape() },
-                  'an entry in "sets"',
-                ),
-              )
+              sets: z
+                .array(
+                  body(
+                    { id: int({ min: 1 }), ...setCorrectionFields() },
+                    'an entry in "sets"'
+                  )
+                )
                 .min(1, {
                   error: () =>
                     '"sets" must be a non-empty array of corrections with set ids. Omit it when changing only session facts.',
@@ -326,9 +331,9 @@ sessions.openapi(
     c.json({
       session: await services(c).sessions.correctSession(
         c.req.valid("param").id,
-        c.req.valid("json"),
+        c.req.valid("json")
       ),
-    }),
+    })
 );
 
 sessions.openapi(
@@ -365,7 +370,7 @@ sessions.openapi(
   async (c) =>
     c.json({
       deleted: await services(c).sessions.discardSession(
-        c.req.valid("param").id,
+        c.req.valid("param").id
       ),
-    }),
+    })
 );

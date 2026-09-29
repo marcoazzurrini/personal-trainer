@@ -1,4 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import d1, { batch } from "./d1.ts";
 import {
   api,
@@ -9,7 +11,7 @@ import {
   uuid,
 } from "./helpers.ts";
 
-Deno.test("target retries and concurrent saves derive switches without event writes", async () => {
+test("target retries and concurrent saves derive switches without event writes", async () => {
   await resetNutrition();
   const day = lastFinishedSunday();
   await seedWeighIns([day], 80);
@@ -39,21 +41,18 @@ Deno.test("target retries and concurrent saves derive switches without event wri
       for each row begin
         select raise(abort, 'CHECK constraint failed: test_target_event_failure');
       end`;
-
     const saved = await api.post("/nutrition-targets", switchInput);
     assertEquals(saved.status, 201, saved.body.error);
     assertEquals(saved.body.phase_switch_registered, true);
-    const events = (await api.get("/nutrition-events")).body.events;
+    const { events } = (await api.get("/nutrition-events")).body;
     assertEquals(events.length, 1);
     assertEquals(events[0].id, -saved.body.target.id);
     assertEquals(events[0].note, "cut -> maintain");
     assertEquals((await db`select id from nutrition_events`).length, 0);
-
     const replay = await api.post("/nutrition-targets", switchInput);
     assertEquals(replay.status, 200);
     assertEquals(replay.body, { target: saved.body.target });
     assertEquals((await api.get("/nutrition-events")).body.events, events);
-
     const gain = {
       ...base,
       effective_from: day,
@@ -69,13 +68,15 @@ Deno.test("target retries and concurrent saves derive switches without event wri
     assert(raced.every((r) => [200, 201, 409].includes(r.status)));
     assertEquals((await api.get("/nutrition-targets")).body.targets.length, 3);
     assertEquals((await api.post("/nutrition-targets", gain)).status, 200);
-
     // Concurrent same-date revisions cannot manufacture duplicate switches.
     const distinct = await Promise.all([
       api.post("/nutrition-targets", { ...switchInput, request_id: uuid() }),
       api.post("/nutrition-targets", { ...switchInput, request_id: uuid() }),
     ]);
-    assertEquals(distinct.map((r) => r.status), [201, 201]);
+    assertEquals(
+      distinct.map((r) => r.status),
+      [201, 201]
+    );
     const current = (await api.get("/nutrition-targets")).body.active;
     const finalEvents = (await api.get("/nutrition-events")).body.events;
     assertEquals(finalEvents.length, 1);
@@ -87,8 +88,7 @@ Deno.test("target retries and concurrent saves derive switches without event wri
     await db.end();
   }
 });
-
-Deno.test("a failed switch response read rolls back the target and permits retry", async () => {
+test("a failed switch response read rolls back the target and permits retry", async () => {
   await resetNutrition();
   const day = lastFinishedSunday();
   await seedWeighIns([day], 80);
@@ -113,13 +113,12 @@ Deno.test("a failed switch response read rolls back the target and permits retry
   const [original] = await db`
     select sql from sqlite_schema where type = 'view' and name = 'nutrition_goal_switches'`;
   assert(typeof original?.sql === "string");
-  const definition = original.sql.replace(
-    /^create\s+view\s+nutrition_goal_switches\s+as\s+/i,
-    "",
-  ).replace(/;\s*$/, "");
+  const definition = original.sql
+    .replace(/^create\s+view\s+nutrition_goal_switches\s+as\s+/iu, "")
+    .replace(/;\s*$/u, "");
   assert(
     definition !== original.sql,
-    "Expected the native goal-switch view definition.",
+    "Expected the native goal-switch view definition."
   );
   const restore = () =>
     batch([
@@ -145,10 +144,10 @@ Deno.test("a failed switch response read rolls back the target and permits retry
     assertEquals(failed.status, 500);
     assert(failed.body.error.includes("Internal error"), failed.body.error);
     assertEquals(
-      (await db`select count(*) as n from nutrition_targets where request_id = ${input.request_id}`)[
-        0
-      ].n,
-      0,
+      (
+        await db`select count(*) as n from nutrition_targets where request_id = ${input.request_id}`
+      )[0].n,
+      0
     );
     await restore();
     assertEquals((await api.get("/nutrition-targets")).body.targets, [

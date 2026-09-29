@@ -19,8 +19,8 @@ export const TRACKS = [
 ] as const;
 
 export const ROLES = ["main", "accessory", "rehab"] as const;
-export type Role = typeof ROLES[number];
-export type Track = typeof TRACKS[number];
+export type Role = (typeof ROLES)[number];
+export type Track = (typeof TRACKS)[number];
 
 // The tracks with a method document. Stated here rather than discovered by
 // reading the filesystem, because the documents ship in the plugin and the
@@ -47,22 +47,22 @@ export const DOSE_UNITS = ["sets", "minutes", "km"] as const;
 // owning the list it comes from.
 export const KINDS = ["warmup", "working"] as const;
 export const EFFORTS = ["easy", "hard", "failure"] as const;
-export type Kind = typeof KINDS[number];
-export type Effort = typeof EFFORTS[number];
+export type Kind = (typeof KINDS)[number];
+export type Effort = (typeof EFFORTS)[number];
 
 // What kind of adaptation an exercise is trained for. Declared in the
 // exercises route while the rule that branches on it — assertEffort — spelled
 // "strength" as a literal, so adding a fourth stimulus type would have
 // silently changed effort enforcement.
 export const STIMULUS_TYPES = ["strength", "power", "conditioning"] as const;
-export type StimulusType = typeof STIMULUS_TYPES[number];
+export type StimulusType = (typeof STIMULUS_TYPES)[number];
 
 // The one stimulus that effort is information about. Named rather than
 // spelled inline, so the list above and the branch below cannot part company.
 const EFFORT_BEARING: StimulusType = "strength";
 
-export type Measure = typeof MEASURES[number];
-export type DoseUnit = typeof DOSE_UNITS[number];
+export type Measure = (typeof MEASURES)[number];
+export type DoseUnit = (typeof DOSE_UNITS)[number];
 
 type Field = "reps" | "distance" | "duration";
 
@@ -95,6 +95,7 @@ const ALL_FIELDS: readonly Field[] = ["reps", "distance", "duration"];
 // siblings with a function instead of a rule, and the refusal below would
 // become a TypeError — a 500 where the caller needed the list of measures.
 function ruleFor(measure: string): Rule | undefined {
+  // SAFETY: RULES has exactly the Measure keys; the own-key check excludes prototype members.
   return Object.hasOwn(RULES, measure) ? RULES[measure as Measure] : undefined;
 }
 
@@ -107,25 +108,33 @@ export interface SetMeasures {
 
 function column(field: Field | "weight", side: "target" | "actual"): string {
   const prefix = side === "target" ? "target_" : "";
-  if (field === "weight") return `${prefix}weight_kg`;
-  if (field === "reps") return `${prefix}reps`;
-  if (field === "distance") return `${prefix}distance_m`;
+  if (field === "weight") {
+    return `${prefix}weight_kg`;
+  }
+  if (field === "reps") {
+    return `${prefix}reps`;
+  }
+  if (field === "distance") {
+    return `${prefix}distance_m`;
+  }
   return `${prefix}duration_s`;
 }
 
 function value(v: SetMeasures, field: Field): number | null {
-  if (field === "reps") return v.reps;
-  if (field === "distance") return v.distanceM;
+  if (field === "reps") {
+    return v.reps;
+  }
+  if (field === "distance") {
+    return v.distanceM;
+  }
   return v.durationS;
 }
 
 // What a correct set of this exercise looks like, for the error messages.
-function shape(measure: Measure, side: "target" | "actual"): string {
-  const rule = RULES[measure];
+function requiredMeasures(rule: Rule, side: "target" | "actual"): string {
   const measures = rule.needs.map((f) => column(f, side));
-  const joined = rule.mode === "all"
-    ? measures.join(" and ")
-    : measures.join(" or ");
+  const joined =
+    rule.mode === "all" ? measures.join(" and ") : measures.join(" or ");
   return rule.weight === "required"
     ? `${column("weight", side)} with ${joined}`
     : joined;
@@ -139,63 +148,72 @@ export function assertSetMeasures(
   measure: string,
   exercise: string,
   side: "target" | "actual",
-  v: SetMeasures,
+  v: SetMeasures
 ): void {
   const rule = ruleFor(measure);
   if (!rule) {
     throw new ApiError(
       422,
-      `"${exercise}" has an unknown measure "${measure}". Measures are: ${
-        MEASURES.join(", ")
-      }.`,
+      `"${exercise}" has an unknown measure "${measure}". Measures are: ${MEASURES.join(
+        ", "
+      )}.`
     );
   }
 
   // Nothing on this side at all is not a violation — it is a planned row
   // before the work, or a retro-logged row that was never asked for.
-  const empty = v.weightKg === null &&
-    ALL_FIELDS.every((f) => value(v, f) === null);
-  if (empty) return;
+  const empty =
+    v.weightKg === null && ALL_FIELDS.every((f) => value(v, f) === null);
+  if (empty) {
+    return;
+  }
 
   const noun = side === "target" ? "asked for" : "recorded";
 
   for (const field of ALL_FIELDS) {
-    if (rule.needs.includes(field) || value(v, field) === null) continue;
+    if (rule.needs.includes(field) || value(v, field) === null) {
+      continue;
+    }
     throw new ApiError(
       422,
-      `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${
-        shape(measure as Measure, side)
-      } — not ${
-        column(field, side)
-      }. If that is wrong, fix the exercise rather than the set: PATCH /exercises/:ref changes the measure while nothing has been logged against it; once sets exist, the fix is a new exercise with the right measure, taking the old one's aliases.`,
+      `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${requiredMeasures(
+        rule,
+        side
+      )} — not ${column(
+        field,
+        side
+      )}. If that is wrong, fix the exercise rather than the set: PATCH /exercises/:ref changes the measure while nothing has been logged against it; once sets exist, the fix is a new exercise with the right measure, taking the old one's aliases.`
     );
   }
 
   if (rule.weight === "required" && v.weightKg === null) {
     throw new ApiError(
       422,
-      `"${exercise}" is measured in ${measure}: send ${
-        column("weight", side)
-      } as well as ${
-        column("reps", side)
-      }. An unloaded set of a loaded exercise is 0, not absent — 0 is a real bodyweight set and absent means the set was not done.`,
+      `"${exercise}" is measured in ${measure}: send ${column(
+        "weight",
+        side
+      )} as well as ${column(
+        "reps",
+        side
+      )}. An unloaded set of a loaded exercise is 0, not absent — 0 is a real bodyweight set and absent means the set was not done.`
     );
   }
 
   const present = rule.needs.filter((f) => value(v, f) !== null);
-  const satisfied = rule.mode === "all"
-    ? present.length === rule.needs.length
-    : present.length > 0;
+  const satisfied =
+    rule.mode === "all"
+      ? present.length === rule.needs.length
+      : present.length > 0;
   if (!satisfied) {
     throw new ApiError(
       422,
-      `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${
-        shape(measure as Measure, side)
-      }. This one is missing ${
-        rule.needs.filter((f) => value(v, f) === null).map((f) =>
-          column(f, side)
-        ).join(" and ")
-      }.`,
+      `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${requiredMeasures(
+        rule,
+        side
+      )}. This one is missing ${rule.needs
+        .filter((f) => value(v, f) === null)
+        .map((f) => column(f, side))
+        .join(" and ")}.`
     );
   }
 }
@@ -215,13 +233,17 @@ export function assertEffort(
   exercise: string,
   kind: string,
   reps: number | null,
-  effort: string | null,
+  effort: string | null
 ): void {
-  if (kind !== "working" || reps === null || effort !== null) return;
-  if (stimulusType !== EFFORT_BEARING) return;
+  if (kind !== "working" || reps === null || effort !== null) {
+    return;
+  }
+  if (stimulusType !== EFFORT_BEARING) {
+    return;
+  }
   throw new ApiError(
     422,
-    `effort is required on a working set of "${exercise}": send easy, hard, or failure. It is what the next session's load is chosen from, and a missing chip cannot be told from an honest one later. Work scored by the clock or the tape carries none.`,
+    `effort is required on a working set of "${exercise}": send easy, hard, or failure. It is what the next session's load is chosen from, and a missing chip cannot be told from an honest one later. Work scored by the clock or the tape carries none.`
   );
 }
 
@@ -232,23 +254,29 @@ export function assertEffort(
 export function assertDoseUnit(
   measure: string,
   unit: string,
-  exercise: string,
+  exercise: string
 ): void {
   const allowed = doseUnitsFor(measure);
-  if (allowed.includes(unit as DoseUnit)) return;
+  if (allowed.some((allowedUnit) => allowedUnit === unit)) {
+    return;
+  }
   throw new ApiError(
     422,
-    `"${exercise}" is measured in ${measure}, so its weekly dose cannot be in ${unit} — nothing delivered would ever count towards it, and the dose would read as permanently unmet. Allowed here: ${
-      allowed.join(", ")
-    }.`,
+    `"${exercise}" is measured in ${measure}, so its weekly dose cannot be in ${unit} — nothing delivered would ever count towards it, and the dose would read as permanently unmet. Allowed here: ${allowed.join(
+      ", "
+    )}.`
   );
 }
 
 export function doseUnitsFor(measure: string): DoseUnit[] {
   const rule = ruleFor(measure);
   const units: DoseUnit[] = ["sets"];
-  if (rule?.needs.includes("duration")) units.push("minutes");
-  if (rule?.needs.includes("distance")) units.push("km");
+  if (rule?.needs.includes("duration")) {
+    units.push("minutes");
+  }
+  if (rule?.needs.includes("distance")) {
+    units.push("km");
+  }
   return units;
 }
 
@@ -260,9 +288,13 @@ export function deliveredInDoseUnit(
   unit: string,
   setsDone: number | null,
   distanceM: number | null,
-  durationS: number | null,
+  durationS: number | null
 ): number {
-  if (unit === "km") return (distanceM ?? 0) / 1000;
-  if (unit === "minutes") return (durationS ?? 0) / 60;
+  if (unit === "km") {
+    return (distanceM ?? 0) / 1000;
+  }
+  if (unit === "minutes") {
+    return (durationS ?? 0) / 60;
+  }
   return setsDone ?? 0;
 }

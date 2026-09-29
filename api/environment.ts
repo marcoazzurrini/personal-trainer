@@ -17,6 +17,6 @@ export interface Bindings extends IssueBindings {
 }
 
 export interface Invocation {
-  waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException(): void;
+  waitUntil: (promise: Promise<unknown>) => void;
+  passThroughOnException: () => void;
 }

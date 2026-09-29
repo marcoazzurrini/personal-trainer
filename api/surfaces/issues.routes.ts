@@ -1,11 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import {
-  commentOnReport,
-  fileIssue,
-  type IssueBindings,
-  listIssues,
-} from "./issues.ts";
-import { ISSUE_KINDS } from "./github.ts";
+
 import {
   body,
   idParam,
@@ -14,6 +8,9 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
+import { ISSUE_KINDS } from "./github.ts";
+import { commentOnReport, fileIssue, listIssues } from "./issues.ts";
+import type { IssueBindings } from "./issues.ts";
 
 // The only enum on the endpoint, and it decides what else is required. Its
 // message carries the whole distinction rather than listing two words,
@@ -60,7 +57,7 @@ issues.openapi(
       502: { description: "GitHub could not be reached." },
     },
   }),
-  async (c) => c.json({ issues: await listIssues(c.env) }),
+  async (c) => c.json({ issues: await listIssues(c.env) })
 );
 
 issues.openapi(
@@ -82,12 +79,15 @@ issues.openapi(
               problem: text(),
               evidence: optionalText(),
               suggestion: optionalText(),
-              docs: z.array(z.string({ error: docsError }), {
-                error: docsError,
-              }).optional().meta({
-                description:
-                  'Document names as the skill writes them, like ["tasks/programming"].',
-              }),
+              docs: z
+                .array(z.string({ error: docsError }), {
+                  error: docsError,
+                })
+                .optional()
+                .meta({
+                  description:
+                    'Document names as the skill writes them, like ["tasks/programming"].',
+                }),
               request_id: requestId().meta({
                 description:
                   "A correlation UUID included in the GitHub issue body, not an idempotency key. Repeating it may create duplicates; reconcile uncertain delivery in GitHub before another attempt.",
@@ -116,7 +116,7 @@ issues.openapi(
   async (c) => {
     const issue = await fileIssue(c.req.valid("json"), c.env);
     return c.json({ issue }, 201);
-  },
+  }
 );
 
 issues.openapi(
@@ -151,11 +151,14 @@ issues.openapi(
     },
   }),
   async (c) =>
-    c.json({
-      comment: await commentOnReport(
-        c.req.valid("param").number,
-        c.req.valid("json").note,
-        c.env,
-      ),
-    }, 201),
+    c.json(
+      {
+        comment: await commentOnReport(
+          c.req.valid("param").number,
+          c.req.valid("json").note,
+          c.env
+        ),
+      },
+      201
+    )
 );

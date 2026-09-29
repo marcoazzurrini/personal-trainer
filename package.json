@@ -1,36 +1,54 @@
 {
   "name": "personal-trainer",
   "private": true,
+  "workspaces": [
+    "web",
+    "db/d1"
+  ],
   "type": "module",
-  "engines": {
-    "node": ">=24.20.0 <25",
-    "deno": "2.9.6"
-  },
   "scripts": {
-    "dev": "npm run db:migrate:local && wrangler dev --local",
-    "build": "node scripts/build-worker.mjs",
-    "deploy": "node scripts/deploy-worker.mjs",
+    "prepare": "lefthook install",
+    "dev": "bun run db:migrate:local && wrangler dev --local",
+    "build": "bun scripts/build-worker.mjs",
+    "deploy": "bun scripts/deploy-worker.mjs",
+    "fmt": "oxfmt",
+    "lint": "oxlint --deny-warnings",
+    "check": "tsc --noEmit",
+    "check:style": "ultracite check",
+    "fix": "ultracite fix",
+    "secrets": "bun --no-env-file scripts/secrets.ts",
     "db:migrate:local": "wrangler d1 migrations apply personal-trainer --local",
     "db:migrate:remote": "wrangler d1 migrations apply personal-trainer --remote",
-    "test": "npm run test:prepare && npm run test:api && npm run test:d1 && npm run test:tooling && npm run test:operators && npm run test:shutdown",
-    "test:prepare": "deno test --no-run --frozen api/tests/ scripts/shutdown_test.ts",
-    "test:api": "node scripts/test-worker.mjs",
-    "test:d1": "npm test --prefix db/d1",
-    "test:tooling": "node --test scripts/build-worker.test.mjs scripts/deploy-worker.test.mjs",
-    "test:operators": "deno test --frozen --allow-read --allow-write scripts/seed_withings_test.ts",
-    "test:shutdown": "deno test --cached-only --frozen --allow-run=node --allow-env --allow-net=127.0.0.1 scripts/shutdown_test.ts",
-    "test:postgres-import": "npm --prefix db/d1 run test:postgres"
+    "test": "bun run test:api && bun run test:d1 && bun run test:tooling && bun run test:operators && bun run test:shutdown",
+    "test:api": "bun --no-env-file scripts/test-worker.mjs",
+    "test:d1": "bun run --cwd db/d1 test",
+    "test:tooling": "bun --no-env-file test ./scripts/build-worker.test.mjs ./scripts/deploy-worker.test.mjs ./scripts/hooks.test.mjs ./scripts/toolchain.test.mjs",
+    "test:operators": "bun --no-env-file test ./scripts/seed_withings_test.ts",
+    "test:shutdown": "bun --no-env-file test ./scripts/shutdown_test.ts --timeout 60000",
+    "test:secrets": "bun --no-env-file test ./scripts/secrets_test.ts",
+    "test:postgres-import": "bun run --cwd db/d1 test:postgres"
   },
   "dependencies": {
-    "@hono/hono": "npm:hono@4.13.7",
-    "@hono/zod-openapi": "1.6.3"
+    "@hono/zod-openapi": "1.6.3",
+    "hono": "4.13.7"
   },
   "devDependencies": {
+    "@types/bun": "1.4.2",
     "@types/node": "24.13.4",
     "ajv": "8.20.0",
     "esbuild": "0.28.1",
     "fast-check": "4.9.0",
+    "lefthook": "2.1.10",
     "miniflare": "5.20260911.1-alpha",
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0",
+    "typescript": "7.0.2",
+    "ultracite": "7.12.0",
     "wrangler": "4.131.2"
-  }
+  },
+  "engines": {
+    "bun": "1.4.2",
+    "node": ">=24.20.0 <25"
+  },
+  "packageManager": "bun@1.4.2"
 }

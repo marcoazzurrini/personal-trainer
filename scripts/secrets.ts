@@ -1,32 +1,55 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
+
 // Scan the index, not working files: an unstaged cleanup cannot hide a staged
 // credential. CI's checkout populates that same index. No host secrets mount.
 export const SCANNER =
   "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"; // v8.30.1
 
-export async function scanStaged(cwd = Deno.cwd()): Promise<void> {
-  async function git(...args: string[]) {
-    const result = await new Deno.Command("git", {
-      cwd,
-      args,
-      stdout: "piped",
-      stderr: "piped",
-    }).output();
-    if (!result.success) {
+async function command(
+  args: string[],
+  cwd: string
+): Promise<{ code: number; stdout: string }> {
+  const child = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "pipe" });
+  const [code, stdout] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { code, stdout };
+}
+
+export async function scanStaged(cwd = process.cwd()): Promise<void> {
+  async function git(...args: string[]): Promise<string> {
+    const result = await command(["git", ...args], cwd);
+    if (result.code !== 0) {
       throw new Error("Cannot read staged files; secret scan failed closed.");
     }
-    return new TextDecoder().decode(result.stdout);
+    return result.stdout;
   }
   const paths = (await git("ls-files", "-z")).split("\0");
-  if (paths.some((p) => /(^|\/)\.env(?:\.hosting)?$/.test(p))) {
+  if (
+    paths.some((path) =>
+      path
+        .split("/")
+        .some(
+          (part) =>
+            part !== ".env.example" &&
+            /^(?:\.env|\.dev\.vars)(?:\.|$)/u.test(part)
+        )
+    )
+  ) {
     throw new Error(
-      "Protected .env or .env.hosting file is staged. Unstage it; contents were not read.",
+      "Protected environment file is staged. Unstage it; contents were not read."
     );
   }
-  const directory = await Deno.makeTempDir({ prefix: "pt-secret-scan-" });
+  const directory = await mkdtemp(nodePath.join(tmpdir(), "pt-secret-scan-"));
   try {
     await git("checkout-index", "--all", `--prefix=${directory}/`);
-    const result = await new Deno.Command("docker", {
-      args: [
+    const result = await command(
+      [
+        "docker",
         "run",
         "--rm",
         "--network=none",
@@ -42,41 +65,43 @@ export async function scanStaged(cwd = Deno.cwd()): Promise<void> {
         "--report-format=json",
         "--report-path=-",
       ],
-      stdout: "piped",
-      stderr: "piped",
-    }).output();
-    if (!result.success) {
-      // Never forward scanner matches, source lines, or Docker stderr. Even a
-      // detector's redaction covers its matched secret, not necessarily siblings.
-      let findings: Array<{ RuleID: string; File: string; StartLine: number }> =
-        [];
+      cwd
+    );
+    if (result.code !== 0) {
+      // Never forward matches or stderr: detector redaction may miss sibling secrets.
+      let findings: { RuleID: string; File: string; StartLine: number }[] = [];
       try {
-        findings = JSON.parse(new TextDecoder().decode(result.stdout));
-      } catch { /* tool failure */ }
+        findings = JSON.parse(result.stdout);
+      } catch {
+        /* A scanner failure must also block the commit. */
+      }
       const locations = Array.isArray(findings)
-        ? findings.map((f) =>
-          `${f.RuleID} at ${JSON.stringify(f.File)}:${f.StartLine}`
-        ).join("\n")
+        ? findings
+            .map(
+              (finding) =>
+                `${finding.RuleID} at ${JSON.stringify(finding.File)}:${finding.StartLine}`
+            )
+            .join("\n")
         : "";
       throw new Error(
-        `Secret scan refused staged content or could not complete. Credential values withheld.\n${locations}`,
+        `Secret scan refused staged content or could not complete. Credential values withheld.\n${locations}`
       );
     }
     console.log(
-      "Staged secret scan passed (Gitleaks 8.30.1). No history or untracked files scanned.",
+      "Staged secret scan passed (Gitleaks 8.30.1). No history or untracked files scanned."
     );
   } finally {
-    await Deno.remove(directory, { recursive: true });
+    await rm(directory, { recursive: true });
   }
 }
 
 if (import.meta.main) {
   try {
     await scanStaged();
-  } catch (err) {
+  } catch (error) {
     console.error(
-      err instanceof Error ? err.message : "Secret scan failed closed.",
+      error instanceof Error ? error.message : "Secret scan failed closed."
     );
-    Deno.exit(1);
+    process.exitCode = 1;
   }
 }

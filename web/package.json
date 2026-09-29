@@ -2,20 +2,17 @@
   "name": "trainer-web",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=24.0.0 <25"
-  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env node_modules/vite/bin/vite.js --port 3000",
-    "build": "node scripts/build.mjs",
-    "icons": "node scripts/generate-icons.mjs",
+    "build": "bun scripts/build.mjs",
+    "icons": "bun scripts/generate-icons.mjs",
     "start": "wrangler dev --local --config .output/server/wrangler.json --env-file .env --port 3000",
     "deploy": "wrangler deploy --config .output/server/wrangler.json",
     "deploy:check": "wrangler deploy --dry-run --config .output/server/wrangler.json",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "test:workers": "node --test tests/workers.test.mjs"
+    "test:workers": "bun --no-env-file test ./tests/workers.test.mjs"
   },
   "dependencies": {
     "@tanstack/charts": "0.17.0",
@@ -39,5 +36,8 @@
     "vite": "8.2.2",
     "vitest": "5.0.0",
     "wrangler": "4.132.0"
+  },
+  "engines": {
+    "node": ">=24.0.0 <25"
   }
 }

@@ -1,25 +1,13 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
-import type { Bindings, Invocation } from "./environment.ts";
-import { createServices } from "./services.ts";
-import type { AppEnv } from "./shared/services.ts";
-import { type Clock, rows, systemClock } from "./shared/d1.ts";
-import {
-  ApiError,
-  type Diagnostic,
-  errorResponse,
-  internalError,
-  validationHook,
-} from "./shared/errors.ts";
-import { boundedBody } from "./shared/body.ts";
-import { buildMetadata } from "./shared/build.ts";
-import { bodyfat } from "./body/bodyfat.routes.ts";
-import { bodyweight } from "./body/bodyweight.routes.ts";
-import { withingsStore } from "./body/withings.ts";
-import { createWithingsRoutes } from "./body/withings.routes.ts";
-import { issues } from "./surfaces/index.ts";
+
+import { createMcpRoutes } from "./access/mcp.routes.ts";
 import { tokenStore } from "./access/tokens.ts";
 import { authorizeWebRead } from "./access/web.ts";
-import { createMcpRoutes } from "./access/mcp.routes.ts";
+import { bodyfat } from "./body/bodyfat.routes.ts";
+import { bodyweight } from "./body/bodyweight.routes.ts";
+import { createWithingsRoutes } from "./body/withings.routes.ts";
+import { withingsStore } from "./body/withings.ts";
+import type { Bindings, Invocation } from "./environment.ts";
 import {
   days,
   foods,
@@ -30,6 +18,20 @@ import {
   nutritionTargets,
   nutritionWeekly,
 } from "./nutrition/index.ts";
+import { createServices } from "./services.ts";
+import { boundedBody } from "./shared/body.ts";
+import { buildMetadata } from "./shared/build.ts";
+import { rows, systemClock } from "./shared/d1.ts";
+import type { Clock } from "./shared/d1.ts";
+import {
+  ApiError,
+  errorResponse,
+  internalError,
+  validationHook,
+} from "./shared/errors.ts";
+import type { Diagnostic } from "./shared/errors.ts";
+import type { AppEnv } from "./shared/services.ts";
+import { issues } from "./surfaces/index.ts";
 import {
   blocks,
   exercises,
@@ -50,25 +52,32 @@ import {
 export function createApplication(
   env: Bindings,
   invocation: Invocation,
-  clock: Clock = systemClock,
+  clock: Clock = systemClock
 ) {
   const services = createServices(env.DB, clock);
   const tokens = tokenStore(env.DB, clock);
-  const withings = withingsStore(env.DB, {
-    clientId: env.WITHINGS_CLIENT_ID,
-    clientSecret: env.WITHINGS_CLIENT_SECRET,
-    apiBase: env.WITHINGS_API_BASE,
-  }, clock);
+  const withings = withingsStore(
+    env.DB,
+    {
+      clientId: env.WITHINGS_CLIENT_ID,
+      clientSecret: env.WITHINGS_CLIENT_SECRET,
+      apiBase: env.WITHINGS_API_BASE,
+    },
+    clock
+  );
   const { withingsWebhook, withingsAdmin } = createWithingsRoutes(
     withings,
-    (work) => invocation.waitUntil(work),
+    (work) => invocation.waitUntil(work)
   );
-  const mcp = createMcpRoutes({
-    issuer: env.AUTH_ISSUER,
-    jwksUrl: env.AUTH_JWKS_URL,
-    allowedSubject: env.ALLOWED_SUBJECT,
-    publicOrigin: env.PUBLIC_ORIGIN,
-  }, { issueToken: tokens.issueToken });
+  const mcp = createMcpRoutes(
+    {
+      issuer: env.AUTH_ISSUER,
+      jwksUrl: env.AUTH_JWKS_URL,
+      allowedSubject: env.ALLOWED_SUBJECT,
+      publicOrigin: env.PUBLIC_ORIGIN,
+    },
+    { issueToken: tokens.issueToken }
+  );
 
   // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
   // mounted below stays an ordinary Hono router and keeps working untouched.
@@ -89,9 +98,10 @@ export function createApplication(
   }).basePath("/api");
 
   app.use(async (c, next) => {
-    const diagnostic = c.env.diagnostic;
+    const { diagnostic } = c.env;
     c.set("diagnostic", diagnostic);
     c.set("services", services);
+    // oxlint-disable-next-line node/callback-return -- Hono next is awaited middleware continuation; route diagnostics must run after it.
     await next();
     // routePath is the registered template, never the caller's raw URL. An
     // unmatched request ends at middleware (*), not at a sensitive path value.
@@ -103,18 +113,24 @@ export function createApplication(
   // scheduled Withings catch-up. D1 has no interactive query cancellation API.
   app.get("/health", async (c) => {
     const query = rows(env.DB, "SELECT 1");
-    invocation.waitUntil(query.catch(() => {}));
+    invocation.waitUntil(
+      // oxlint-disable-next-line promise/prefer-await-to-then -- Register the read immediately with waitUntil; the response still races the one-second deadline.
+      query.catch(() => {
+        // The race below owns the response error; waitUntil only retains the database read.
+      })
+    );
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         query,
-        new Promise<never>((_, reject) => {
+        // oxlint-disable-next-line promise/avoid-new -- Adapt the timer to a rejection without changing the database readiness deadline.
+        new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
             reject(
               new ApiError(
                 503,
-                "Database readiness check timed out. Try the health read again later.",
-              ),
+                "Database readiness check timed out. Try the health read again later."
+              )
             );
           }, 1000);
         }),
@@ -203,7 +219,8 @@ export function createApplication(
       Scalar.createApiReference('#app', { url: 'openapi.json' })
     </script>
   </body>
-</html>`));
+</html>`)
+  );
 
   // The connector: the one endpoint the plugin talks MCP to, whose one tool
   // mints the coach's token. Above the middleware because it carries its own
@@ -225,7 +242,9 @@ export function createApplication(
     const bearer = sent.startsWith("Bearer ")
       ? sent.slice("Bearer ".length)
       : "";
-    if (bearer === "") return c.json(refusal, 401);
+    if (bearer === "") {
+      return c.json(refusal, 401);
+    }
     if (bearer.includes(".")) {
       await authorizeWebRead(bearer, c.req.method, c.req.path, {
         issuer: env.WEB_AUTH_ISSUER,
@@ -236,6 +255,7 @@ export function createApplication(
     } else if ((await tokens.verifyToken(bearer)) === null) {
       return c.json(refusal, 401);
     }
+    // oxlint-disable-next-line node/callback-return -- Hono next returns a promise, not a Node-style callback.
     await next();
   });
 
@@ -254,7 +274,7 @@ export function createApplication(
   // A body-less POST passes: /withings/sync is reached from a terminal with no
   // body at all, and that is deliberate.
   app.use(async (c, next) => {
-    const method = c.req.method;
+    const { method } = c.req;
     if (method === "POST" || method === "PATCH" || method === "PUT") {
       const raw = await c.req.text();
       if (raw.trim() !== "") {
@@ -265,15 +285,22 @@ export function createApplication(
           parsed = undefined;
         }
         if (
-          parsed === null || typeof parsed !== "object" || Array.isArray(parsed)
+          parsed === null ||
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject primitive JSON at the HTTP boundary before any route validation.
+          typeof parsed !== "object" ||
+          Array.isArray(parsed)
         ) {
-          return c.json({
-            error:
-              "The request body must be a JSON object. Send Content-Type: application/json.",
-          }, 422);
+          return c.json(
+            {
+              error:
+                "The request body must be a JSON object. Send Content-Type: application/json.",
+            },
+            422
+          );
         }
       }
     }
+    // oxlint-disable-next-line node/callback-return -- Hono next returns a promise, not a Node-style callback.
     await next();
   });
 
@@ -307,18 +334,18 @@ export function createApplication(
     // Backstop for the normalization below: unreachable while the wrapper runs,
     // but a route this function cannot serve must still explain itself if a
     // refactor ever drops the wrapper. Errors are prompts, including this one.
-    const doubled = c.req.path.startsWith("/api/api/") ||
-      c.req.path === "/api/api";
+    const doubled =
+      c.req.path.startsWith("/api/api/") || c.req.path === "/api/api";
     const hint = doubled
       ? " The base URL already ends in /api — write paths without it, as the docs do."
       : "";
     return c.json(
       { error: `No route for ${c.req.method} ${c.req.path}.${hint}` },
-      404,
+      404
     );
   });
 
-  app.onError((err, c) => errorResponse(err, c));
+  app.onError(errorResponse);
   return app;
 }
 
@@ -339,17 +366,24 @@ export function createApplication(
 const JSON_BODY_METHODS = new Set(["POST", "PATCH", "PUT"]);
 
 async function normalized(req: Request): Promise<Request> {
-  if (!JSON_BODY_METHODS.has(req.method)) return req;
-  if (req.headers.get("content-type")?.includes("application/json")) return req;
+  if (!JSON_BODY_METHODS.has(req.method)) {
+    return req;
+  }
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    return req;
+  }
 
   const raw = await req.clone().text();
-  if (raw.trim() === "") return req;
+  if (raw.trim() === "") {
+    return req;
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
     return req;
   }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Only JSON objects qualify for Content-Type repair; leave other payloads untouched.
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return req;
   }
@@ -364,55 +398,73 @@ export async function handleRequest(
   req: Request,
   env: Bindings,
   invocation: Invocation,
-  clock: Clock = systemClock,
+  clock: Clock = systemClock
 ): Promise<Response> {
   const started = performance.now();
   const diagnostic: Diagnostic = {
     id: crypto.randomUUID(),
     route: "unmatched",
   };
-  const method =
-    ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].includes(
-        req.method,
-      )
-      ? req.method
-      : "OTHER";
+  const method = [
+    "GET",
+    "HEAD",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+  ].includes(req.method)
+    ? req.method
+    : "OTHER";
   let response: Response;
+  let request = req;
   try {
     try {
-      req = await boundedBody(req);
-    } catch (err) {
-      if (err instanceof ApiError) throw err;
+      request = await boundedBody(request);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
       throw new ApiError(
         400,
-        "Request body could not be read. Send a complete request body.",
+        "Request body could not be read. Send a complete request body."
       );
     }
-    const url = new URL(req.url);
-    const collapsed = url.pathname.replace(/^(\/api)+(?=\/|$)/, "/api");
+    const url = new URL(request.url);
+    const collapsed = url.pathname.replace(/^(?:\/api)+(?=\/|$)/u, "/api");
     if (collapsed !== url.pathname) {
       url.pathname = collapsed;
-      req = new Request(url, req);
+      request = new Request(url, request);
     }
     response = await createApplication(env, invocation, clock).fetch(
-      await normalized(req),
-      { ...env, diagnostic },
+      await normalized(request),
+      { ...env, diagnostic }
     );
-  } catch (err) {
-    response = Response.json({
-      error: err instanceof ApiError
-        ? err.message
-        : internalError(diagnostic, method),
-    }, { status: err instanceof ApiError ? err.status : 500 });
+  } catch (error) {
+    response = Response.json(
+      {
+        error:
+          error instanceof ApiError
+            ? error.message
+            : internalError(diagnostic, method),
+      },
+      { status: error instanceof ApiError ? error.status : 500 }
+    );
   }
   response.headers.set("X-Request-ID", diagnostic.id);
-  console.log(JSON.stringify({
-    diagnostic_id: diagnostic.id,
-    method,
-    route: diagnostic.route,
-    status: response.status,
-    duration_ms: Math.round(performance.now() - started),
-    ...(diagnostic.error ? { error: diagnostic.error } : {}),
-  }));
+  const failure: Pick<Diagnostic, "error"> = {};
+  if (diagnostic.error) {
+    failure.error = diagnostic.error;
+  }
+  console.log(
+    JSON.stringify({
+      diagnostic_id: diagnostic.id,
+      method,
+      route: diagnostic.route,
+      status: response.status,
+      duration_ms: Math.round(performance.now() - started),
+      ...failure,
+    })
+  );
   return response;
 }

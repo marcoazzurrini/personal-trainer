@@ -1,12 +1,5 @@
-import {
-  caseKey,
-  type Clock,
-  type Database,
-  jsonChunks,
-  type Parameter,
-  rows,
-  statement,
-} from "../shared/d1.ts";
+import { caseKey, jsonChunks, rows, statement } from "../shared/d1.ts";
+import type { Clock, Database, Parameter } from "../shared/d1.ts";
 import { ApiError } from "../shared/errors.ts";
 import type { Namespace } from "../shared/resolve.ts";
 
@@ -44,7 +37,7 @@ export const nutritionRows = (db: Database, count: number) =>
   statement(
     db,
     "UPDATE nutrition_write_assertions SET valid = (changes() = ?) WHERE id = 1",
-    count,
+    count
   );
 export const nutritionCheck = (
   db: Database,
@@ -54,27 +47,29 @@ export const nutritionCheck = (
   statement(
     db,
     `UPDATE nutrition_write_assertions SET valid = (${predicate}) WHERE id = 1`,
-    ...values,
+    ...values
   );
 
 export function nutritionResolver(db: Database, _clock?: Clock) {
   async function resolveMany(
     ns: Namespace,
-    refs: readonly unknown[],
+    refs: readonly unknown[]
   ): Promise<number[]> {
     const result = new Map<number, number>();
-    for (
-      const chunk of jsonChunks(
-        refs.map((ref, index) => ({
-          index,
-          id: typeof ref === "number" && Number.isInteger(ref) ? ref : null,
-          name: typeof ref === "string" ? caseKey(ref.trim()) : null,
-          fallback: typeof ref === "string" && /^\d+$/.test(ref.trim())
+    for (const chunk of jsonChunks(
+      refs.map((ref, index) => ({
+        index,
+        // eslint-disable-next-line anti-slop/no-runtime-typeof -- Reference parser accepts integer ids and must reject other JSON values without coercion.
+        id: typeof ref === "number" && Number.isInteger(ref) ? ref : null,
+        // eslint-disable-next-line anti-slop/no-runtime-typeof -- Only string references may be trimmed and normalized as names.
+        name: typeof ref === "string" ? caseKey(ref.trim()) : null,
+        fallback:
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Numeric strings fall back to ids only after the name and alias lookup.
+          typeof ref === "string" && /^\d+$/u.test(ref.trim())
             ? Number(ref.trim())
             : null,
-        })),
-      )
-    ) {
+      }))
+    )) {
       const found = await rows<{ position: number; id: number | null }>(
         db,
         `
@@ -84,20 +79,26 @@ export function nutritionResolver(db: Database, _clock?: Clock) {
           (SELECT ${ns.foreignKey} FROM ${ns.aliasTable} WHERE alias_key = json_extract(v.value, '$.name') AND json_extract(v.value, '$.name') <> ''),
           (SELECT id FROM ${ns.table} WHERE id = json_extract(v.value, '$.fallback'))
         ) AS id FROM json_each(?) v`,
-        chunk.json,
+        chunk.json
       );
       for (const row of found) {
-        if (row.id !== null) result.set(row.position, row.id);
+        if (row.id !== null) {
+          result.set(row.position, row.id);
+        }
       }
     }
     return refs.map((ref, index) => {
       const id = result.get(index);
-      if (id !== undefined) return id;
+      if (id !== undefined) {
+        return id;
+      }
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- Preserve the integer-id refusal for unresolved raw references.
       if (typeof ref === "number" && Number.isInteger(ref)) {
         throw new ApiError(422, ns.noSuchId(ref));
       }
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- Distinguish an unknown name from a missing or invalid JSON reference.
       if (typeof ref === "string" && ref.trim()) {
-        if (/^\d+$/.test(ref.trim())) {
+        if (/^\d+$/u.test(ref.trim())) {
           throw new ApiError(422, ns.noSuchId(Number(ref.trim())));
         }
         throw new ApiError(422, ns.unknownName(ref.trim()));
@@ -107,25 +108,30 @@ export function nutritionResolver(db: Database, _clock?: Clock) {
   }
   async function aliasesFree(ns: Namespace, aliases: readonly string[]) {
     const taken: { alias: string; id: number; name: string }[] = [];
-    for (
-      const chunk of jsonChunks([
-        ...new Set(aliases.map((a) => caseKey(a.trim()))),
-      ])
-    ) {
+    for (const chunk of jsonChunks([
+      ...new Set(aliases.map((a) => caseKey(a.trim()))),
+    ])) {
       taken.push(
         ...(await rows<{ alias: string; id: number; name: string }>(
           db,
           `SELECT a.alias, e.id, e.name FROM ${ns.aliasTable} a JOIN ${ns.table} e ON e.id = a.${ns.foreignKey}
          WHERE a.alias_key IN (SELECT value FROM json_each(?)) ORDER BY a.alias`,
-          chunk.json,
-        )),
+          chunk.json
+        ))
       );
     }
-    if (!taken.length) return;
-    taken.sort((a, b) => (a.alias < b.alias ? -1 : a.alias > b.alias ? 1 : 0));
+    if (!taken.length) {
+      return;
+    }
+    taken.sort((a, b) => {
+      if (a.alias < b.alias) {
+        return -1;
+      }
+      return a.alias > b.alias ? 1 : 0;
+    });
     const clashes = taken
       .map(
-        (t) => `"${t.alias}" already belongs to ${ns.what} ${t.id} (${t.name})`,
+        (t) => `"${t.alias}" already belongs to ${ns.what} ${t.id} (${t.name})`
       )
       .join("; ");
     const one = taken.length === 1;
@@ -139,11 +145,13 @@ export function nutritionResolver(db: Database, _clock?: Clock) {
         one ? "the name belongs" : "a name belongs"
       } on this row instead, release it first with DELETE ${ns.route}/${
         taken[0].id
-      }/aliases/${encodeURIComponent(taken[0].alias)}.`,
+      }/aliases/${encodeURIComponent(taken[0].alias)}.`
     );
   }
   return {
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- This parser boundary accepts raw food references and resolveMany validates their representation and existence.
     resolveFoodId: async (ref: unknown) => (await resolveMany(FOODS, [ref]))[0],
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- This parser boundary accepts raw meal references and resolveMany validates their representation and existence.
     resolveMealId: async (ref: unknown) => (await resolveMany(MEALS, [ref]))[0],
     resolveFoodIds: (refs: readonly unknown[]) => resolveMany(FOODS, refs),
     assertFoodAliasesFree: (aliases: readonly string[]) =>

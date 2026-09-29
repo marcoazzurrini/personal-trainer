@@ -1,6 +1,6 @@
-import { handleRequest } from "./index.ts";
 import { withingsStore } from "./body/withings.ts";
 import type { Bindings, Invocation } from "./environment.ts";
+import { handleRequest } from "./index.ts";
 
 export default {
   fetch(request: Request, env: Bindings, ctx: Invocation): Promise<Response> {
@@ -10,7 +10,7 @@ export default {
   scheduled(
     _event: { scheduledTime: number; cron: string },
     env: Bindings,
-    ctx: Invocation,
+    ctx: Invocation
   ): void {
     const withings = withingsStore(env.DB, {
       clientId: env.WITHINGS_CLIENT_ID,

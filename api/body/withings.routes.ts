@@ -1,9 +1,10 @@
-import { Hono } from "@hono/hono";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Hono } from "hono";
+
 import { ApiError } from "../shared/errors.ts";
+import { query } from "../shared/schema.ts";
 import type { WithingsStore } from "./withings.ts";
 import { WithingsError } from "./withings_client.ts";
-import { query } from "../shared/schema.ts";
 
 // The routes Withings itself calls. Mounted ahead of the bearer-token
 // middleware, because Withings has no way to send our token and a notification
@@ -21,7 +22,7 @@ export type WithingsRouteDeps = Pick<
 /** Mount webhook before authentication, admin after it. Bind waitUntil to this request's context. */
 export function createWithingsRoutes(
   deps: WithingsRouteDeps,
-  waitUntil: (promise: Promise<unknown>) => void,
+  waitUntil: (promise: Promise<unknown>) => void
 ) {
   const { catchUp, configuredUserId, syncNotifiedWindow } = deps;
   const withingsWebhook = new Hono();
@@ -34,10 +35,8 @@ export function createWithingsRoutes(
 
   // Withings probes the callback URL when a subscription is created, and a probe
   // that fails takes the subscribe call down with it.
-  withingsWebhook.on(
-    ["GET", "HEAD"],
-    "/notify",
-    (c) => c.json({ status: "ok" }),
+  withingsWebhook.on(["GET", "HEAD"], "/notify", (c) =>
+    c.json({ status: "ok" })
   );
 
   // appli 1 is weight. Nothing else is subscribed, but a notification for
@@ -53,12 +52,12 @@ export function createWithingsRoutes(
     const userid = form.get("userid");
     const start = form.get("startdate");
     const end = form.get("enddate");
-    const startdate = start?.trim() ? Number(start) : NaN;
-    const enddate = end?.trim() ? Number(end) : NaN;
+    const startdate = start?.trim() ? Number(start) : Number.NaN;
+    const enddate = end?.trim() ? Number(end) : Number.NaN;
 
     if (appli !== APPLI_WEIGHT) {
       console.log(
-        "withings: ignoring notification for another measurement type",
+        "withings: ignoring notification for another measurement type"
       );
       return c.json({ status: "ok" });
     }
@@ -69,7 +68,7 @@ export function createWithingsRoutes(
     const expected = await configuredUserId();
     if (expected === null) {
       console.error(
-        "withings: notification arrived but withings_auth is empty",
+        "withings: notification arrived but withings_auth is empty"
       );
       return c.json({ status: "ok" });
     }
@@ -83,14 +82,15 @@ export function createWithingsRoutes(
     waitUntil(
       (async () => {
         try {
-          const summary = Number.isSafeInteger(startdate) &&
-              startdate >= 0 &&
-              Number.isSafeInteger(enddate) &&
-              enddate >= startdate
-            ? await syncNotifiedWindow(startdate, enddate, expected)
-            : await catchUp(undefined, expected);
+          const summary =
+            Number.isSafeInteger(startdate) &&
+            startdate >= 0 &&
+            Number.isSafeInteger(enddate) &&
+            enddate >= startdate
+              ? await syncNotifiedWindow(startdate, enddate, expected)
+              : await catchUp(undefined, expected);
           console.log(
-            `withings: notification fetched ${summary.fetched}, written ${summary.written}, refused ${summary.refused}`,
+            `withings: notification fetched ${summary.fetched}, written ${summary.written}, refused ${summary.refused}`
           );
         } catch {
           // Answer 200 regardless. A retry from Withings would help, but a callback
@@ -98,10 +98,10 @@ export function createWithingsRoutes(
           // losing the subscription costs more than losing one notification — the
           // catch-up pass exists to collect exactly what is lost here.
           console.error(
-            "withings: notification sync failed; provider/error details withheld",
+            "withings: notification sync failed; provider/error details withheld"
           );
         }
-      })(),
+      })()
     );
     return c.json({ status: "ok" });
   });
@@ -189,17 +189,19 @@ export function createWithingsRoutes(
         ) {
           throw new ApiError(
             422,
-            `"since" must be a whole number of seconds since the epoch, or 0 to re-import everything. Got "${raw}".`,
+            `"since" must be a whole number of seconds since the epoch, or 0 to re-import everything. Got "${raw}".`
           );
         }
       }
       try {
         return c.json({ withings: await catchUp(since) });
-      } catch (err) {
-        if (err instanceof WithingsError) throw new ApiError(502, err.message);
-        throw err;
+      } catch (error) {
+        if (error instanceof WithingsError) {
+          throw new ApiError(502, error.message);
+        }
+        throw error;
       }
-    },
+    }
   );
   return { withingsWebhook, withingsAdmin };
 }

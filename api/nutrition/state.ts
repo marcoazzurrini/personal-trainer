@@ -1,12 +1,7 @@
 import { bodyfatStore } from "../body/bodyfat.ts";
 import { bodyweightStore } from "../body/bodyweight.ts";
-import {
-  type Clock,
-  type Database,
-  romeDate,
-  rows,
-  systemClock,
-} from "../shared/d1.ts";
+import { romeDate, rows, systemClock } from "../shared/d1.ts";
+import type { Clock, Database } from "../shared/d1.ts";
 import { addDays } from "../shared/dates.ts";
 import { eventStore } from "./events.ts";
 import type { IntakeEntry } from "./intake.types.ts";
@@ -49,7 +44,7 @@ export function nutritionStateStore(db: Database, clock: Clock = systemClock) {
       LEFT JOIN foods f ON f.id = i.food_id
       LEFT JOIN meals m ON m.id = i.meal_id
       WHERE i.day = ? ORDER BY i.created_at, i.id`,
-      today,
+      today
     );
     const totals = sumMacros(entries);
 
@@ -68,7 +63,7 @@ export function nutritionStateStore(db: Database, clock: Clock = systemClock) {
       FROM days d LEFT JOIN daily_intake i ON i.day = d.day
       LEFT JOIN daily_bodyweight b ON b.day = d.day ORDER BY d.day`,
       addDays(today, -13),
-      addDays(today, -1),
+      addDays(today, -1)
     );
     const [adherence] = await rows<Adherence>(
       db,
@@ -88,17 +83,17 @@ export function nutritionStateStore(db: Database, clock: Clock = systemClock) {
       today,
       addDays(today, -20),
       today,
-      today,
+      today
     );
     const flags = await rows<{ day: string; flag: string }>(
       db,
       "SELECT day, flag FROM day_flags WHERE day >= ? ORDER BY day",
-      addDays(today, -21),
+      addDays(today, -21)
     );
     const trend = await bodyweightStore(db, snapshot).loadTrend();
-    const latest = trend.length ? trend[trend.length - 1] : null;
+    const latest = trend.length ? trend.at(-1) : null;
     const expenditure = await nutritionReader(db, snapshot).currentExpenditure(
-      trend,
+      trend
     );
     const target = await targetStore(db, snapshot).activeTarget(today);
     const transients = await eventStore(db, snapshot).activeTransients(today);
@@ -109,25 +104,28 @@ export function nutritionStateStore(db: Database, clock: Clock = systemClock) {
         totals,
         vs_target: target
           ? {
-            kcal_target: target.kcal_target,
-            kcal_remaining:
-              Math.round((target.kcal_target - totals.kcal) * 10) / 10,
-            protein_g_target: target.protein_g_target,
-            protein_g_remaining: totals.protein_g === null ? null : Math.round(
-              (target.protein_g_target - totals.protein_g) * 10,
-            ) / 10,
-          }
+              kcal_target: target.kcal_target,
+              kcal_remaining:
+                Math.round((target.kcal_target - totals.kcal) * 10) / 10,
+              protein_g_target: target.protein_g_target,
+              protein_g_remaining:
+                totals.protein_g === null
+                  ? null
+                  : Math.round(
+                      (target.protein_g_target - totals.protein_g) * 10
+                    ) / 10,
+            }
           : null,
       },
       trend_weight: latest
         ? {
-          day: latest.day,
-          trend_kg: latest.trend_kg,
-          earliest_scale_kg: latest.weight_kg,
-          interpolated: latest.interpolated,
-          slope_7d: slopePctBwWeek(trend, 7),
-          slope_21d: slopePctBwWeek(trend, 21),
-        }
+            day: latest.day,
+            trend_kg: latest.trend_kg,
+            earliest_scale_kg: latest.weight_kg,
+            interpolated: latest.interpolated,
+            slope_7d: slopePctBwWeek(trend, 7),
+            slope_21d: slopePctBwWeek(trend, 21),
+          }
         : null,
       expenditure,
       target,

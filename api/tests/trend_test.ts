@@ -1,6 +1,7 @@
-import { assertEquals } from "@std/assert";
-import { api, daysAgo, resetNutrition } from "./helpers.ts";
+import { test } from "node:test";
 
+import { assertEquals } from "./assertions.ts";
+import { api, daysAgo, resetNutrition } from "./helpers.ts";
 // Every test owns its fixture, so filtering or shuffling tests cannot change
 // the series. Deliberately disagree on sources, time of day, and UTC/Rome day.
 async function seedTrend() {
@@ -24,7 +25,6 @@ async function seedTrend() {
   }
   return ids;
 }
-
 // Independently calculated at alpha = 0.1; do not use trendSeries as its own
 // oracle. The internal EMA retains precision between output points.
 function expectedTrend() {
@@ -36,15 +36,14 @@ function expectedTrend() {
     { day: daysAgo(2), weight_kg: 81.5, trend_kg: 80.54, interpolated: false },
   ];
 }
-
-Deno.test("one weight per Rome day feeds the exact collapsed trend", async () => {
+test("one weight per Rome day feeds the exact collapsed trend", async () => {
   await seedTrend();
   const state = await api.get("/nutrition-state");
   assertEquals(state.status, 200);
   const weights = new Map(
-    state.body.recent_days.map((
-      r: { day: string; weight_kg: number | null },
-    ) => [r.day, r.weight_kg]),
+    state.body.recent_days.map(
+      (r: { day: string; weight_kg: number | null }) => [r.day, r.weight_kg]
+    )
   );
   assertEquals(weights.get(daysAgo(6)), 80); // First source wins ties.
   assertEquals(weights.get(daysAgo(4)), 82); // Earliest instant, not evening.
@@ -53,8 +52,7 @@ Deno.test("one weight per Rome day feeds the exact collapsed trend", async () =>
   assertEquals(state.body.trend_weight.day, daysAgo(2));
   assertEquals(state.body.trend_weight.trend_kg, 80.54);
 });
-
-Deno.test("the bodyweight read serves the exact trend beside all raw rows", async () => {
+test("the bodyweight read serves the exact trend beside all raw rows", async () => {
   await seedTrend();
   const series = await api.get("/bodyweight");
   assertEquals(series.status, 200);
@@ -65,11 +63,10 @@ Deno.test("the bodyweight read serves the exact trend beside all raw rows", asyn
   assertEquals(series.body.trend.at(-1).day, state.body.trend_weight.day);
   assertEquals(
     series.body.trend.at(-1).trend_kg,
-    state.body.trend_weight.trend_kg,
+    state.body.trend_weight.trend_kg
   );
 });
-
-Deno.test("deleting the selected weigh-in promotes the next one on that day", async () => {
+test("deleting the selected weigh-in promotes the next one on that day", async () => {
   const ids = await seedTrend();
   assertEquals((await api.delete(`/bodyweight/${ids[2]}`)).status, 200);
   const series = await api.get("/bodyweight");

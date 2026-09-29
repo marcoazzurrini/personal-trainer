@@ -1,8 +1,10 @@
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import d1 from "./d1.ts";
-import { constraintMessages } from "../shared/errors.ts";
-import { api, uuid } from "./helpers.ts";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
 
+import { constraintMessages } from "../shared/errors.ts";
+import { assert, assertEquals, assertStringIncludes } from "./assertions.ts";
+import d1 from "./d1.ts";
+import { api, uuid } from "./helpers.ts";
 // The error map, held against the database it describes.
 //
 // errors.ts names 28 constraints and gives each a message written for the
@@ -11,8 +13,7 @@ import { api, uuid } from "./helpers.ts";
 // fallback, which is exactly the kind of quiet regression a suite exists to
 // catch. So every named constraint is checked against the live catalog, and
 // a failure names the orphaned entry.
-
-Deno.test("every named constraint exists in the database", async () => {
+test("every named constraint exists in the database", async () => {
   const db = d1();
   try {
     const rows =
@@ -20,21 +21,20 @@ Deno.test("every named constraint exists in the database", async () => {
     const schema = rows.map((r) => `${r.name} ${r.sql}`).join("\n");
     // SQLite reports UNIQUE failures by column; the D1 adapter maps those
     // physical constraints to the same public names as the original API.
-    const adapter = await Deno.readTextFile("api/shared/d1.ts");
+    const adapter = await readFile("api/shared/d1.ts", "utf-8");
     for (const name of Object.keys(constraintMessages)) {
       assert(
         schema.includes(name) || adapter.includes(`"${name}"`),
         `errors.ts writes a message for "${name}", but no constraint or ` +
           "index with that name exists — renamed in a migration? The " +
-          "message now never fires and callers get the generic fallback.",
+          "message now never fires and callers get the generic fallback."
       );
     }
   } finally {
     await db.end();
   }
 });
-
-Deno.test("a null in a required column is a prompt, not a 500", async () => {
+test("a null in a required column is a prompt, not a 500", async () => {
   // The one reproducible way through every validator to a not-null
   // violation: PATCH a near-zero food's kcal to an explicit null. The
   // energy check passes on its 20 kcal floor, Postgres refuses the write,
@@ -51,7 +51,7 @@ Deno.test("a null in a required column is a prompt, not a 500", async () => {
   });
   const { status, body } = await api.patch(
     `/foods/${encodeURIComponent(name)}`,
-    { kcal_100g: null },
+    { kcal_100g: null }
   );
   assertEquals(status, 422);
   assertStringIncludes(body.error, '"kcal_100g"');

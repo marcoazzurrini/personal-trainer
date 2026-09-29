@@ -1,25 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { readDashboard } from "../src/dashboard.server.ts";
 import {
   measurementDay,
   trendSegments,
-  WeightData,
+  WeightDataSchema,
   weightView,
 } from "../src/weight.ts";
 
 const data = {
-  bodyweight: [{
-    id: 1,
-    value_kg: 80,
-    measured_at: "2026-03-28T23:30:00Z",
-    source: "synthetic",
-  }],
-  trend: [{
-    day: "2026-03-29",
-    weight_kg: 80,
-    trend_kg: 79.4,
-    interpolated: false,
-  }],
+  bodyweight: [
+    {
+      id: 1,
+      value_kg: 80,
+      measured_at: "2026-03-28T23:30:00Z",
+      source: "synthetic",
+    },
+  ],
+  trend: [
+    {
+      day: "2026-03-29",
+      weight_kg: 80,
+      trend_kg: 79.4,
+      interpolated: false,
+    },
+  ],
 };
 const env = {
   ALLOWED_SUBJECT: "owner",
@@ -37,26 +42,28 @@ describe("the web/API boundary", () => {
       status: "signed-out",
     });
     expect(
-      await readDashboard({ ...session, user: { id: "other" } }, env, request),
+      await readDashboard({ ...session, user: { id: "other" } }, env, request)
     ).toEqual({ status: "forbidden" });
     expect((await readDashboard(session, {}, request)).status).toBe(
-      "unavailable",
+      "unavailable"
     );
     expect(
       (await readDashboard({ ...session, impersonator: {} }, env, request))
-        .status,
+        .status
     ).toBe("forbidden");
     expect(request).not.toHaveBeenCalled();
   });
   it("uses a fixed GET, no redirects, no cache, a deadline, and returns data without credentials", async () => {
-    const request = vi.fn().mockResolvedValue(
-      Response.json({ ...data, accessToken: "must-not-leave-server" }),
-    );
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ ...data, accessToken: "must-not-leave-server" })
+      );
     expect(await readDashboard(session, env, request)).toEqual({
       status: "ready",
       data,
     });
-    const [url, options] = request.mock.calls[0];
+    const [[url, options]] = request.mock.calls;
     expect(String(url)).toBe("https://api.example.test/api/bodyweight");
     expect(options.headers.Authorization).toBe(`Bearer ${session.accessToken}`);
     expect(options.cache).toBe("no-store");
@@ -70,33 +77,33 @@ describe("the web/API boundary", () => {
         new Response(null, {
           status,
           headers: { Location: "https://untrusted.example.test/collect" },
-        }),
+        })
       );
       expect((await readDashboard(session, env, request)).status).toBe(
-        "unavailable",
+        "unavailable"
       );
       expect(request).toHaveBeenCalledTimes(1);
       expect(request.mock.calls[0][1].redirect).toBe("manual");
-    },
+    }
   );
   it("rejects unsafe or path-bearing origins before sending credentials", async () => {
     const request = vi.fn();
-    for (
-      const origin of [
-        "http://api.example.test",
-        "https://user:pass@api.example.test",
-        "https://api.example.test/api",
-        "https://api.example.test?next=x",
-        "ftp://api.example.test",
-        "",
-      ]
-    ) {
+    for (const origin of [
+      "http://api.example.test",
+      "https://user:pass@api.example.test",
+      "https://api.example.test/api",
+      "https://api.example.test?next=x",
+      "ftp://api.example.test",
+      "",
+    ]) {
       expect(
-        (await readDashboard(
-          session,
-          { ...env, TRAINER_API_ORIGIN: origin },
-          request,
-        )).status,
+        (
+          await readDashboard(
+            session,
+            { ...env, TRAINER_API_ORIGIN: origin },
+            request
+          )
+        ).status
       ).toBe("unavailable");
     }
     expect(request).not.toHaveBeenCalled();
@@ -106,35 +113,41 @@ describe("the web/API boundary", () => {
       const result = await readDashboard(
         session,
         env,
-        vi.fn().mockResolvedValue(
-          new Response("private provider detail", { status }),
-        ),
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response("private provider detail", { status })
+          )
       );
       expect(result.status).toBe("unavailable");
       expect(JSON.stringify(result)).not.toContain("private provider detail");
     }
     expect(
-      (await readDashboard(
-        session,
-        env,
-        vi.fn().mockRejectedValue(new Error(session.accessToken)),
-      )).status,
+      (
+        await readDashboard(
+          session,
+          env,
+          vi.fn().mockRejectedValue(new Error(session.accessToken))
+        )
+      ).status
     ).toBe("unavailable");
     expect(
-      (await readDashboard(
-        session,
-        env,
-        vi.fn().mockResolvedValue(
-          Response.json({ bodyweight: [], trend: null }),
-        ),
-      )).status,
+      (
+        await readDashboard(
+          session,
+          env,
+          vi
+            .fn()
+            .mockResolvedValue(Response.json({ bodyweight: [], trend: null }))
+        )
+      ).status
     ).toBe("unavailable");
     expect(
       await readDashboard(
         session,
         env,
-        vi.fn().mockResolvedValue(Response.json({ bodyweight: [], trend: [] })),
-      ),
+        vi.fn().mockResolvedValue(Response.json({ bodyweight: [], trend: [] }))
+      )
     ).toEqual({ status: "ready", data: { bodyweight: [], trend: [] } });
   });
 });
@@ -145,7 +158,7 @@ describe("chart facts", () => {
     expect(measurementDay("2026-03-29T22:30:00Z")).toBe("2026-03-30");
   });
   it("keeps the API trend unchanged and never synthesizes weigh-ins", () => {
-    const parsed = WeightData.parse(data);
+    const parsed = WeightDataSchema.parse(data);
     const view = weightView(parsed, 30);
     expect(view.trend).toEqual(data.trend);
     expect(view.latestTrend?.trend_kg).toBe(79.4);
@@ -153,23 +166,30 @@ describe("chart facts", () => {
     expect(parsed).toEqual(data);
   });
   it("keeps missing days as separate line segments, but retains explicit interpolated days", () => {
-    const point = data.trend[0];
-    const trend = [{ ...point, day: "2026-03-25" }, {
-      ...point,
-      day: "2026-03-26",
-      interpolated: true,
-    }, point];
+    const [point] = data.trend;
+    const trend = [
+      { ...point, day: "2026-03-25" },
+      {
+        ...point,
+        day: "2026-03-26",
+        interpolated: true,
+      },
+      point,
+    ];
     expect(trendSegments(trend)).toEqual([trend.slice(0, 2), [point]]);
     expect(trendSegments([])).toEqual([]);
   });
   it("filters an inclusive window from the latest Rome day without changing the record", () => {
     const record = {
       ...data,
-      bodyweight: [data.bodyweight[0], {
-        ...data.bodyweight[0],
-        id: 2,
-        measured_at: "2026-02-27T12:00:00Z",
-      }],
+      bodyweight: [
+        data.bodyweight[0],
+        {
+          ...data.bodyweight[0],
+          id: 2,
+          measured_at: "2026-02-27T12:00:00Z",
+        },
+      ],
     };
     expect(weightView(record, 30).measurements).toHaveLength(1);
     expect(weightView(record, null).measurements).toHaveLength(2);

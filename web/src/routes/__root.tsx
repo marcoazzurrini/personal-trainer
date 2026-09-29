@@ -5,7 +5,20 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+
 import styles from "../styles.css?url";
+
+const Shell = ({ children }: { children: ReactNode }) => (
+  <html lang="en">
+    <head>
+      <HeadContent />
+    </head>
+    <body>
+      {children}
+      <Scripts />
+    </body>
+  </html>
+);
 
 export const Route = createRootRoute({
   head: () => ({
@@ -46,17 +59,3 @@ export const Route = createRootRoute({
     </main>
   ),
 });
-
-function Shell({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  );
-}

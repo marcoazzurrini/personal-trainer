@@ -1,48 +1,53 @@
-import { assert, assertStringIncludes } from "@std/assert";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+
+import { assert, assertStringIncludes } from "./assertions.ts";
 import { documentPath, SKILL } from "./skill.ts";
 
-Deno.test("nutrition documents agree with food identity, corrections and target storage", async () => {
-  const skill = await Deno.readTextFile(SKILL);
-  const ref = await Deno.readTextFile(documentPath("reference/nutrition"));
-  const onboarding = await Deno.readTextFile(
+test("nutrition documents agree with food identity, corrections and target storage", async () => {
+  const skill = await readFile(SKILL, "utf-8");
+  const ref = await readFile(documentPath("reference/nutrition"), "utf-8");
+  const onboarding = await readFile(
     documentPath("tasks/nutrition-onboarding"),
+    "utf-8"
   );
-  const migration = await Deno.readTextFile(
+  const migration = await readFile(
     "db/migrations/20260807160000_nutrition_tracking.sql",
+    "utf-8"
   );
   assertStringIncludes(
     migration,
-    "create unique index foods_name_key on foods (lower(name))",
+    "create unique index foods_name_key on foods (lower(name))"
   );
   assertStringIncludes(skill, "case-insensitive and unique");
   assertStringIncludes(skill, "`POST /foods` still requires a `request_id`");
   assertStringIncludes(
     ref,
-    "correcting a food updates the\ncalculated totals of historical intake linked to that food",
+    "correcting a food updates the\ncalculated totals of historical intake linked to that food"
   );
   assert(!ref.includes("editing a meal — or the foods in it"));
   assertStringIncludes(
     ref,
-    "Food-backed entries record the food and grams actually eaten",
+    "Food-backed entries record the food and grams actually eaten"
   );
   assertStringIncludes(
     ref,
-    "An explicit macro override applies until the next correction",
+    "An explicit macro override applies until the next correction"
   );
   assert(!ref.includes("Every entry stores its own kcal and macros"));
   assertStringIncludes(
     onboarding,
-    "conversational guidance, not a saved target",
+    "conversational guidance, not a saved target"
   );
   assertStringIncludes(
     onboarding,
-    "Do not call it on this path, invent calories",
+    "Do not call it on this path, invent calories"
   );
   assertStringIncludes(ref, "No protein-only persisted target");
-  const operation = await Deno.readTextFile("api/nutrition/targets.ts");
+  const operation = await readFile("api/nutrition/targets.ts", "utf-8");
   const refusal = operation.indexOf("if (expenditure.tdee_kcal === null)");
-  const write = operation.toLowerCase().indexOf(
-    "insert into nutrition_targets",
-  );
-  assert(refusal >= 0 && write >= 0 && refusal < write);
+  const write = operation
+    .toLowerCase()
+    .indexOf("insert into nutrition_targets");
+  assert(refusal !== -1 && write !== -1 && refusal < write);
 });

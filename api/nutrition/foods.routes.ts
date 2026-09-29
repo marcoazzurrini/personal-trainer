@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Context } from "@hono/hono";
-import { type AppEnv, services } from "../shared/services.ts";
-import { SOURCES } from "./constants.ts";
+import type { Context } from "hono";
+
+import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
 import {
   aliasList,
   body,
@@ -13,7 +13,9 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { SOURCES } from "./constants.ts";
 
 export const foods = new OpenAPIHono<AppEnv>();
 
@@ -44,13 +46,16 @@ const ref = () =>
 // "override" or nothing. A boolean would invite true/false and a false would
 // read as "I considered this", which is not what the flag means.
 const energyCheck = () =>
-  z.literal("override", {
-    error:
-      '"energy_check" takes only the value "override", and only when the food carries energy its macros do not name.',
-  }).optional().meta({
-    description:
-      "Send only when the food carries energy its macros do not name — alcohol, polyols. Requires a source_note saying what.",
-  });
+  z
+    .literal("override", {
+      error:
+        '"energy_check" takes only the value "override", and only when the food carries energy its macros do not name.',
+    })
+    .optional()
+    .meta({
+      description:
+        "Send only when the food carries energy its macros do not name — alcohol, polyols. Requires a source_note saying what.",
+    });
 
 foods.openapi(
   createRoute({
@@ -87,7 +92,7 @@ foods.openapi(
     // `query` is absent rather than empty when the whole registry was asked
     // for: it echoes a search, and there was none.
     return c.json(q ? { query: q, foods: found } : { foods: found });
-  },
+  }
 );
 
 foods.openapi(
@@ -144,10 +149,10 @@ foods.openapi(
   }),
   async (c) => {
     const { row, created } = await services(c).foods.saveFood(
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return created ? c.json({ food: row }, 201) : c.json({ food: row }, 200);
-  },
+  }
 );
 
 foods.openapi(
@@ -168,7 +173,7 @@ foods.openapi(
   async (c) =>
     c.json({
       food: await services(c).foods.foodByRef(c.req.valid("param").ref),
-    }),
+    })
 );
 
 foods.openapi(
@@ -235,9 +240,9 @@ foods.openapi(
     c.json(
       await services(c).foods.correctFood(
         c.req.valid("param").ref,
-        c.req.valid("json"),
-      ),
-    ),
+        c.req.valid("json")
+      )
+    )
 );
 
 // A synonym never becomes a second food row — that splits the food's history
@@ -296,5 +301,5 @@ foods.openapi(
   async (c) =>
     c.json({
       deleted: await services(c).foods.deleteFood(c.req.valid("param").ref),
-    }),
+    })
 );

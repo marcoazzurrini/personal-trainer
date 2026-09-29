@@ -1,12 +1,67 @@
 # Checks
 
-Current commands are defined in `deno.json`, `package.json`,
-`db/d1/package.json` and `web/package.json`; CI runs the release gate in
+Current commands are defined in `package.json`, `db/d1/package.json` and
+`web/package.json`; CI runs the release gate in
 `.github/workflows/ci.yml`. Production transfer evidence is in
 [the Cloudflare cutover receipt](cloudflare-cutover.md).
 
 Dated implementation results below are historical evidence, not a description
 of the current hosting platform or proof that a later revision passed.
+
+## Local environment cleanup (29 September 2026)
+
+The root `.env.example` replaces `.dev.vars.example`. The private root `.env`
+retains the active API settings and GitHub reporting configuration; the retired
+hosting file and database/hosting settings no longer configure local work.
+Both original credential files were archived byte-for-byte outside the repository
+in owner-only storage before cleanup. Production secrets and records were not
+changed.
+
+Local verification passed:
+
+- **228 API tests** through the isolated Worker and ephemeral D1 after the local
+  credential cleanup.
+- **21 tooling tests**, including real Wrangler loading from a synthetic `.env`
+  without loading templates or a retired hosting file. All three workspaces still
+  reject implicit dotenv loading in Bun runtime and test commands.
+- **1 secret-scanner boundary test**, now covering nested `.env` files, dotenv
+  variants, `.dev.vars` variants and private receipt directories. Public
+  `.env.example` templates remain scannable rather than exempt from scanning.
+- Root type checking, Ultracite formatting/lint checks, the Worker production
+  build and `git diff --check`.
+
+These are local results, not CI or deployment evidence. Nothing was committed or
+deployed.
+
+## Bun tooling migration (28 September 2026)
+
+Local verification on Bun 1.4.2 passed against the uncommitted working tree:
+
+- API: **228 tests** through the identity-verified local Worker and ephemeral D1.
+- D1: **95 tests**; disposable PostgreSQL import reference: **11 tests**.
+- Build and deployment tooling: **19 tests**; operator scripts: **6 tests**.
+- Worker shutdown: **1 test**; secret-scanner boundary: **1 test**.
+- Dashboard: **54 Vitest tests**, **14 browser tests** and **3 built-Worker tests**.
+- Root and dashboard type checks, Ultracite formatting/lint checks, both production
+  builds and `git diff --check` passed.
+
+Regression tests cover unstamped Worker startup without a build metadata global,
+strict assertion behavior, published date and UUID patterns, Nitro-readable
+Wrangler JSON, and disabled implicit dotenv loading for test/runtime commands.
+GitHub issue reads retain their distinction between an absent `pull_request`
+field and a supplied value. Calendar properties treat positive and negative zero
+as the same distance without weakening other equality assertions.
+
+Bun owns installation, scripts and the former Deno tests. Vite/Nitro retain their
+Node execution path; production remains workerd and D1. See
+[ADR-0016](adr/0016-bun-owns-development-with-workers-unchanged.md) for boundaries,
+including the separate credential-loading behavior of `bun install`.
+
+A final read-only review covered every changed production API path and found no
+further concrete regressions. The review did not replace the checks above.
+
+These are local results, not GitHub CI or deployment evidence. No production
+record was read or written, and this work was not committed or deployed.
 
 ## Transaction and schema simplification (before Cloudflare)
 
@@ -84,21 +139,27 @@ These are local results, not GitHub CI, deployment or installed-plugin proof.
 
 ## Test groups and coverage
 
-- `npm test`: API tests against a disposable local Worker and D1, D1 schema
+- `bun run test`: API tests against a disposable local Worker and D1, D1 schema
   tests, build/deployment tooling, operator scripts and shutdown checks.
-- `deno task test [files...]`: the Worker-backed HTTP suite, or named files,
-  through the disposable identity gate. A test-name filter never replaces
-  database isolation. `deno task test:stubs` selects the protocol-focused files
-  using that same harness.
-- `deno task test:pure`: arithmetic, property and document checks without a
-  server or destructive setup.
-- `npm run test:postgres-import`: one-time transfer compatibility against a
+- `bun run test:api [files...]`: the Worker-backed suite, or named API test
+  files, through the disposable identity gate. A test-name filter never replaces
+  database isolation. Bun runs assertions; Miniflare runs the application in
+  workerd against ephemeral D1. Use this harness rather than bare `bun test` for
+  API tests: its identity, environment and network guards are required.
+- `bun run test:postgres-import`: one-time transfer compatibility against a
   disposable PostgreSQL reference. Docker is needed for this test, not for
   production or the ordinary API/D1 suite.
-- The web package separately checks types, unit tests, browser behavior and
-  the built artifact in the Worker runtime. CI runs all four.
-- `deno task secrets` and `deno task test:secrets`: index scanning and scanner
+- The web package keeps Vitest and Playwright. It separately checks types, unit
+  tests, browser behavior and the built artifact in workerd. CI runs all four.
+- `bun run check:style`: Oxfmt and Oxlint through Ultracite, including its
+  bundled anti-slop preset. `bun run check` checks TypeScript types.
+- `bun run secrets` and `bun run test:secrets`: index scanning and scanner
   boundary checks; these still require Docker, as described below.
+
+Install all three workspaces from the root with `bun install --frozen-lockfile`.
+The root `bun.lock` owns dependency resolution. Bun does not replace workerd or
+force Node-based Cloudflare and web tools to run under Bun. See
+[ADR-0016](adr/0016-bun-owns-development-with-workers-unchanged.md).
 
 ### Historical coverage baseline (#69, before Workers)
 
@@ -128,7 +189,7 @@ Meaningful gaps inspected in those profiles:
 
 ## Secrets
 
-`deno task secrets` scans the complete Git index, both in the commit hook and
+`bun run secrets` scans the complete Git index, both in the commit hook and
 CI. It does not scan untracked files, working-tree-only edits, or past commits.
 A credential committed and subsequently removed needs separate history review
 and rotation; this check cannot prove the repository has never held secrets.
@@ -143,7 +204,7 @@ not source lines or matched credentials. No current fixtures need allowances.
 If a new synthetic fixture genuinely needs an exception, use an exact value AND
 exact path in a reviewed `.gitleaks.toml` allowance extending the default rules.
 Never exempt all tests, disable default rules, or use inline bypass comments.
-`deno task test:secrets` checks refusal, index-versus-working-file behavior,
+`bun run test:secrets` checks refusal, index-versus-working-file behavior,
 protected filenames, redaction and narrowly scoped fixture allowances in a
 temporary repository. CI runs that check too; bypassing local hooks does not
 bypass the CI scan. Neither check uploads findings.

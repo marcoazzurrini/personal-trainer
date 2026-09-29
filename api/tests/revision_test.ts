@@ -1,13 +1,20 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+
 import { sourceRevision } from "../../scripts/build-worker.mjs";
+import { assert, assertEquals, assertThrows } from "./assertions.ts";
 
 const sha = "a".repeat(40);
-const git = (dirty = false) => (...args: string[]) => {
-  assert(["rev-parse", "status"].includes(args[0]));
-  return args[0] === "rev-parse" ? sha : dirty ? " M api/worker.ts" : "";
-};
-
-Deno.test("a Worker release revision must match the exact clean checkout", () => {
+const git =
+  (dirty = false) =>
+  (...args: string[]) => {
+    assert(["rev-parse", "status"].includes(args[0]));
+    if (args[0] === "rev-parse") {
+      return sha;
+    }
+    return dirty ? " M api/worker.ts" : "";
+  };
+test("a Worker release revision must match the exact clean checkout", () => {
   assertEquals(sourceRevision(sha, git()), sha);
   assertEquals(sourceRevision("", git()), sha);
   assertEquals(sourceRevision("", git(true)), null);
@@ -15,26 +22,30 @@ Deno.test("a Worker release revision must match the exact clean checkout", () =>
     assertThrows(
       () => sourceRevision(invalid, git()),
       Error,
-      "exact clean GITHUB_SHA",
+      "exact clean GITHUB_SHA"
     );
   }
   assertThrows(
     () => sourceRevision(sha, git(true)),
     Error,
-    "exact clean GITHUB_SHA",
+    "exact clean GITHUB_SHA"
   );
 });
+test("an unstamped Worker module does not require a build metadata global", async () => {
+  const { buildMetadata } = await import("../shared/build.ts");
+  assertEquals(buildMetadata, { revision: null, digest: "local-development" });
+});
 
-Deno.test("Worker build identity stamps one compiler result, never a runtime label", async () => {
-  const builder = await Deno.readTextFile("scripts/build-worker.mjs");
-  assertEquals([...builder.matchAll(/await build\(/g)].length, 1);
+test("Worker build identity stamps one compiler result, never a runtime label", async () => {
+  const builder = await readFile("scripts/build-worker.mjs", "utf-8");
+  assertEquals([...builder.matchAll(/await build\(/gu)].length, 1);
   assert(builder.includes('createHash("sha256").update(source).digest("hex")'));
   assert(builder.includes("source.replace(placeholder, digest)"));
   assert(builder.includes('resolve(root, "dist/build.json")'));
   assert(builder.includes("JSON.stringify(metadata)"));
   assert(builder.includes("sourceRevision() !== revision"));
   assert(builder.includes("production Worker must not include"));
-  const reader = await Deno.readTextFile("api/shared/build.ts");
+  const reader = await readFile("api/shared/build.ts", "utf-8");
   assert(reader.includes("__BUILD_METADATA__"));
   assert(!reader.includes("Deno.env"));
   assert(!reader.includes("process.env"));

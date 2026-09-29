@@ -1,19 +1,14 @@
+import { batch, caseKey, jsonChunks, rows, statement } from "../shared/d1.ts";
+import type { Database } from "../shared/d1.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
-import {
-  batch,
-  caseKey,
-  type Database,
-  jsonChunks,
-  rows,
-  statement,
-} from "../shared/d1.ts";
 import { TRACKS } from "./rules.ts";
+import type { Measure, StimulusType } from "./rules.ts";
 
 interface Exercise {
   id: number;
   name: string;
-  measure: string;
-  stimulus_type: string;
+  measure: Measure;
+  stimulus_type: StimulusType;
 }
 interface Plan {
   id: number;
@@ -21,28 +16,35 @@ interface Plan {
 }
 
 export interface SetResolver {
-  resolveExercise(ref: unknown): Promise<Exercise>;
-  resolveSetMesocycleId(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Resolver is the boundary that rejects invalid id/name/alias inputs with the existing refusal.
+  resolveExercise: (ref: unknown) => Promise<Exercise>;
+  resolveSetMesocycleId: (
     exerciseId: number,
-    ref: unknown,
-  ): Promise<number | null>;
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Preserve coercion and refusal of raw references at the resolver boundary.
+    ref: unknown
+  ) => Promise<number | null>;
 }
 
 /** Same id/name/alias and active-plan rules as the PostgreSQL reference. */
 export function trainingResolver(db: Database) {
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This function validates raw id/name/alias inputs before issuing a lookup.
   async function resolveExercise(ref: unknown): Promise<Exercise> {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Numeric references require a safe-integer check before the id lookup.
     if (typeof ref === "number" && Number.isSafeInteger(ref)) {
       const [row] = await rows<Exercise>(
         db,
         "SELECT id, name, measure, stimulus_type FROM exercises WHERE id = ?",
-        ref,
+        ref
       );
-      if (row) return row;
+      if (row) {
+        return row;
+      }
       throw new ApiError(
         422,
-        `No exercise with id ${ref}. GET /exercises lists the catalogue.`,
+        `No exercise with id ${ref}. GET /exercises lists the catalogue.`
       );
     }
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- String references require nonempty trimmed text before name/alias lookup.
     if (typeof ref === "string" && ref.trim() !== "") {
       const name = ref.trim();
       const [row] = await rows<Exercise>(
@@ -56,18 +58,22 @@ export function trainingResolver(db: Database) {
           ) ORDER BY rank LIMIT 1
         )`,
         caseKey(name),
-        caseKey(name),
+        caseKey(name)
       );
-      if (row) return row;
-      if (/^\d+$/.test(name)) return await resolveExercise(Number(name));
+      if (row) {
+        return row;
+      }
+      if (/^\d+$/u.test(name)) {
+        return await resolveExercise(Number(name));
+      }
       throw new ApiError(
         422,
-        `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`,
+        `Unknown exercise "${name}". Use the id, canonical name, or an alias — GET /exercises lists them. A genuinely new exercise is added with POST /exercises.`
       );
     }
     throw new ApiError(
       422,
-      '"exercise" is required: an exercise id, canonical name, or alias.',
+      '"exercise" is required: an exercise id, canonical name, or alias.'
     );
   }
 
@@ -75,31 +81,35 @@ export function trainingResolver(db: Database) {
     if (ref === "current" || ref.startsWith("current:")) {
       const active = await rows<Plan>(
         db,
-        "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track",
+        "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track"
       );
       const tracks = active.map((m) => m.track).join(", ");
       if (ref === "current") {
-        if (active.length === 1) return active[0];
+        if (active.length === 1) {
+          return active[0];
+        }
         if (active.length === 0) {
           throw new ApiError(
             404,
-            "No active mesocycle. Create one with POST /mesocycles, or pass an explicit id.",
+            "No active mesocycle. Create one with POST /mesocycles, or pass an explicit id."
           );
         }
         throw new ApiError(
           422,
           `"current" is ambiguous: ${active.length} plans are active (${tracks}). Name the one this call is about as "current:<track>" — e.g. "current:${
             active[0].track
-          }".`,
+          }".`
         );
       }
       const track = ref.slice("current:".length);
       const row = active.find((m) => m.track === track);
-      if (row) return row;
-      if (!TRACKS.includes(track as typeof TRACKS[number])) {
+      if (row) {
+        return row;
+      }
+      if (!TRACKS.some((knownTrack) => knownTrack === track)) {
         throw new ApiError(
           422,
-          `"${track}" is not a track. Tracks are: ${TRACKS.join(", ")}.`,
+          `"${track}" is not a track. Tracks are: ${TRACKS.join(", ")}.`
         );
       }
       throw new ApiError(
@@ -108,30 +118,31 @@ export function trainingResolver(db: Database) {
           active.length === 0
             ? "No plan is active at all."
             : `Active tracks: ${tracks}.`
-        }`,
+        }`
       );
     }
-    if (!/^\d+$/.test(ref) || !Number.isSafeInteger(Number(ref))) {
+    if (!/^\d+$/u.test(ref) || !Number.isSafeInteger(Number(ref))) {
       throw new ApiError(
         422,
-        `"${ref}" is not a mesocycle reference. Use a numeric id, "current" while one plan is active, or "current:<track>" — tracks are ${
-          TRACKS.join(", ")
-        }.`,
+        `"${ref}" is not a mesocycle reference. Use a numeric id, "current" while one plan is active, or "current:<track>" — tracks are ${TRACKS.join(
+          ", "
+        )}.`
       );
     }
     return requireRow(
       await rows<Plan>(
         db,
         "SELECT id, track FROM mesocycles WHERE id = ?",
-        Number(ref),
+        Number(ref)
       ),
-      `No mesocycle with id ${ref}.`,
+      `No mesocycle with id ${ref}.`
     );
   }
 
   async function resolveSetMesocycleId(
     exerciseId: number,
-    ref: unknown,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Preserve String coercion of explicit raw references before resolveMesocycle validates them.
+    ref: unknown
   ): Promise<number | null> {
     if (ref !== undefined && ref !== null) {
       return (await resolveMesocycle(String(ref))).id;
@@ -141,39 +152,47 @@ export function trainingResolver(db: Database) {
       `SELECT m.id, m.track FROM mesocycles m
       JOIN mesocycle_exercises me ON me.mesocycle_id = m.id
       WHERE m.ended_on IS NULL AND me.exercise_id = ? ORDER BY m.track`,
-      exerciseId,
+      exerciseId
     );
-    if (plans.length === 0) return null;
-    if (plans.length === 1) return plans[0].id;
+    if (plans.length === 0) {
+      return null;
+    }
+    if (plans.length === 1) {
+      return plans[0].id;
+    }
     const exercise = await resolveExercise(exerciseId);
     throw new ApiError(
       422,
-      `"${exercise.name}" is in more than one active plan (${
-        plans.map((p) => p.track).join(", ")
-      }), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`,
+      `"${exercise.name}" is in more than one active plan (${plans
+        .map((p) => p.track)
+        .join(
+          ", "
+        )}), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`
     );
   }
 
   // One bounded read per JSON chunk, not one query per distinct exercise or
   // plan. The returned cache belongs to this attempt, not to the store lifetime.
   async function forSets(
-    entries: readonly { exercise?: unknown; mesocycle?: unknown }[],
+    entries: readonly { exercise?: unknown; mesocycle?: unknown }[]
   ): Promise<SetResolver> {
     const refs = [...new Set(entries.map((entry) => entry.exercise))];
     const inputs = refs.map((ref) => {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Preload only string names; invalid values still reach resolveExercise's exact refusal.
       const name = typeof ref === "string" ? ref.trim() : null;
-      const candidate = name !== null && /^\d+$/.test(name)
-        ? Number(name)
-        : ref;
+      const candidate =
+        name !== null && /^\d+$/u.test(name) ? Number(name) : ref;
       return {
         key: name === null || name === "" ? null : caseKey(name),
-        id: typeof candidate === "number" && Number.isSafeInteger(candidate)
-          ? candidate
-          : null,
+        id:
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Only safe numeric ids are eligible for the preload query.
+          typeof candidate === "number" && Number.isSafeInteger(candidate)
+            ? candidate
+            : null,
       };
     });
     const chunks = jsonChunks(inputs);
-    const found = await batch(
+    const found = await batch<Exercise & { item: number }>(
       db,
       chunks.map((chunk) =>
         statement(
@@ -185,43 +204,44 @@ export function trainingResolver(db: Database) {
          (SELECT id FROM exercises WHERE id = json_extract(v.value, '$.id'))
        )`,
           chunk.offset,
-          chunk.json,
+          chunk.json
         )
-      ),
+      )
     );
     const exercises = new Map<unknown, Exercise>();
     const byId = new Map<number, Exercise>();
     for (const result of found) {
       for (const value of result.results) {
-        const { item, ...row } = value as unknown as Exercise & {
-          item: number;
-        };
+        const { item, ...row } = value;
         exercises.set(refs[item], row);
         byId.set(row.id, row);
       }
     }
     const explicit = [
-      ...new Set(entries.flatMap(({ mesocycle }) => {
-        const ref = mesocycle == null ? "" : String(mesocycle);
-        return /^\d+$/.test(ref) && Number.isSafeInteger(Number(ref))
-          ? [Number(ref)]
-          : [];
-      })),
+      ...new Set(
+        entries.flatMap(({ mesocycle }) => {
+          const ref =
+            mesocycle === null || mesocycle === undefined
+              ? ""
+              : String(mesocycle);
+          return /^\d+$/u.test(ref) && Number.isSafeInteger(Number(ref))
+            ? [Number(ref)]
+            : [];
+        })
+      ),
     ];
     const active = await rows<Plan>(
       db,
-      "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track",
+      "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track"
     );
     const plansById = new Map(active.map((plan) => [plan.id, plan]));
     if (explicit.length) {
       for (const chunk of jsonChunks(explicit)) {
-        for (
-          const plan of await rows<Plan>(
-            db,
-            "SELECT id, track FROM mesocycles WHERE id IN (SELECT value FROM json_each(?))",
-            chunk.json,
-          )
-        ) {
+        for (const plan of await rows<Plan>(
+          db,
+          "SELECT id, track FROM mesocycles WHERE id IN (SELECT value FROM json_each(?))",
+          chunk.json
+        )) {
           plansById.set(plan.id, plan);
         }
       }
@@ -234,7 +254,7 @@ export function trainingResolver(db: Database) {
          JOIN mesocycles m ON m.id = me.mesocycle_id
          WHERE m.ended_on IS NULL AND me.exercise_id IN (SELECT value FROM json_each(?))
          ORDER BY m.track`,
-        chunk.json,
+        chunk.json
       );
       for (const plan of plans) {
         const list = membership.get(plan.exercise_id) ?? [];
@@ -243,31 +263,40 @@ export function trainingResolver(db: Database) {
       }
     }
     return {
-      resolveExercise: (ref) =>
-        exercises.has(ref)
-          ? Promise.resolve(exercises.get(ref)!)
-          : resolveExercise(ref),
+      resolveExercise: (ref) => {
+        const cached = exercises.get(ref);
+        return cached ? Promise.resolve(cached) : resolveExercise(ref);
+      },
       async resolveSetMesocycleId(exerciseId, ref) {
         if (ref !== undefined && ref !== null) {
           const name = String(ref);
-          const selected = name === "current" && active.length === 1
-            ? active[0]
-            : name.startsWith("current:")
-            ? active.find((plan) => plan.track === name.slice(8))
-            : /^\d+$/.test(name)
-            ? plansById.get(Number(name))
-            : undefined;
+          let selected: Plan | undefined;
+          if (name === "current" && active.length === 1) {
+            [selected] = active;
+          } else if (name.startsWith("current:")) {
+            selected = active.find((plan) => plan.track === name.slice(8));
+          } else if (/^\d+$/u.test(name)) {
+            selected = plansById.get(Number(name));
+          }
           // Keep the existing exact refusals for invalid or ambiguous refs.
           return selected?.id ?? (await resolveMesocycle(name)).id;
         }
         const plans = membership.get(exerciseId) ?? [];
-        if (plans.length === 0) return null;
-        if (plans.length === 1) return plans[0].id;
+        if (plans.length === 0) {
+          return null;
+        }
+        if (plans.length === 1) {
+          return plans[0].id;
+        }
+        // SAFETY: membership is loaded only for byId.keys(), so an ambiguous membership has a cached exercise.
+        const exercise = byId.get(exerciseId) as Exercise;
         throw new ApiError(
           422,
-          `"${byId.get(exerciseId)!.name}" is in more than one active plan (${
-            plans.map((p) => p.track).join(", ")
-          }), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`,
+          `"${exercise.name}" is in more than one active plan (${plans
+            .map((p) => p.track)
+            .join(
+              ", "
+            )}), so which one this set serves cannot be inferred. Add "mesocycle": "current:<track>" to the set.`
         );
       },
     };

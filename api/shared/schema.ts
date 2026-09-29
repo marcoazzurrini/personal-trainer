@@ -19,8 +19,8 @@ import { z } from "@hono/zod-openapi";
 // field name off the issue. That is what keeps `optionalText()` from having
 // to be told the name of the field it is validating.
 
-// deno-lint-ignore no-explicit-any
-type Issue = any;
+type Issue = z.core.$ZodRawIssue;
+type Fields = z.ZodObject["shape"];
 
 const at = (iss: Issue) => `"${iss.path?.join(".") ?? ""}"`;
 
@@ -37,31 +37,45 @@ const at = (iss: Issue) => `"${iss.path?.join(".") ?? ""}"`;
 z.config({
   customError: (iss: Issue) => {
     switch (iss.code) {
-      case "invalid_type":
+      case "invalid_type": {
         return `${at(iss)} is required and must be a ${iss.expected}.`;
-      case "invalid_value":
+      }
+      case "invalid_value": {
         return `${at(iss)} must be one of: ${iss.values.join(", ")}.`;
-      case "too_small":
+      }
+      case "too_small": {
         return `${at(iss)} must be >= ${iss.minimum}.`;
-      case "too_big":
+      }
+      case "too_big": {
         return `${at(iss)} must be <= ${iss.maximum}.`;
+      }
+      default: {
+        break;
+      }
     }
-    return undefined;
   },
 });
 
 // ---------------------------------------------------------------- strings
 
+const requiredTextError = (iss: Issue) =>
+  `${at(iss)} is required and must be a non-empty string.`;
+const optionalTextError = (iss: Issue) =>
+  `${at(iss)} must be a non-empty string when present.`;
+
 export function text() {
-  const error = (iss: Issue) =>
-    `${at(iss)} is required and must be a non-empty string.`;
-  return z.string({ error }).trim().min(1, { error });
+  return z
+    .string({ error: requiredTextError })
+    .trim()
+    .min(1, { error: requiredTextError });
 }
 
 export function optionalText() {
-  const error = (iss: Issue) =>
-    `${at(iss)} must be a non-empty string when present.`;
-  return z.string({ error }).trim().min(1, { error }).nullish();
+  return z
+    .string({ error: optionalTextError })
+    .trim()
+    .min(1, { error: optionalTextError })
+    .nullish();
 }
 
 // Every aliasable thing takes its synonyms the same way, so the shape and its
@@ -71,47 +85,57 @@ export function optionalText() {
 const aliasesError = () => '"aliases" must be an array of non-empty strings.';
 
 export function aliasList() {
-  return z.array(
-    z.string({ error: aliasesError }).trim().min(1, { error: aliasesError }),
-    { error: aliasesError },
-  ).optional();
+  return z
+    .array(
+      z.string({ error: aliasesError }).trim().min(1, { error: aliasesError }),
+      { error: aliasesError }
+    )
+    .optional();
 }
 
 // ---------------------------------------------------------------- numbers
 
 export function number(opts: { min?: number } = {}) {
-  const suffix = opts.min !== undefined ? ` >= ${opts.min}` : "";
+  const suffix = opts.min === undefined ? "" : ` >= ${opts.min}`;
   const error = (iss: Issue) =>
     `${at(iss)} is required and must be a number${suffix}.`;
   let s = z.number({ error }).finite({ error });
-  if (opts.min !== undefined) s = s.min(opts.min, { error });
+  if (opts.min !== undefined) {
+    s = s.min(opts.min, { error });
+  }
   return s;
 }
 
 export function optionalNumber(opts: { min?: number } = {}) {
-  const suffix = opts.min !== undefined ? ` >= ${opts.min}` : "";
+  const suffix = opts.min === undefined ? "" : ` >= ${opts.min}`;
   const error = (iss: Issue) =>
     `${at(iss)} must be a number${suffix} when present.`;
   let s = z.number({ error }).finite({ error });
-  if (opts.min !== undefined) s = s.min(opts.min, { error });
+  if (opts.min !== undefined) {
+    s = s.min(opts.min, { error });
+  }
   return s.nullish();
 }
 
 export function int(opts: { min?: number } = {}) {
-  const suffix = opts.min !== undefined ? ` >= ${opts.min}` : "";
+  const suffix = opts.min === undefined ? "" : ` >= ${opts.min}`;
   const error = (iss: Issue) =>
     `${at(iss)} is required and must be an integer${suffix}.`;
   let s = z.int({ error });
-  if (opts.min !== undefined) s = s.min(opts.min, { error });
+  if (opts.min !== undefined) {
+    s = s.min(opts.min, { error });
+  }
   return s;
 }
 
 export function optionalInt(opts: { min?: number } = {}) {
-  const suffix = opts.min !== undefined ? ` >= ${opts.min}` : "";
+  const suffix = opts.min === undefined ? "" : ` >= ${opts.min}`;
   const error = (iss: Issue) =>
     `${at(iss)} must be an integer${suffix} when present.`;
   let s = z.int({ error });
-  if (opts.min !== undefined) s = s.min(opts.min, { error });
+  if (opts.min !== undefined) {
+    s = s.min(opts.min, { error });
+  }
   return s.nullish();
 }
 
@@ -125,35 +149,48 @@ export function oneOf<T extends string>(choices: readonly [T, ...T[]]) {
 
 // ------------------------------------------------------------------ dates
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 
 // Date.parse normalizes February 30 instead of refusing it. Validate the
 // written calendar day before parsing an instant or sending a date to SQL.
 function isCalendarDate(value: string): boolean {
-  if (!DATE_RE.test(value) || value.startsWith("0000")) return false;
+  if (!DATE_RE.test(value) || value.startsWith("0000")) {
+    return false;
+  }
   const parsed = Date.parse(value);
-  return Number.isFinite(parsed) &&
-    new Date(parsed).toISOString().slice(0, 10) === value;
+  return (
+    Number.isFinite(parsed) &&
+    new Date(parsed).toISOString().slice(0, 10) === value
+  );
 }
 
 function calendarDate(error: (iss: Issue) => string) {
-  return z.string({ error }).regex(DATE_RE, { error }).refine(
-    // The regex reports malformed strings and remains visible in OpenAPI.
-    // This second check reports only impossible calendar days.
-    (value) => !DATE_RE.test(value) || isCalendarDate(value),
-    { error },
+  return (
+    z
+      .string({ error })
+      .regex(DATE_RE, { error })
+      // The OpenAPI generator otherwise includes RegExp flags in the pattern.
+      .openapi({ pattern: DATE_RE.source })
+      .refine(
+        // The regex reports malformed strings and remains visible in OpenAPI.
+        // This second check reports only impossible calendar days.
+        (value) => !DATE_RE.test(value) || isCalendarDate(value),
+        { error }
+      )
   );
 }
 
 export function date() {
-  return calendarDate((iss) =>
-    `${at(iss)} is required and must be a calendar date like "2026-08-10".`
+  return calendarDate(
+    (iss) =>
+      `${at(iss)} is required and must be a calendar date like "2026-08-10".`
   );
 }
 
 export function optionalDate() {
-  return calendarDate((iss) =>
-    `${at(iss)} must be a calendar date like "2026-08-10" when present.`
+  return calendarDate(
+    (iss) =>
+      `${at(iss)} must be a calendar date like "2026-08-10" when present.`
   ).nullish();
 }
 
@@ -161,59 +198,70 @@ export function optionalDate() {
 // in whatever zone the runtime happens to be in, and a bare date as midnight
 // UTC — either way the instant stored depends on something the caller never
 // said. The transform normalizes to UTC ISO, as optionalTimestamp did.
-const OFFSET_RE = /(?:Z|[+-]\d{2}:\d{2})$/i;
+const OFFSET_RE = /(?:Z|[+-]\d{2}:\d{2})$/iu;
 
 function instant(error: (iss: Issue) => string) {
-  return z.string({ error })
+  return z
+    .string({ error })
     .refine(
       (v) =>
-        isCalendarDate(v.slice(0, 10)) && OFFSET_RE.test(v) &&
+        isCalendarDate(v.slice(0, 10)) &&
+        OFFSET_RE.test(v) &&
         !Number.isNaN(Date.parse(v)),
-      { error },
+      { error }
     )
     .transform((v) => new Date(v).toISOString());
 }
 
 export function timestamp() {
-  return instant((iss) =>
-    `${
-      at(iss)
-    } is required and must be an ISO 8601 timestamp with an explicit offset, e.g. "2026-08-05T08:30:00Z".`
+  return instant(
+    (iss) =>
+      `${at(
+        iss
+      )} is required and must be an ISO 8601 timestamp with an explicit offset, e.g. "2026-08-05T08:30:00Z".`
   );
 }
 
 export function optionalTimestamp() {
-  return instant((iss) =>
-    `${
-      at(iss)
-    } must be an ISO 8601 timestamp with an explicit offset, e.g. "2026-08-05T08:30:00Z".`
+  return instant(
+    (iss) =>
+      `${at(
+        iss
+      )} must be an ISO 8601 timestamp with an explicit offset, e.g. "2026-08-05T08:30:00Z".`
   ).nullish();
 }
 
 // ------------------------------------------------------------------ uuids
 
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/u;
 
 function uuidString(error: (iss: Issue) => string) {
-  return z.string({ error }).regex(UUID_RE, { error }).transform((v) =>
-    v.toLowerCase()
+  return (
+    z
+      .string({ error })
+      .regex(UUID_RE, { error })
+      // OpenAPI has no separate flags; the source explicitly accepts both cases.
+      .openapi({ pattern: UUID_RE.source })
+      .transform((v) => v.toLowerCase())
   );
 }
 
 // Required on any creating POST that could otherwise write the same thing
 // twice. The id identifies the operation; external delivery has its own limits.
 export function requestId() {
-  return uuidString((iss) =>
-    `${
-      at(iss)
-    } is required: a fresh UUID generated for this call. Recorded writes replay by this id according to the endpoint contract. External issue delivery can remain ambiguous; do not blindly retry GitHub creation or comments. Reuse an id only to retry the exact same call.`
+  return uuidString(
+    (iss) =>
+      `${at(
+        iss
+      )} is required: a fresh UUID generated for this call. Recorded writes replay by this id according to the endpoint contract. External issue delivery can remain ambiguous; do not blindly retry GitHub creation or comments. Reuse an id only to retry the exact same call.`
   );
 }
 
 export function optionalRequestId() {
-  return uuidString((iss) =>
-    `${at(iss)} must be a UUID when present (generate one per creating call).`
+  return uuidString(
+    (iss) =>
+      `${at(iss)} must be a UUID when present (generate one per creating call).`
   ).nullish();
 }
 
@@ -263,18 +311,23 @@ export function macroTotals() {
 export function idParam(what: string) {
   const error = (iss: Issue) =>
     `"${iss.input}" is not a valid ${what} id. Ids are positive whole numbers.`;
-  return z.string({ error })
-    .refine((v) => {
-      const n = Number(v);
-      return Number.isInteger(n) && n >= 1;
-    }, { error })
-    .transform((v) => Number(v));
+  return z
+    .string({ error })
+    .refine(
+      (v) => {
+        const n = Number(v);
+        return Number.isInteger(n) && n >= 1;
+      },
+      { error }
+    )
+    .transform(Number);
 }
 
+const dayError = (iss: Issue) =>
+  `"${iss.input}" is not a calendar date. Use YYYY-MM-DD, e.g. 2026-08-07.`;
+
 export function dayParam() {
-  const error = (iss: Issue) =>
-    `"${iss.input}" is not a calendar date. Use YYYY-MM-DD, e.g. 2026-08-07.`;
-  return calendarDate(error);
+  return calendarDate(dayError);
 }
 
 // ------------------------------------------------------------------ bodies
@@ -293,7 +346,8 @@ export function dayParam() {
 // A route that names request_id itself replaces the default rather than
 // intersecting with it: two schemas for one key intersect to `never`, and the
 // field silently stops being readable off the parsed body.
-type WithRequestId<T extends z.ZodRawShape> = "request_id" extends keyof T ? T
+type WithRequestId<T extends Fields> = "request_id" extends keyof T
+  ? T
   : T & { request_id: ReturnType<typeof optionalRequestId> };
 
 // The same rule, on the other half of a request.
@@ -309,21 +363,26 @@ type WithRequestId<T extends z.ZodRawShape> = "request_id" extends keyof T ? T
 // invented for an endpoint with no parameters at all is the same guess, and
 // GET /nutrition-state?day=… silently answering about today is the same
 // failure as GET /intake did.
-export function query<T extends z.ZodRawShape>(shape: T) {
-  const names = Object.keys(shape);
-  const accepted = names.length > 0
-    ? `Accepted: ${names.join(", ")}.`
-    : "This endpoint reads no query parameters.";
-  return z.strictObject(shape, {
+export function query<T extends Fields>(fields: T) {
+  const names = Object.keys(fields);
+  const accepted =
+    names.length > 0
+      ? `Accepted: ${names.join(", ")}.`
+      : "This endpoint reads no query parameters.";
+  return z.strictObject(fields, {
     error: (iss: Issue) => {
-      if (iss.code !== "unrecognized_keys") return undefined;
+      if (iss.code !== "unrecognized_keys") {
+        return;
+      }
       const named = iss.keys.map((k: string) => `"${k}"`).join(", ");
-      return `Unknown query parameter${
-        iss.keys.length > 1 ? "s" : ""
-      } ${named}. ${accepted} ` +
+      return (
+        `Unknown query parameter${
+          iss.keys.length > 1 ? "s" : ""
+        } ${named}. ${accepted} ` +
         "An unrecognised parameter is refused rather than ignored: dropped in " +
         "silence, a guessed or misspelled name lets the call answer 200 with a " +
-        "result that does not mean what was asked.";
+        "result that does not mean what was asked."
+      );
     },
   });
 }
@@ -335,42 +394,48 @@ export function query<T extends z.ZodRawShape>(shape: T) {
 export function limitParam(opts: { default: number; max: number }) {
   const error = () =>
     `"limit" must be a whole number between 1 and ${opts.max}. Omit it for ${opts.default}.`;
-  return z.string({ error })
-    .refine((v) => {
-      const n = Number(v);
-      return Number.isInteger(n) && n >= 1 && n <= opts.max;
-    }, { error })
-    .transform((v) => Number(v))
+  return z
+    .string({ error })
+    .refine(
+      (v) => {
+        const n = Number(v);
+        return Number.isInteger(n) && n >= 1 && n <= opts.max;
+      },
+      { error }
+    )
+    .transform(Number)
     .optional();
 }
 
 // `what` names the thing being refused, the way assertKnownFields' third
 // argument did: a nested object says 'an entry in "items"' rather than "the
 // request body", so a caller with a typo two levels down is told where.
-export function body<T extends z.ZodRawShape>(
-  shape: T,
-  what = "the request body",
-) {
+export function body<T extends Fields>(fields: T, what = "the request body") {
+  // SAFETY: the spread replaces the default request_id exactly when T declares one, matching WithRequestId.
   const withRequestId = {
     request_id: optionalRequestId(),
-    ...shape,
+    ...fields,
   } as WithRequestId<T>;
   // request_id sits last, where assertKnownFields put it: the list reads as
   // "what this endpoint is about" followed by the one field every write takes.
   const accepted = [
-    ...Object.keys(shape).filter((k) => k !== "request_id"),
+    ...Object.keys(fields).filter((k) => k !== "request_id"),
     "request_id",
   ].join(", ");
   return z.strictObject(withRequestId, {
     error: (iss: Issue) => {
-      if (iss.code !== "unrecognized_keys") return undefined;
+      if (iss.code !== "unrecognized_keys") {
+        return;
+      }
       const named = iss.keys.map((k: string) => `"${k}"`).join(", ");
-      return `Unknown field${
-        iss.keys.length > 1 ? "s" : ""
-      } ${named} in ${what}. Accepted: ${accepted}. ` +
+      return (
+        `Unknown field${
+          iss.keys.length > 1 ? "s" : ""
+        } ${named} in ${what}. Accepted: ${accepted}. ` +
         "An unrecognised field is refused rather than ignored: dropped in silence, " +
         "a guessed or misspelled name lets the call answer 200 while the record " +
-        "says something other than what was meant.";
+        "says something other than what was meant."
+      );
     },
   });
 }

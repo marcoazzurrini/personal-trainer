@@ -5,6 +5,6 @@ export interface DashboardBuild {
 export const placeholder: string;
 export function stampOutput(
   directory: string,
-  revision: string | null,
+  revision: string | null
 ): Promise<DashboardBuild>;
 export function buildDashboard(): Promise<DashboardBuild>;

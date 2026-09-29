@@ -1,25 +1,13 @@
-import {
-  type Clock,
-  type Database,
-  date,
-  instant,
-  romeDate,
-  rows,
-  systemClock,
-} from "../shared/d1.ts";
-
+import { bodyfatStore } from "../body/bodyfat.ts";
+import type { TrendPoint } from "../body/trend.ts";
+import { date, instant, romeDate, rows, systemClock } from "../shared/d1.ts";
+import type { Clock, Database } from "../shared/d1.ts";
 import { addDays, daysBetween } from "../shared/dates.ts";
 import { eventStore } from "./events.ts";
-import { bodyfatStore } from "../body/bodyfat.ts";
+import { backSolve, damp, DEFAULT_WINDOW_DAYS } from "./expenditure.ts";
+import type { Expenditure } from "./expenditure.ts";
 import type { ActiveTarget, ExpenditureRead } from "./read.types.ts";
 import type { TargetRow } from "./targets.types.ts";
-import type { TrendPoint } from "../body/trend.ts";
-import {
-  backSolve,
-  damp,
-  DEFAULT_WINDOW_DAYS,
-  type Expenditure,
-} from "./expenditure.ts";
 
 // Everything that reads the nutrition picture out of the database and hands it
 // to the pure arithmetic in expenditure.ts. Kept apart from the routes because
@@ -33,12 +21,32 @@ interface IntakeWindow {
   excludedDays: Set<string>;
 }
 
+export const targetColumns = `id, effective_from, goal, rate_pct_bw_week / 100.0 AS rate_pct_bw_week, kcal_target,
+ protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation, substr(created_at, 1, 23) || 'Z' AS created_at`;
+export type StoredTarget = Omit<TargetRow, "clipped" | "clipped_reasons"> & {
+  clipped: number;
+  clipped_reasons: string;
+};
+export const decodeTarget = (row: StoredTarget): TargetRow => ({
+  ...row,
+  clipped: Boolean(row.clipped),
+  clipped_reasons: JSON.parse(row.clipped_reasons),
+});
+
+function windowDays(to: string, length: number): string[] {
+  const days: string[] = [];
+  for (let i = length - 1; i >= 0; i--) {
+    days.push(addDays(to, -i));
+  }
+  return days;
+}
+
 export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
   const { activeTransients } = eventStore(db, clock);
   const { latestBodyfat } = bodyfatStore(db, clock);
   const lastFinishedDay = () => {
     const today = romeDate(instant(clock().toISOString()));
-    const weekday = new Date(today + "T00:00:00Z").getUTCDay() || 7;
+    const weekday = new Date(`${today}T00:00:00Z`).getUTCDay() || 7;
     return addDays(today, -weekday);
   };
   async function loadIntake(from: string, to: string): Promise<IntakeWindow> {
@@ -54,33 +62,30 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
       db,
       "SELECT day, kcal, incomplete FROM daily_intake WHERE day >= ? AND day <= ?",
       from,
-      to,
+      to
     );
     const intakeByDay = new Map<string, number>();
     const excludedDays = new Set<string>();
     for (const row of entries) {
-      if (row.kcal !== null) intakeByDay.set(row.day, row.kcal);
-      if (row.incomplete) excludedDays.add(row.day);
+      if (row.kcal !== null) {
+        intakeByDay.set(row.day, row.kcal);
+      }
+      if (row.incomplete) {
+        excludedDays.add(row.day);
+      }
     }
     return { intakeByDay, excludedDays };
-  }
-
-  function windowDays(to: string, length: number): string[] {
-    const days: string[] = [];
-    for (let i = length - 1; i >= 0; i--) days.push(addDays(to, -i));
-    return days;
   }
 
   async function solveWindow(
     to: string,
     trend: readonly TrendPoint[],
-    bodyfatPercent: number | null,
+    bodyfatPercent: number | null
   ): Promise<Expenditure> {
     const days = windowDays(to, DEFAULT_WINDOW_DAYS);
-    const { intakeByDay, excludedDays } = await loadIntake(
-      days[0],
-      days[days.length - 1],
-    );
+    // SAFETY: windowDays produces DEFAULT_WINDOW_DAYS entries, a positive fixed count.
+    const lastDay = days.at(-1) as string;
+    const { intakeByDay, excludedDays } = await loadIntake(days[0], lastDay);
     return backSolve({
       days,
       intakeByDay,
@@ -94,7 +99,7 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
   // registered transient is being absorbed, and holding the last good estimate
   // rather than extrapolating when the current window stops qualifying.
   async function currentExpenditure(
-    trend: readonly TrendPoint[],
+    trend: readonly TrendPoint[]
   ): Promise<ExpenditureRead> {
     const to = await lastFinishedDay();
     const bodyfat = (await latestBodyfat())?.percent ?? null;
@@ -108,7 +113,7 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
     // happened after its window, so the acknowledgment is stitched in here.
     if (current.status !== "ok") {
       const sinceClose = trend.filter(
-        (p) => !p.interpolated && daysBetween(to, p.day) > 0,
+        (p) => !p.interpolated && daysBetween(to, p.day) > 0
       ).length;
       if (
         sinceClose > 0 &&
@@ -117,8 +122,8 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
         const blockers = current.blockers.map((b) =>
           b.includes("weigh-in day")
             ? `${b} ${sinceClose} weigh-in day${
-              sinceClose === 1 ? "" : "s"
-            } since the window closed — counted when the current week finishes.`
+                sinceClose === 1 ? "" : "s"
+              } since the window closed — counted when the current week finishes.`
             : b
         );
         current = { ...current, blockers, reason: blockers.join(" ") };
@@ -135,7 +140,7 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
         previous.tdee_kcal,
         transients.length > 0
           ? { kind: transients[0].kind, day: transients[0].day }
-          : null,
+          : null
       );
       return { ...damped, as_of: to };
     }
@@ -166,7 +171,7 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
     const [row] = await rows<StoredTarget>(
       db,
       `SELECT ${targetColumns} FROM nutrition_targets WHERE effective_from <= ? ORDER BY effective_from DESC, id DESC LIMIT 1`,
-      date(asOf),
+      date(asOf)
     );
     return row ? decodeTarget(row) : null;
   }
@@ -176,36 +181,24 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
 /** Trend slope over the last n days, in kg/week — the rate to compare a target against. */
 export function slopePctBwWeek(
   trend: readonly TrendPoint[],
-  days: number,
+  days: number
 ): { kg_per_week: number; pct_bw_week: number } | null {
-  if (trend.length < 2) return null;
-  const last = trend[trend.length - 1];
+  if (trend.length < 2) {
+    return null;
+  }
+  // SAFETY: fewer than two trend points return above.
+  const last = trend.at(-1) as TrendPoint;
   const cutoff = addDays(last.day, -days);
   const start = trend.find((p) => daysBetween(cutoff, p.day) >= 0);
-  if (!start || start.day === last.day) return null;
+  if (!start || start.day === last.day) {
+    return null;
+  }
   const span = daysBetween(start.day, last.day);
   const kgPerWeek = ((last.trend_kg - start.trend_kg) / span) * 7;
   return {
     kg_per_week: Math.round(kgPerWeek * 1000) / 1000,
-    pct_bw_week: Math.round((kgPerWeek / last.trend_kg) * 10000) / 100,
+    pct_bw_week: Math.round((kgPerWeek / last.trend_kg) * 10_000) / 100,
   };
 }
 
 export const nutritionReader = nutritionReadStore;
-
-export const targetColumns =
-  `id, effective_from, goal, rate_pct_bw_week / 100.0 AS rate_pct_bw_week, kcal_target,
- protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation, substr(created_at, 1, 23) || 'Z' AS created_at`;
-export type StoredTarget =
-  & Omit<
-    TargetRow,
-    "clipped" | "clipped_reasons"
-  >
-  & { clipped: number; clipped_reasons: string };
-export const decodeTarget = (
-  row: StoredTarget,
-): TargetRow => ({
-  ...row,
-  clipped: Boolean(row.clipped),
-  clipped_reasons: JSON.parse(row.clipped_reasons),
-});

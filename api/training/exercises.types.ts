@@ -1,7 +1,7 @@
 import type { SYSTEMIC_FATIGUE_LEVELS } from "./constants.ts";
 import type { Measure, StimulusType } from "./rules.ts";
 
-export type SystemicFatigue = typeof SYSTEMIC_FATIGUE_LEVELS[number];
+export type SystemicFatigue = (typeof SYSTEMIC_FATIGUE_LEVELS)[number];
 
 export interface MuscleLink {
   muscle: string;

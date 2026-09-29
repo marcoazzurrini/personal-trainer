@@ -1,4 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+
+import { assert, assertEquals } from "./assertions.ts";
 import d1 from "./d1.ts";
 import { api, resetNutrition, today, uuid } from "./helpers.ts";
 
@@ -6,29 +8,33 @@ async function foods() {
   await resetNutrition();
   for (const name of ["Rollback oats", "Rollback rice"]) {
     assertEquals(
-      (await api.post("/foods", {
-        name,
-        kcal_100g: 400,
-        protein_100g: 10,
-        carbs_100g: 90,
-        fat_100g: 0,
-        source: "label",
-      })).status,
-      201,
+      (
+        await api.post("/foods", {
+          name,
+          kcal_100g: 400,
+          protein_100g: 10,
+          carbs_100g: 90,
+          fat_100g: 0,
+          source: "label",
+        })
+      ).status,
+      201
     );
   }
 }
-
-Deno.test("meal creation rolls back after a child insert, then the same request retries once", async () => {
+test("meal creation rolls back after a child insert, then the same request retries once", async () => {
   await foods();
   const input = {
     name: "Rollback breakfast",
     aliases: ["rollback breakfast alias"],
     request_id: uuid(),
-    items: [{ food: "Rollback oats", grams: 40 }, {
-      food: "Rollback rice",
-      grams: 50,
-    }],
+    items: [
+      { food: "Rollback oats", grams: 40 },
+      {
+        food: "Rollback rice",
+        grams: 50,
+      },
+    ],
   };
   const db = d1();
   try {
@@ -48,7 +54,7 @@ Deno.test("meal creation rolls back after a child insert, then the same request 
     for (const table of ["meals", "meal_aliases", "meal_items"]) {
       assertEquals(
         (await db.unsafe(`select count(*) as n from ${table}`))[0].n,
-        0,
+        0
       );
     }
     await db`drop trigger test_meal_create_failure`;
@@ -60,17 +66,13 @@ Deno.test("meal creation rolls back after a child insert, then the same request 
     assertEquals(replay.body, saved.body);
     assertEquals((await api.get("/meals")).body.meals.length, 1);
     assertEquals((await db`select count(*) as n from meal_items`)[0].n, 2);
-    assertEquals(
-      (await db`select count(*) as n from meal_aliases`)[0].n,
-      1,
-    );
+    assertEquals((await db`select count(*) as n from meal_aliases`)[0].n, 1);
   } finally {
     await db`drop trigger if exists test_meal_create_failure`;
     await db.end();
   }
 });
-
-Deno.test("meal replacement restores name, aliases and deleted items after a late failure", async () => {
+test("meal replacement restores name, aliases and deleted items after a late failure", async () => {
   await foods();
   const created = await api.post("/meals", {
     name: "Original breakfast",
@@ -83,10 +85,13 @@ Deno.test("meal replacement restores name, aliases and deleted items after a lat
   const input = {
     name: "Changed breakfast",
     aliases: ["changed breakfast alias"],
-    items: [{ food: "Rollback oats", grams: 40 }, {
-      food: "Rollback rice",
-      grams: 50,
-    }],
+    items: [
+      { food: "Rollback oats", grams: 40 },
+      {
+        food: "Rollback rice",
+        grams: 50,
+      },
+    ],
   };
   const db = d1();
   try {
@@ -110,35 +115,37 @@ Deno.test("meal replacement restores name, aliases and deleted items after a lat
     assertEquals(saved.status, 200);
     assertEquals(saved.body.meal.name, input.name);
     assertEquals(
-      saved.body.meal.items.map((i: { grams: number }) => i.grams).sort(),
-      [40, 50],
+      saved.body.meal.items.map((i: { grams: number }) => i.grams).toSorted(),
+      [40, 50]
     );
     assertEquals(
       (await api.get("/meals/changed breakfast alias")).body.meal.id,
-      created.body.meal.id,
+      created.body.meal.id
     );
   } finally {
     await db`drop trigger if exists test_meal_replace_failure`;
     await db.end();
   }
 });
-
-Deno.test("food correction updates historical totals without writing intake", async () => {
+test("food correction updates historical totals without writing intake", async () => {
   await foods();
   for (const grams of [100, 200]) {
     assertEquals(
-      (await api.post("/intake", {
-        day: today(),
-        food: "Rollback oats",
-        grams,
-      })).status,
-      201,
+      (
+        await api.post("/intake", {
+          day: today(),
+          food: "Rollback oats",
+          grams,
+        })
+      ).status,
+      201
     );
   }
   const path = "/foods/Rollback oats";
   const db = d1();
-  const snapshot =
-    async () => [...await db`select * from intake_entries order by id`];
+  const snapshot = async () => [
+    ...(await db`select * from intake_entries order by id`),
+  ];
   try {
     const intake = await snapshot();
     await db`create trigger test_food_correct_failure before update on intake_entries
@@ -151,14 +158,14 @@ Deno.test("food correction updates historical totals without writing intake", as
     assertEquals(saved.body.corrected_entries.count, 2);
     assertEquals(await snapshot(), intake);
     assertEquals(
-      (await api.get("/intake")).body.entries.map((r: { kcal: number }) =>
-        r.kcal
+      (await api.get("/intake")).body.entries.map(
+        (r: { kcal: number }) => r.kcal
       ),
-      [360, 720],
+      [360, 720]
     );
     assertEquals(
       (await db`select kcal from daily_intake where day = ${today()}`)[0].kcal,
-      1080,
+      1080
     );
     const replay = await api.patch(path, input);
     assertEquals(replay.status, 200);

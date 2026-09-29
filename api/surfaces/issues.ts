@@ -8,20 +8,19 @@
 import { ApiError } from "../shared/errors.ts";
 import {
   commentOnIssue,
-  type GithubConfig,
   GithubError,
   issueBody,
-  type IssueKind,
   listCoachIssues,
   openIssue,
 } from "./github.ts";
+import type { GithubConfig, IssueKind } from "./github.ts";
 
 // What a report may name as a document: lowercase words joined by hyphens,
 // nested with slashes — "tasks/programming", "method/hypertrophy" — the way
 // the skill writes them. The documents themselves ship in the plugin
 // and never pass through this function; this only refuses a name that could
 // not be one, so an issue never cites a document that cannot exist.
-const DOC_NAME_RE = /^[a-z0-9-]+(\/[a-z0-9-]+)*$/;
+const DOC_NAME_RE = /^[a-z0-9-]+(?:\/[a-z0-9-]+)*$/u;
 
 export const MAX_DOC_NAME = 80;
 
@@ -30,10 +29,10 @@ export function isDocName(name: string): boolean {
 }
 
 const MAX_TITLE = 200;
-const MAX_PROBLEM = 4_000;
-const MAX_EVIDENCE = 8_000;
-const MAX_SUGGESTION = 4_000;
-const MAX_COMMENT = 8_000;
+const MAX_PROBLEM = 4000;
+const MAX_EVIDENCE = 8000;
+const MAX_SUGGESTION = 4000;
+const MAX_COMMENT = 8000;
 const MAX_DOCS = 10;
 
 export interface CoachIssue {
@@ -65,7 +64,7 @@ function config(env: IssueBindings): GithubConfig {
   if (!token || !repo) {
     throw new ApiError(
       500,
-      "Filing issues needs GITHUB_TOKEN and GITHUB_REPO configured on the server.",
+      "Filing issues needs GITHUB_TOKEN and GITHUB_REPO configured on the server."
     );
   }
   return {
@@ -82,7 +81,7 @@ function capped(value: string, max: number, field: string): string {
   if (value.length > max) {
     throw new ApiError(
       422,
-      `"${field}" exceeds ${max} characters. Say the essential thing; a report nobody finishes reading is not a report.`,
+      `"${field}" exceeds ${max} characters. Say the essential thing; a report nobody finishes reading is not a report.`
     );
   }
   return value;
@@ -92,13 +91,15 @@ function capped(value: string, max: number, field: string): string {
 // Only the explicit [REDACTED] marker is safe in a credential position.
 function requireSanitizedReport(value: string): void {
   const credentials = value.matchAll(
-    /(?:\bbearer\s+|\b(?:set-cookie|cookie)["']?\s*[:=]\s*["']?|(?:--cookie(?:-jar)?\s+|(?:^|\s)-b\s*)["']?)([^\r\n"'`]+)/gi,
+    /(?:\bbearer\s+|\b(?:set-cookie|cookie)["']?\s*[:=]\s*["']?|(?:--cookie(?:-jar)?\s+|(?:^|\s)-b\s*)["']?)(?<credential>[^\r\n"'`]+)/giu
   );
   for (const [, credential] of credentials) {
-    if (credential.trim() === "[REDACTED]") continue;
+    if (credential.trim() === "[REDACTED]") {
+      continue;
+    }
     throw new ApiError(
       422,
-      "Public reports must be sanitized. Remove authorization credentials and cookies from every field, or replace their entire value with [REDACTED]. Use synthetic personal details; ask consent before publishing sensitive details that cannot be removed. No report was sent.",
+      "Public reports must be sanitized. Remove authorization credentials and cookies from every field, or replace their entire value with [REDACTED]. Use synthetic personal details; ask consent before publishing sensitive details that cannot be removed. No report was sent."
     );
   }
 }
@@ -108,18 +109,20 @@ function requireSanitizedReport(value: string): void {
 // The count and the name rules stay here: both messages number the offending
 // entry, which a per-element schema error cannot phrase the same way.
 function parseDocs(raw: string[] | null | undefined): string[] {
-  if (raw === undefined || raw === null) return [];
+  if (raw === undefined || raw === null) {
+    return [];
+  }
   if (raw.length > MAX_DOCS) {
     throw new ApiError(
       422,
-      `"docs" names at most ${MAX_DOCS} documents. A report touching more than that is really several reports.`,
+      `"docs" names at most ${MAX_DOCS} documents. A report touching more than that is really several reports.`
     );
   }
   return raw.map((name, i) => {
     if (!isDocName(name)) {
       throw new ApiError(
         422,
-        `"docs[${i}]" must be a document name as the skill writes them: lowercase words, hyphens, slashes for nesting, no extension — like "tasks/programming" (max ${MAX_DOC_NAME} chars).`,
+        `"docs[${i}]" must be a document name as the skill writes them: lowercase words, hyphens, slashes for nesting, no extension — like "tasks/programming" (max ${MAX_DOC_NAME} chars).`
       );
     }
     return name;
@@ -130,34 +133,39 @@ function parseDocs(raw: string[] | null | undefined): string[] {
 export async function listIssues(env: IssueBindings): Promise<CoachIssue[]> {
   try {
     return await listCoachIssues(config(env));
-  } catch (err) {
-    if (err instanceof GithubError) throw new ApiError(502, err.message);
-    throw err;
+  } catch (error) {
+    if (error instanceof GithubError) {
+      throw new ApiError(502, error.message);
+    }
+    throw error;
   }
 }
 
-export async function fileIssue(b: {
-  kind: IssueKind;
-  title: string;
-  problem: string;
-  evidence?: string | null;
-  suggestion?: string | null;
-  docs?: string[];
-  request_id: string;
-}, env: IssueBindings): Promise<OpenedIssue> {
-  for (
-    const value of [
-      b.title,
-      b.problem,
-      b.evidence,
-      b.suggestion,
-      ...(b.docs ?? []),
-      b.request_id,
-    ]
-  ) {
-    if (value != null) requireSanitizedReport(value);
+export async function fileIssue(
+  b: {
+    kind: IssueKind;
+    title: string;
+    problem: string;
+    evidence?: string | null;
+    suggestion?: string | null;
+    docs?: string[];
+    request_id: string;
+  },
+  env: IssueBindings
+): Promise<OpenedIssue> {
+  for (const value of [
+    b.title,
+    b.problem,
+    b.evidence,
+    b.suggestion,
+    ...(b.docs ?? []),
+    b.request_id,
+  ]) {
+    if (value !== null && value !== undefined) {
+      requireSanitizedReport(value);
+    }
   }
-  const kind = b.kind;
+  const { kind } = b;
   const title = capped(b.title, MAX_TITLE, "title");
   const problem = capped(b.problem, MAX_PROBLEM, "problem");
   // Required for a bug and optional for an improvement. A bug without the
@@ -168,16 +176,16 @@ export async function fileIssue(b: {
   if (kind === "bug" && rawEvidence === null) {
     throw new ApiError(
       422,
-      '"evidence" is required for a bug: the sanitized call, sanitized response, and when. Remove credentials and cookies; substitute synthetic personal details. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.',
+      '"evidence" is required for a bug: the sanitized call, sanitized response, and when. Remove credentials and cookies; substitute synthetic personal details. Nobody can reproduce it from the repository without that, and a bug that cannot be reproduced cannot be fixed. If you cannot show it, file it as an improvement and say what you suspect.'
     );
   }
-  const evidence = rawEvidence === null
-    ? null
-    : capped(rawEvidence, MAX_EVIDENCE, "evidence");
+  const evidence =
+    rawEvidence === null ? null : capped(rawEvidence, MAX_EVIDENCE, "evidence");
   const rawSuggestion = b.suggestion ?? null;
-  const suggestion = rawSuggestion === null
-    ? null
-    : capped(rawSuggestion, MAX_SUGGESTION, "suggestion");
+  const suggestion =
+    rawSuggestion === null
+      ? null
+      : capped(rawSuggestion, MAX_SUGGESTION, "suggestion");
   const docs = parseDocs(b.docs);
 
   let opened: { number: number; url: string };
@@ -193,9 +201,11 @@ export async function fileIssue(b: {
         requestId: b.request_id,
       }),
     });
-  } catch (err) {
-    if (err instanceof GithubError) throw new ApiError(502, err.message);
-    throw err;
+  } catch (error) {
+    if (error instanceof GithubError) {
+      throw new ApiError(502, error.message);
+    }
+    throw error;
   }
 
   // request_id is only a marker in the GitHub body. Repeating it may create
@@ -216,24 +226,24 @@ export async function fileIssue(b: {
 export async function commentOnReport(
   issueNumber: number,
   rawNote: string,
-  env: IssueBindings,
+  env: IssueBindings
 ): Promise<{ url: string }> {
   requireSanitizedReport(rawNote);
   const note = capped(rawNote, MAX_COMMENT, "note");
   try {
     return await commentOnIssue(config(env), issueNumber, note);
-  } catch (err) {
-    if (err instanceof GithubError) {
+  } catch (error) {
+    if (error instanceof GithubError) {
       // A wrong number is the caller's mistake, and answering it with a 502
       // would say the server is broken when it is not. Errors are prompts.
-      if (err.status === 404) {
+      if (error.status === 404) {
         throw new ApiError(
           404,
-          `No issue #${issueNumber} in the repository. GET /issues lists the open ones with their numbers.`,
+          `No issue #${issueNumber} in the repository. GET /issues lists the open ones with their numbers.`
         );
       }
-      throw new ApiError(502, err.message);
+      throw new ApiError(502, error.message);
     }
-    throw err;
+    throw error;
   }
 }

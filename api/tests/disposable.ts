@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 // Only the local Miniflare runner issues this capability. A URL alone never
 // grants fixture access. Both bridges prove the same randomly owned D1 binding.
 export interface DatabaseIdentity {
@@ -10,26 +11,42 @@ export interface Disposable extends DatabaseIdentity {
   managementUrl: string;
 }
 const REFUSAL =
-  "Unsafe test database: run deno task test to create a disposable Worker+D1 database.";
+  "Unsafe test database: run bun run test:api to create a disposable Worker+D1 database.";
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Receipt fields are untrusted until this local URL check accepts them.
 function localUrl(value: unknown, path: string): boolean {
-  if (typeof value !== "string") return false;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject non-string receipt fields rather than coercing them into URLs.
+  if (typeof value !== "string") {
+    return false;
+  }
   try {
     const url = new URL(value);
-    return value === value.trim() && url.href === value &&
-      url.protocol === "http:" && url.hostname === "127.0.0.1" &&
-      Number(url.port) > 0 && url.pathname === path && !url.username &&
-      !url.password && !url.search && !url.hash;
+    return (
+      value === value.trim() &&
+      url.href === value &&
+      url.protocol === "http:" &&
+      url.hostname === "127.0.0.1" &&
+      Number(url.port) > 0 &&
+      url.pathname === path &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
   } catch {
     return false;
   }
 }
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the parser for an untrusted receipt file, including invalid test inputs.
 export function parseDisposable(value: unknown): Disposable {
+  // SAFETY: This assertion only permits field inspection; the refusal checks below, not the assertion, check the receipt.
   const d = value as Disposable | null;
   if (
-    !d || d.kind !== "personal-trainer-worker-d1-v1" ||
-    !/^[a-f0-9]{64}$/.test(d.run ?? "") ||
-    !/^[a-f0-9]{64}$/.test(d.secret ?? "") ||
-    !localUrl(d.apiUrl, "/api") || !localUrl(d.managementUrl, "/manage")
+    !d ||
+    d.kind !== "personal-trainer-worker-d1-v1" ||
+    !/^[a-f0-9]{64}$/u.test(d.run ?? "") ||
+    !/^[a-f0-9]{64}$/u.test(d.secret ?? "") ||
+    !localUrl(d.apiUrl, "/api") ||
+    !localUrl(d.managementUrl, "/manage")
   ) {
     throw new Error(REFUSAL);
   }
@@ -39,15 +56,17 @@ export function readyApiUrl(value: string): string | undefined {
   return localUrl(value, "/api") ? value : undefined;
 }
 export async function disposable(): Promise<Disposable> {
-  const file = Deno.env.get("TEST_DISPOSABLE_FILE");
-  if (!file) throw new Error(REFUSAL);
-  const d = parseDisposable(JSON.parse(await Deno.readTextFile(file)));
+  const file = process.env["TEST_DISPOSABLE_FILE"];
+  if (!file) {
+    throw new Error(REFUSAL);
+  }
+  const d = parseDisposable(JSON.parse(await readFile(file, "utf-8")));
   for (const key of ["DATABASE_URL", "TEST_DATABASE_URL"]) {
-    if (Deno.env.get(key) !== undefined) {
+    if (process.env[key] !== undefined) {
       throw new Error(`${REFUSAL} ${key} must not be set.`);
     }
   }
-  const api = Deno.env.get("API_URL");
+  const api = process.env["API_URL"];
   if (api !== undefined && api !== d.apiUrl) {
     throw new Error(`${REFUSAL} API_URL does not match the receipt.`);
   }
@@ -55,8 +74,10 @@ export async function disposable(): Promise<Disposable> {
 }
 export function assertIdentity(
   expected: DatabaseIdentity,
-  actual: unknown,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Identity replies remain untrusted until compared with the owned receipt.
+  actual: unknown
 ): void {
+  // SAFETY: This view is only used for the exact kind/run comparison below; it does not validate the reply.
   const row = actual as DatabaseIdentity | null;
   if (!row || row.kind !== expected.kind || row.run !== expected.run) {
     throw new Error(`${REFUSAL} Database identity does not match the receipt.`);
@@ -65,12 +86,13 @@ export function assertIdentity(
 export async function management<T>(
   d: Disposable,
   action: string,
-  extra: Record<string, unknown> = {},
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Management actions carry different fixture payloads, which the runner handles at its HTTP boundary.
+  extra: Record<string, unknown> = {}
 ): Promise<T> {
   const res = await fetch(d.managementUrl, {
     method: "POST",
     redirect: "error",
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(30_000),
     headers: {
       authorization: `Bearer ${d.secret}`,
       "content-type": "application/json",
@@ -78,7 +100,10 @@ export async function management<T>(
     body: JSON.stringify({ ...extra, run: d.run, action }),
   });
   const body = await res.json();
-  if (!res.ok) throw new Error(body.error ?? REFUSAL);
+  if (!res.ok) {
+    throw new Error(body.error ?? REFUSAL);
+  }
+  // SAFETY: T is the test caller's expected management reply, not validated here; callers check identity or assert fixture results.
   return body as T;
 }
 export async function verifyDatabase(d: Disposable): Promise<void> {

@@ -1,9 +1,12 @@
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { ApiError } from "./errors.ts";
-import type { Context } from "@hono/hono";
-import { type AppEnv, services } from "./services.ts";
+import { createRoute, z } from "@hono/zod-openapi";
+import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { Context } from "hono";
+
 import type { Services } from "../services.ts";
+import { ApiError } from "./errors.ts";
 import { aliasList, body, query, text } from "./schema.ts";
+import { services } from "./services.ts";
+import type { AppEnv } from "./services.ts";
 
 // Exercises, foods and meals all answer to more than one name, and the rule
 // is one rule: a synonym never becomes a second row, because that splits one
@@ -59,9 +62,9 @@ export function addAliasRoute<Body>(
     // insert reaches a constraint that knows neither.
     assertFree: (
       c: Context<AppEnv>,
-      aliases: readonly string[],
+      aliases: readonly string[]
     ) => Promise<void>;
-  },
+  }
 ) {
   router.openapi(
     createRoute({
@@ -94,12 +97,14 @@ export function addAliasRoute<Body>(
     async (c) => {
       const { id } = await surface.resolve(c, c.req.valid("param").ref);
       const b = c.req.valid("json");
-      const aliases = b.alias !== undefined ? [b.alias] : (b.aliases ?? []);
-      if (aliases.length === 0) throw new ApiError(422, surface.neither);
+      const aliases = b.alias === undefined ? (b.aliases ?? []) : [b.alias];
+      if (aliases.length === 0) {
+        throw new ApiError(422, surface.neither);
+      }
       await surface.assertFree(c, aliases);
       await services(c).aliases[surface.kind].addAliases(id, aliases);
       return c.json(await surface.respond(c, id), 201);
-    },
+    }
   );
 }
 
@@ -115,17 +120,19 @@ export function releaseAliasRoute<Body>(
     removed: string;
     notAnAliasResponse: string;
     notAnAlias: (alias: string, entity: Aliased) => string;
-  },
+  }
 ) {
+  const description: Pick<typeof surface, "description"> = {};
+  if (surface.description !== undefined) {
+    description.description = surface.description;
+  }
   router.openapi(
     createRoute({
       method: "delete",
       path: "/{ref}/aliases/{alias}",
       tags: [surface.tag],
       summary: surface.summary,
-      ...(surface.description === undefined
-        ? {}
-        : { description: surface.description }),
+      ...description,
       request: {
         params: z.object({ ref: surface.ref(), alias: z.string().min(1) }),
         query: query({}),
@@ -150,6 +157,6 @@ export function releaseAliasRoute<Body>(
         notAnAlias: surface.notAnAlias(alias, entity),
       });
       return c.json(await surface.respond(c, entity.id));
-    },
+    }
   );
 }

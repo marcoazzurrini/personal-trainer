@@ -1,11 +1,13 @@
 // A thin GitHub REST client for the issues the coach files. Plain fetch —
-// three small calls, not worth an SDK. Import-free on purpose: the unit
-// tests run this file without a database, against a local stub server.
+// three small calls, not worth an SDK. Response schemas need no database;
+// unit tests exercise this client against a local stub server.
 //
 // The coach files issues; it does not open pull requests. It has the
 // conversations and none of the repository, so what it can produce well is
 // evidence, not a diff. The change itself is written from the repository,
 // where the tests and the rest of the code are visible.
+
+import { z } from "@hono/zod-openapi";
 
 export interface GithubConfig {
   apiBase: string; // https://api.github.com, or the stub in tests
@@ -21,7 +23,7 @@ export const COACH_LABEL = "coach";
 // wrong; an improvement is anything that would work better. Both become a
 // label alongside COACH_LABEL, so the issue list sorts itself.
 export const ISSUE_KINDS = ["bug", "improvement"] as const;
-export type IssueKind = typeof ISSUE_KINDS[number];
+export type IssueKind = (typeof ISSUE_KINDS)[number];
 
 // Routes translate this into an ApiError; the message is written for the
 // LLM on the other end, like every other error in this API. The status is
@@ -29,35 +31,35 @@ export type IssueKind = typeof ISSUE_KINDS[number];
 // number) from GitHub being unreachable — a 502 in answer to a typo tells
 // the caller nothing it can act on.
 export class GithubError extends Error {
-  constructor(public status: number, message: string) {
+  status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.name = "GithubError";
+    this.status = status;
   }
 }
 
-function object(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function nonempty(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function httpUrl(value: unknown): value is string {
-  if (!nonempty(value)) return false;
+const nonempty = z.string().refine((value) => value.trim().length > 0);
+const httpUrl = nonempty.refine((value) => {
   try {
     return ["http:", "https:"].includes(new URL(value).protocol);
   } catch {
     return false;
   }
-}
-
-function timestamp(value: unknown): value is string {
-  return nonempty(value) && Number.isFinite(Date.parse(value));
-}
-
-function issueNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
-}
+});
+const timestamp = nonempty.refine((value) =>
+  Number.isFinite(Date.parse(value))
+);
+const positiveIssueNumber = z.number().refine(Number.isSafeInteger).positive();
+const openedIssue = z.object({
+  number: positiveIssueNumber,
+  html_url: httpUrl,
+});
+const postedComment = z.object({ html_url: httpUrl });
+type GithubWrite =
+  | { title: string; body: string; labels: string[] }
+  | { body: string };
 
 function malformed(method: "GET" | "POST"): never {
   throw new GithubError(
@@ -66,34 +68,44 @@ function malformed(method: "GET" | "POST"): never {
       method === "GET"
         ? "Try the read again later."
         : "The write may already exist at GitHub. Check existing issues or comments before retrying; do not blindly repeat the write."
-    }`,
+    }`
   );
 }
 
-async function gh(
+async function gh<Result>(
   cfg: GithubConfig,
-  method: string,
+  method: "GET" | "POST",
   path: string,
-  body?: unknown,
-): Promise<unknown> {
-  const signal = AbortSignal.timeout(5_000);
+  schema: z.ZodType<Result>,
+  body?: GithubWrite
+): Promise<Result> {
+  const signal = AbortSignal.timeout(5000);
+  const headers = new Headers({
+    authorization: `Bearer ${cfg.token}`,
+    accept: "application/vnd.github+json",
+    // GitHub requires an explicit User-Agent in the Workers runtime.
+    "user-agent": "personal-trainer",
+  });
+  if (body !== undefined) {
+    headers.set("content-type", "application/json");
+  }
   let res: Response;
   let json: unknown;
   try {
-    res = await fetch(`${cfg.apiBase}${path}`, {
-      signal,
-      method,
-      headers: {
-        authorization: `Bearer ${cfg.token}`,
-        accept: "application/vnd.github+json",
-        // GitHub requires this header; Workers does not supply Deno's default.
-        "user-agent": "personal-trainer",
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    json = await res.json().catch((err) => {
-      if (signal.aborted) throw err;
+    const options =
+      method === "GET"
+        ? { signal, method, headers }
+        : {
+            signal,
+            method,
+            headers,
+            body: body === undefined ? undefined : JSON.stringify(body),
+          };
+    res = await fetch(`${cfg.apiBase}${path}`, options);
+    json = await res.json().catch((error) => {
+      if (signal.aborted) {
+        throw error;
+      }
       return {};
     });
   } catch {
@@ -105,19 +117,22 @@ async function gh(
         method === "GET"
           ? "Try the read again later."
           : "The write may already exist at GitHub. Check existing issues or comments before retrying; do not blindly repeat the write."
-      }`,
+      }`
     );
   }
   if (!res.ok) {
-    const detail = object(json) && typeof json.message === "string"
-      ? json.message
-      : "no detail";
+    const failure = z.object({ message: z.string() }).safeParse(json);
+    const detail = failure.success ? failure.data.message : "no detail";
     throw new GithubError(
       res.status,
-      `GitHub replied ${res.status} to ${method} ${path}: ${detail}`,
+      `GitHub replied ${res.status} to ${method} ${path}: ${detail}`
     );
   }
-  return json;
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) {
+    malformed(method);
+  }
+  return parsed.data;
 }
 
 // The issue's markdown, assembled here rather than accepted from the caller.
@@ -134,15 +149,17 @@ export function issueBody(opts: {
   requestId: string;
 }): string {
   const parts = [`## The problem\n\n${opts.problem}`];
-  if (opts.evidence) parts.push(`## What was seen\n\n${opts.evidence}`);
+  if (opts.evidence) {
+    parts.push(`## What was seen\n\n${opts.evidence}`);
+  }
   if (opts.suggestion) {
     parts.push(`## What the coach suggests\n\n${opts.suggestion}`);
   }
   if (opts.docs.length > 0) {
     parts.push(
-      `## Documents involved\n\n${
-        opts.docs.map((d) => `- \`${d}\``).join("\n")
-      }`,
+      `## Documents involved\n\n${opts.docs
+        .map((d) => `- \`${d}\``)
+        .join("\n")}`
     );
   }
   // Says how much authority the report carries. The observations are
@@ -152,25 +169,26 @@ export function issueBody(opts: {
     `---\n\nFiled by the coach through \`POST /issues\` · request \`${opts.requestId}\`\n\n` +
       "The coach has the conversations, not the repository: what it saw is " +
       "first-hand, why it thinks it happened is not. Check the code before " +
-      "believing the diagnosis.",
+      "believing the diagnosis."
   );
   return parts.join("\n\n");
 }
 
 export async function openIssue(
   cfg: GithubConfig,
-  opts: { title: string; body: string; kind: IssueKind },
+  opts: { title: string; body: string; kind: IssueKind }
 ): Promise<{ number: number; url: string }> {
-  const issue = await gh(cfg, "POST", `/repos/${cfg.repo}/issues`, {
-    title: opts.title,
-    body: opts.body,
-    labels: [COACH_LABEL, opts.kind],
-  });
-  if (
-    !object(issue) || !issueNumber(issue.number) || !httpUrl(issue.html_url)
-  ) {
-    malformed("POST");
-  }
+  const issue = await gh(
+    cfg,
+    "POST",
+    `/repos/${cfg.repo}/issues`,
+    openedIssue,
+    {
+      title: opts.title,
+      body: opts.body,
+      labels: [COACH_LABEL, opts.kind],
+    }
+  );
   return { number: issue.number, url: issue.html_url };
 }
 
@@ -182,61 +200,62 @@ export interface CoachIssue {
   created_at: string;
 }
 
-interface RawIssue {
-  number: number;
-  title: string;
-  html_url: string;
-  created_at: string;
-  labels: { name: string }[];
-  pull_request?: unknown;
-}
-
-function isIssue(value: unknown): value is RawIssue {
-  return object(value) && issueNumber(value.number) &&
-    typeof value.title === "string" && httpUrl(value.html_url) &&
-    timestamp(value.created_at) && Array.isArray(value.labels) &&
-    value.labels.every((label) =>
-      object(label) && typeof label.name === "string"
-    );
-}
+const coachIssues = z.array(
+  z.object({
+    number: positiveIssueNumber,
+    title: z.string(),
+    html_url: httpUrl,
+    created_at: timestamp,
+    labels: z.array(z.object({ name: z.string() })),
+    // Only presence matters: any supplied pull_request value excludes this entry.
+    pull_request: z
+      .unknown()
+      .optional()
+      .transform((value) => value !== undefined),
+  })
+);
 
 export async function listCoachIssues(
-  cfg: GithubConfig,
+  cfg: GithubConfig
 ): Promise<CoachIssue[]> {
   const raw = await gh(
     cfg,
     "GET",
     `/repos/${cfg.repo}/issues?state=open&labels=${COACH_LABEL}&per_page=100`,
+    coachIssues
   );
-  if (!Array.isArray(raw) || !raw.every(isIssue)) malformed("GET");
-  return raw
-    // GitHub's REST API counts every pull request as an issue, so this
-    // endpoint returns both and the pull_request key is the only thing that
-    // tells them apart. Without this filter a labelled pull request would
-    // list as something the coach filed, and it would then be told the
-    // problem was already reported when nobody had reported it.
-    .filter((i) => i.pull_request === undefined)
-    .map((i) => ({
-      number: i.number,
-      title: i.title,
-      url: i.html_url,
-      kind: i.labels.map((l) => l.name)
-        .find((n) => (ISSUE_KINDS as readonly string[]).includes(n)) ?? null,
-      created_at: i.created_at,
-    }));
+  return (
+    raw
+      // GitHub's REST API counts every pull request as an issue, so this
+      // endpoint returns both and the pull_request key is the only thing that
+      // tells them apart. Without this filter a labelled pull request would
+      // list as something the coach filed, and it would then be told the
+      // problem was already reported when nobody had reported it.
+      .filter((i) => !i.pull_request)
+      .map((i) => ({
+        number: i.number,
+        title: i.title,
+        url: i.html_url,
+        kind:
+          i.labels
+            .map((l) => l.name)
+            .find((n) => ISSUE_KINDS.some((kind) => kind === n)) ?? null,
+        created_at: i.created_at,
+      }))
+  );
 }
 
 export async function commentOnIssue(
   cfg: GithubConfig,
   issueNumber: number,
-  body: string,
+  body: string
 ): Promise<{ url: string }> {
   const comment = await gh(
     cfg,
     "POST",
     `/repos/${cfg.repo}/issues/${issueNumber}/comments`,
-    { body },
+    postedComment,
+    { body }
   );
-  if (!object(comment) || !httpUrl(comment.html_url)) malformed("POST");
   return { url: comment.html_url };
 }

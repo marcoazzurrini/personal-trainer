@@ -1,8 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
-import { EFFORTS, KINDS } from "./rules.ts";
+
 import { body, idParam, query } from "../shared/schema.ts";
-import { setCorrectionShape } from "./set_correction.schema.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
+import { EFFORTS, KINDS } from "./rules.ts";
+import { setCorrectionFields } from "./set_correction.schema.ts";
 
 export const sets = new OpenAPIHono<AppEnv>();
 
@@ -40,7 +42,7 @@ sets.openapi(
       body: {
         content: {
           "application/json": {
-            schema: body(setCorrectionShape()),
+            schema: body(setCorrectionFields()),
           },
         },
       },
@@ -63,7 +65,7 @@ sets.openapi(
     c.json({
       set: await services(c).sessions.correctSet(
         c.req.valid("param").id,
-        c.req.valid("json"),
+        c.req.valid("json")
       ),
-    }),
+    })
 );

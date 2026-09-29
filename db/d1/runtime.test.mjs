@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
+import { before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+
 import { migrationStatements } from "./local.mjs";
 
-let script, migrations;
+let migrations;
+let script;
 const metadata = { revision: null, digest: "synthetic-runtime-build" };
 before(async () => {
   const output = await build({
@@ -24,18 +27,22 @@ before(async () => {
   });
   assert.ok(
     !Object.keys(output.metafile.inputs).some((p) =>
-      /api\/db\.ts|node_modules\/postgres\//.test(p)
-    ),
+      /api\/db\.ts|node_modules\/postgres\//u.test(p)
+    )
   );
   script = output.outputFiles[0].text;
-  assert.doesNotMatch(script, /Deno\.(?:env|serve|readTextFile)/);
-  const directory = new URL("./migrations/", import.meta.url);
-  migrations = migrationStatements((await Promise.all(
-    (await readdir(directory))
-      .filter((p) => p.endsWith(".sql")).sort().map((p) =>
-        readFile(new URL(p, directory), "utf8")
-      ),
-  )).join("\n"));
+  assert.doesNotMatch(script, /Deno\.(?:env|serve|readTextFile)/u);
+  const directory = new URL("migrations/", import.meta.url);
+  migrations = migrationStatements(
+    (
+      await Promise.all(
+        (await readdir(directory))
+          .filter((p) => p.endsWith(".sql"))
+          .toSorted()
+          .map((p) => readFile(new URL(p, directory), "utf-8"))
+      )
+    ).join("\n")
+  );
 });
 
 async function fixture(t, { bindings = {}, onOutbound } = {}) {
@@ -53,8 +60,10 @@ async function fixture(t, { bindings = {}, onOutbound } = {}) {
         ...bindings,
       },
       outboundService(request) {
-        outbound++;
-        if (onOutbound) return onOutbound(request);
+        outbound += 1;
+        if (onOutbound) {
+          return onOutbound(request);
+        }
         throw new Error("No external services in runtime tests.");
       },
     }),
@@ -65,13 +74,16 @@ async function fixture(t, { bindings = {}, onOutbound } = {}) {
   const db = await mf.getD1Database("DB");
   await db.batch(migrations.map((sql) => db.prepare(sql)));
   const token = Buffer.from(randomUUID()).toString("base64url");
-  await db.prepare(
-    "INSERT INTO api_tokens (token_hash, subject, expires_at) VALUES (?, ?, ?)",
-  ).bind(
-    createHash("sha256").update(token).digest("hex"),
-    "synthetic-owner",
-    new Date(Date.now() + 3600000).toISOString().replace("Z", "000Z"),
-  ).run();
+  await db
+    .prepare(
+      "INSERT INTO api_tokens (token_hash, subject, expires_at) VALUES (?, ?, ?)"
+    )
+    .bind(
+      createHash("sha256").update(token).digest("hex"),
+      "synthetic-owner",
+      new Date(Date.now() + 3_600_000).toISOString().replace("Z", "000Z")
+    )
+    .run();
   const request = (path, options = {}) =>
     mf.dispatchFetch(`https://trainer.invalid${path}`, options);
   const api = (path, options = {}) =>
@@ -104,17 +116,15 @@ test("every documented operation remains behind authentication in the deployed e
   const document = await (await f.request("/api/openapi.json")).json();
   let operations = 0;
   for (const [path, methods] of Object.entries(document.paths)) {
-    for (
-      const method of Object.keys(methods).filter((m) =>
-        /^(get|post|put|patch|delete|head|options)$/.test(m)
-      )
-    ) {
-      const response = await f.request(path.replace(/\{[^}]+\}/g, "1"), {
+    for (const method of Object.keys(methods).filter((m) =>
+      /^(?:get|post|put|patch|delete|head|options)$/u.test(m)
+    )) {
+      const response = await f.request(path.replaceAll(/\{[^}]+\}/gu, "1"), {
         method: method.toUpperCase(),
       });
       assert.equal(response.status, 401, `${method} ${path}`);
       assert.equal(response.headers.get("cache-control"), "private, no-store");
-      operations++;
+      operations += 1;
     }
   }
   assert.ok(operations > 40, `Only ${operations} operations were checked.`);
@@ -133,9 +143,9 @@ test("the real Worker persists precise measurements and derived reads in its D1 
     }),
   });
   assert.equal(response.status, 201, await response.clone().text());
-  const stored = await f.db.prepare(
-    "SELECT value_kg, measured_at, measured_date FROM bodyweight",
-  ).first();
+  const stored = await f.db
+    .prepare("SELECT value_kg, measured_at, measured_date FROM bodyweight")
+    .first();
   assert.equal(stored.value_kg, 8235);
   // The existing HTTP timestamp schema normalizes newly supplied values to
   // milliseconds. Imported values retain microseconds without this round trip.
@@ -167,15 +177,23 @@ test("the real Worker identifies every GitHub request and relays refusals withou
         authorization: request.headers.get("authorization"),
       });
       if (!request.headers.get("user-agent") || upstreamStatus === 403) {
-        return Response.json({ message: "Synthetic GitHub refusal" }, {
-          status: 403,
-        });
+        return Response.json(
+          { message: "Synthetic GitHub refusal" },
+          {
+            status: 403,
+          }
+        );
       }
-      if (request.method === "GET") return Response.json([]);
-      return Response.json({
-        number: 7,
-        html_url: "https://github.com/o/r/issues/7",
-      }, { status: 201 });
+      if (request.method === "GET") {
+        return Response.json([]);
+      }
+      return Response.json(
+        {
+          number: 7,
+          html_url: "https://github.com/o/r/issues/7",
+        },
+        { status: 201 }
+      );
     },
   });
   const operations = [
@@ -204,31 +222,31 @@ test("the real Worker identifies every GitHub request and relays refusals withou
     },
   ];
   for (const operation of operations) {
-    const before = calls.length;
+    const previousCalls = calls.length;
     const response = await f.api(operation.path, operation.options);
     assert.equal(
       response.status,
       operation.status,
-      await response.clone().text(),
+      await response.clone().text()
     );
     await response.text();
-    assert.equal(calls.length, before + 1);
+    assert.equal(calls.length, previousCalls + 1);
     assert.equal(calls.at(-1).userAgent, "personal-trainer");
     assert.equal(calls.at(-1).authorization, "Bearer synthetic-github-token");
   }
   upstreamStatus = 403;
   for (const operation of operations) {
-    const before = calls.length;
+    const previousCalls = calls.length;
     const response = await f.api(operation.path, operation.options);
     assert.equal(response.status, 502);
     assert.match(
       (await response.json()).error,
-      /GitHub replied 403.*Synthetic GitHub refusal/,
+      /GitHub replied 403.*Synthetic GitHub refusal/u
     );
     assert.equal(
       calls.length,
-      before + 1,
-      "A refused GitHub write must not retry.",
+      previousCalls + 1,
+      "A refused GitHub write must not retry."
     );
   }
   assert.equal(f.outbound(), 6);

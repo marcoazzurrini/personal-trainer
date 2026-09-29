@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AppEnv, services } from "../shared/services.ts";
+
+import { releaseAliasRoute } from "../shared/aliases.routes.ts";
 import {
   aliasList,
   body,
@@ -9,7 +10,8 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { releaseAliasRoute } from "../shared/aliases.routes.ts";
+import { services } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
 
 export const meals = new OpenAPIHono<AppEnv>();
 
@@ -21,12 +23,14 @@ const Macros = z.object({
   fiber_g: z.number().nullable(),
 });
 
-const MealItem = z.object({
-  food_id: z.int(),
-  food: z.string(),
-  brand: z.string().nullable(),
-  grams: z.number(),
-}).extend(Macros.shape);
+const MealItem = z
+  .object({
+    food_id: z.int(),
+    food: z.string(),
+    brand: z.string().nullable(),
+    grams: z.number(),
+  })
+  .extend(Macros.shape);
 
 const MealDetail = z.object({
   id: z.int(),
@@ -57,10 +61,13 @@ const ref = () =>
 // food is an id, a name, or an alias, so it is deliberately either a number or
 // a string here and the resolver decides what it meant.
 const itemSchema = () =>
-  body({
-    food: z.union([z.string().min(1), z.number()]),
-    grams: number(),
-  }, 'an entry in "items"');
+  body(
+    {
+      food: z.union([z.string().min(1), z.number()]),
+      grams: number(),
+    },
+    'an entry in "items"'
+  );
 
 const itemList = (message: string) =>
   z.array(itemSchema(), { error: () => message }).min(1, {
@@ -85,7 +92,7 @@ meals.openapi(
       },
     },
   }),
-  async (c) => c.json({ meals: await services(c).meals.listMeals() }),
+  async (c) => c.json({ meals: await services(c).meals.listMeals() })
 );
 
 meals.openapi(
@@ -102,7 +109,7 @@ meals.openapi(
             schema: body({
               name: text(),
               items: itemList(
-                'A meal is its items: "items" must be a non-empty array of {food, grams}, where food is a food id, name, or alias.',
+                'A meal is its items: "items" must be a non-empty array of {food, grams}, where food is a food id, name, or alias.'
               ),
               aliases: aliasList(),
               request_id: requestId(),
@@ -130,10 +137,10 @@ meals.openapi(
   }),
   async (c) => {
     const { meal, created } = await services(c).meals.saveMeal(
-      c.req.valid("json"),
+      c.req.valid("json")
     );
     return created ? c.json({ meal }, 201) : c.json({ meal }, 200);
-  },
+  }
 );
 
 meals.openapi(
@@ -156,7 +163,7 @@ meals.openapi(
   async (c) =>
     c.json({
       meal: await services(c).meals.mealByRef(c.req.valid("param").ref),
-    }),
+    })
 );
 
 meals.openapi(
@@ -176,7 +183,7 @@ meals.openapi(
             schema: body({
               name: text().optional(),
               items: itemList(
-                '"items" must be a non-empty array of {food, grams} — the complete replacement list. A meal with no foods in it is not a meal; delete it instead.',
+                '"items" must be a non-empty array of {food, grams} — the complete replacement list. A meal with no foods in it is not a meal; delete it instead.'
               ).optional(),
               aliases: aliasList(),
             }),
@@ -202,9 +209,9 @@ meals.openapi(
     c.json(
       await services(c).meals.editMeal(
         c.req.valid("param").ref,
-        c.req.valid("json"),
-      ),
-    ),
+        c.req.valid("json")
+      )
+    )
 );
 
 // Meals are never deleted: a logged meal is what its intake rows point at, and
