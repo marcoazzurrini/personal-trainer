@@ -22,8 +22,8 @@ For local API development, copy the root `.env.example` to `.env`, fill in the
 required values, and run `bun run dev`. Wrangler reads `.env` beside its
 configuration. Do not keep a second `.dev.vars` file: Wrangler would prefer it
 and ignore `.env`. The dashboard has its own `web/.env.example` and local
-`web/.env`; only its development/start commands load those values. D1 import
-tooling has a separate example for its explicitly selected source database.
+`web/.env`; only its development/start commands load those values. Database
+tests use root commands and do not need a separate environment file.
 
 These files configure local work, not production. Retired infrastructure
 credentials belong in private recovery storage outside the repository, not in a
@@ -40,11 +40,12 @@ dotenv loading, guards client fetches and blocks Worker outbound requests.
 Tests and their installed dependencies remain trusted local code. SQL failure
 injection belongs only in that test harness, never in the deployed Worker.
 
-The historical PostgreSQL migrations and their disposable comparison suite
-remain only to verify the one-time transfer. PostgreSQL is not an application
-runtime dependency. Import snapshots and generated SQL contain private records
-and credentials; keep them in ignored, owner-only storage and never upload them
-as CI artifacts.
+The one-time PostgreSQL transfer tooling and comparison suite are retired in
+Git at commit `f11c43d`. D1 migrations live in `db/migrations/`; isolated tests
+live in `db/tests/`. PostgreSQL is no longer a dependency or a CI service.
+Retained import snapshots and generated SQL still contain private records and
+credentials; keep them in ignored, owner-only storage and never upload them as
+CI artifacts.
 
 ## Authentication and secrets
 
@@ -71,7 +72,9 @@ to remain readable.
 The root `scripts/` directory holds four TypeScript files: the API builder,
 API deployment command, shared Git-revision helper and secret scanner. The API
 test runner and catalogue fixtures live in `api/tests/`; script tests live in
-`tests/tooling/`. Web and D1 tooling stay beside their respective packages.
+`scripts/tests/`. Tests stay with the code they cover, not in a root `tests/`
+directory. Web tooling stays with the web package; D1 tests live in
+`db/tests/` and run through the root package.
 The one-time Withings setup commands are retired, not part of normal operation.
 
 A local build creates `dist/worker.js` and `dist/build.json`. These generated,

@@ -52,8 +52,8 @@ test("formatting excludes generated files and preserves the skill contract", asy
   assert(lint.includes("antiSlop"));
 });
 
-test("one Bun lock covers the API, web and D1 workspaces", async () => {
-  assertEquals(manifest.workspaces, ["web", "db/d1"]);
+test("one Bun lock covers the root package and web workspace", async () => {
+  assertEquals(manifest.workspaces, ["web"]);
   assert((await readFile("bun.lock", "utf-8")).includes('"lockfileVersion"'));
   for (const name of ["ajv", "fast-check", "ultracite", "oxlint", "oxfmt"]) {
     const installed = JSON.parse(

@@ -29,9 +29,9 @@ export default defineConfig({
     {
       files: [
         "api/tests/**/*_test.ts",
-        "tests/**/*.test.ts",
-        "db/d1/*.test.ts",
-        "db/d1/*.test.worker.ts",
+        "scripts/tests/**/*.test.ts",
+        "db/tests/*.test.ts",
+        "db/tests/*.test.worker.ts",
         "web/tests/**",
       ],
       rules: {

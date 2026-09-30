@@ -16,14 +16,12 @@
 
 # Generated caches, dependencies and Worker build output
 /.cache/
-/node_modules/
+node_modules/
 /dist/
 .wrangler/
-.dev.vars
-.dev.vars.*
+.dev.vars*
 
 # Web build output and dependencies
-web/node_modules/
 web/dist/
 web/.output/
 web/.tanstack/

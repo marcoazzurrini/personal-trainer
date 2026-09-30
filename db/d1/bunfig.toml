@@ -1,2 +1,0 @@
-# Never load operator credentials implicitly in schema/import tests.
-env = false

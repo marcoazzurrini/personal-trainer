@@ -14,7 +14,7 @@
       "binding": "DB",
       "database_name": "personal-trainer",
       "database_id": "a229a9f7-287b-48fd-ba7a-e91fa9179a39",
-      "migrations_dir": "db/d1/migrations",
+      "migrations_dir": "db/migrations",
     },
   ],
   "observability": { "enabled": true },

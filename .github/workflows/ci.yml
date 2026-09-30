@@ -52,8 +52,6 @@ jobs:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - run: bun run test:d1
-      # Disposable PostgreSQL remains only as the one-time import reference.
-      - run: bun run test:postgres-import
 
   web:
     runs-on: ubuntu-latest

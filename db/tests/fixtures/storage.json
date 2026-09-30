@@ -1,0 +1,68 @@
+{
+  "tables": {
+    "users": { "decimals": { "height_cm": { "precision": 4, "scale": 1 } } },
+    "user_context": { "decimals": {} },
+    "bodyweight": {
+      "decimals": { "value_kg": { "precision": 5, "scale": 2 } }
+    },
+    "muscles": { "decimals": {} },
+    "exercises": { "decimals": {} },
+    "exercise_aliases": { "decimals": {} },
+    "exercise_muscles": {
+      "decimals": { "volume_factor": { "precision": 2, "scale": 1 } }
+    },
+    "blocks": { "decimals": {} },
+    "mesocycles": { "decimals": {} },
+    "mesocycle_exercises": { "decimals": {} },
+    "mesocycle_decisions": { "decimals": {} },
+    "sessions": { "decimals": {} },
+    "sets": {
+      "decimals": {
+        "target_weight_kg": { "precision": 6, "scale": 2 },
+        "weight_kg": { "precision": 6, "scale": 2 },
+        "target_distance_m": { "precision": 7, "scale": 1 },
+        "distance_m": { "precision": 7, "scale": 1 },
+        "target_duration_s": { "precision": 8, "scale": 2 },
+        "duration_s": { "precision": 8, "scale": 2 }
+      }
+    },
+    "foods": {
+      "decimals": {
+        "kcal_100g": { "precision": 6, "scale": 1 },
+        "protein_100g": { "precision": 5, "scale": 1 },
+        "carbs_100g": { "precision": 5, "scale": 1 },
+        "fat_100g": { "precision": 5, "scale": 1 },
+        "fiber_100g": { "precision": 5, "scale": 1 },
+        "grams_per_unit": { "precision": 6, "scale": 1 }
+      }
+    },
+    "food_aliases": { "decimals": {} },
+    "meals": { "decimals": {} },
+    "meal_aliases": { "decimals": {} },
+    "meal_items": { "decimals": { "grams": { "precision": 7, "scale": 1 } } },
+    "intake_entries": {
+      "decimals": {
+        "grams": { "precision": 7, "scale": 1 },
+        "kcal": { "precision": 7, "scale": 1 },
+        "protein_g": { "precision": 6, "scale": 1 },
+        "carbs_g": { "precision": 6, "scale": 1 },
+        "fat_g": { "precision": 6, "scale": 1 },
+        "fiber_g": { "precision": 6, "scale": 1 }
+      }
+    },
+    "day_flags": { "decimals": {} },
+    "bodyfat_estimates": {
+      "decimals": { "percent": { "precision": 4, "scale": 1 } }
+    },
+    "nutrition_targets": {
+      "decimals": { "rate_pct_bw_week": { "precision": 4, "scale": 2 } }
+    },
+    "nutrition_events": { "decimals": {} },
+    "week_schedules": { "decimals": {} },
+    "withings_auth": { "decimals": {} },
+    "mesocycle_exercise_doses": {
+      "decimals": { "weekly_dose": { "precision": 6, "scale": 1 } }
+    },
+    "api_tokens": { "decimals": {} }
+  }
+}

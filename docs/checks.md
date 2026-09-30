@@ -1,12 +1,48 @@
 # Checks
 
-Current commands are defined in `package.json`, `db/d1/package.json` and
-`web/package.json`; CI runs the release gate in
+Current commands are defined in `package.json` and `web/package.json`;
+CI runs the release gate in
 `.github/workflows/ci.yml`. Production transfer evidence is in
 [the Cloudflare cutover receipt](cloudflare-cutover.md).
 
 Dated implementation results below are historical evidence, not a description
 of the current hosting platform or proof that a later revision passed.
+
+## Database directory cleanup (30 September 2026)
+
+The four released D1 migrations now live in `db/migrations/`. Their filenames and
+bytes are unchanged, and regression tests pin their SHA-256 digests. PostgreSQL
+migrations, transfer commands and disposable PostgreSQL comparison tests were
+retired; Git at `f11c43d` preserves the complete transfer toolchain. ADR-0015
+records the change to its retention decision.
+
+D1 tests and migration/configuration checks live in `db/tests/`. Script tests live
+in `scripts/tests/`; there is no root `tests/` directory. The root package owns the
+D1 test command and dependencies. The separate DB package, its Bun configuration,
+environment template and nested ignore file were removed. Root ignore rules retain
+all existing protections for private exports, credentials, dependencies and local
+Worker state.
+
+Six storage functions moved into `api/shared/storage.ts`; their executable code is
+unchanged. The fixture retains the original table, column and decimal-precision
+expectations for all 27 application tables, without unused transfer metadata.
+Only tests specific to retired transfer code were removed; D1 persistence and
+precision checks remain.
+
+Local verification passed for **220 API tests**, **95 D1 tests**, root and dashboard
+type checks, Ultracite checks, both production builds, **54 Vitest tests**, **14
+browser tests** and **3 built-Worker tests**. A clean temporary installation with
+`bun install --frozen-lockfile --ignore-scripts` also passed; lifecycle scripts were
+intentionally disabled for that dependency-graph check.
+
+An initial tooling run was blocked by an unresponsive Docker daemon: the
+secret-scanner test and an independent `docker info` probe timed out. After Docker
+responded again, the complete suite passed: **21 tooling tests**, including the
+secret-scanner boundary checks. No check was disabled or bypassed.
+`git diff --check` also passed.
+
+No production database, deployed Worker or retained recovery material was changed.
+Root `dist/` remains generated and absent after verification.
 
 ## TypeScript script cleanup (30 September 2026)
 
@@ -234,7 +270,7 @@ not source lines or matched credentials. No current fixtures need allowances.
 If a new synthetic fixture genuinely needs an exception, use an exact value AND
 exact path in a reviewed `.gitleaks.toml` allowance extending the default rules.
 Never exempt all tests, disable default rules, or use inline bypass comments.
-`tests/tooling/secrets.test.ts`, run by `bun run test:tooling`, checks refusal,
+`scripts/tests/secrets.test.ts`, run by `bun run test:tooling`, checks refusal,
 index-versus-working-file behavior,
 protected filenames, redaction and narrowly scoped fixture allowances in a
 temporary repository. CI runs that check too; bypassing local hooks does not

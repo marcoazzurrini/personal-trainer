@@ -11,13 +11,10 @@ test("nutrition documents agree with food identity, corrections and target stora
     documentPath("tasks/nutrition-onboarding"),
     "utf-8"
   );
-  const migration = await readFile(
-    "db/migrations/20260807160000_nutrition_tracking.sql",
-    "utf-8"
-  );
+  const migration = await readFile("db/migrations/0001_record.sql", "utf-8");
   assertStringIncludes(
     migration,
-    "create unique index foods_name_key on foods (lower(name))"
+    "create unique index foods_name_key on foods (name_key)"
   );
   assertStringIncludes(skill, "case-insensitive and unique");
   assertStringIncludes(skill, "`POST /foods` still requires a `request_id`");

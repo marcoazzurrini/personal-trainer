@@ -36,10 +36,10 @@ implementation details.
 
 ## The database boundary
 
-D1's SQLite schema is a new baseline of the final PostgreSQL schema. Historical
-PostgreSQL files remain as provenance and as the reference for migration tests;
-their old backfills and deletions are not replayed over exported current
-records.
+D1's SQLite schema is a new baseline of the final PostgreSQL schema. During the
+transfer, historical PostgreSQL files remained as provenance and as the
+reference for migration tests; their old backfills and deletions were not
+replayed over exported current records. Their retirement is recorded below.
 
 Measured decimals use bounded scaled integers. JSON and arrays use validated
 text; booleans use zero and one. Instants preserve six UTC fractional digits.
@@ -78,8 +78,8 @@ The persistence modules accept the D1 binding explicitly. They reuse the
 existing validation and arithmetic rules, not a PostgreSQL-compatible query
 layer. The complete HTTP and authentication suites run against the actual
 Worker entrypoint and isolated D1 bindings. Temporary PostgreSQL runtime modules
-have been removed; only historical SQL migrations and the isolated transfer
-comparison retain PostgreSQL.
+have been removed. PostgreSQL remained only in historical SQL and the isolated
+transfer comparison until the post-cutover retirement described below.
 
 ## Delivery and recovery
 
@@ -105,3 +105,24 @@ serializes both deployments and verifies their immutable build identities.
 Moving these applications still does not authorize deletion of other VPS
 consumers or retained backups; remaining operational work must be counted
 honestly.
+
+## Epilogue: retire the completed PostgreSQL transfer toolchain
+
+After the verified production transfer and independent D1 restore recorded in
+the cutover receipt, keeping the PostgreSQL exporter, converter, verifier and
+comparison database active adds maintenance without protecting routine D1
+writes. Their source, historical PostgreSQL migrations and tests are preserved
+in Git at commit `f11c43d`. They are no longer installed or exercised in CI.
+This supersedes the decision above to retain those files in the working tree.
+
+There is one active schema history at `db/migrations/`. The four released D1
+files move without changing their names or bytes; a future change requires a
+new migration, not rewriting applied history. D1 persistence tests and fixtures
+live in `db/tests/` under the root package. Production storage conversions belong
+to the API and retain their precision, date, UUID and Unicode behavior.
+
+This is source-code retirement, not a database operation. No production data,
+backup, migration-time snapshot, restore receipt or retained volume is deleted.
+The existing recovery and retention obligations still apply. Ongoing recovery
+uses D1 Time Travel and verified portable D1 exports, not replay of the old
+PostgreSQL transfer into a record that has since accepted writes.

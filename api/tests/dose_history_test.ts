@@ -1,7 +1,7 @@
 import { test } from "node:test";
 
-import { scaledInteger } from "../../db/d1/codec.ts";
-import storage from "../../db/d1/storage.json" with { type: "json" };
+import storage from "../../db/tests/fixtures/storage.json" with { type: "json" };
+import { scaledInteger } from "../shared/storage.ts";
 import { assert, assertEquals } from "./assertions.ts";
 import d1 from "./d1.ts";
 import {
@@ -69,7 +69,7 @@ test("imported weekly doses keep their value across API views", async (t) => {
     await db.end();
   }
 });
-test("dose writes use the importer's precision for creation, additions and redoses", async () => {
+test("dose writes retain the stored precision for creation, additions and redoses", async () => {
   await resetTraining();
   await ensureCatalogue();
   const { mesocycleId } = await seedPlan({

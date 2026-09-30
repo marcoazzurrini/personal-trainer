@@ -144,7 +144,7 @@ try {
   // SQLite determines exact boundaries, including trigger bodies. Execute every
   // migration in sorted order on D1; the temporary parser never supplies test results.
   const parser = new DatabaseSync(":memory:");
-  const migrations = (await readdir("db/d1/migrations"))
+  const migrations = (await readdir("db/migrations"))
     .filter((f) => f.endsWith(".sql"))
     .toSorted();
   if (!migrations.length) {
@@ -154,7 +154,7 @@ try {
     parser.exec("PRAGMA foreign_keys=ON");
     for (const name of migrations) {
       let remaining = await readFile(
-        nodePath.join("db/d1/migrations", name),
+        nodePath.join("db/migrations", name),
         "utf-8"
       );
       const statements = [];

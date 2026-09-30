@@ -15,9 +15,11 @@ Do not vendor a second copy of anti-slop or retain a Deno compatibility layer.
 
 ## One dependency graph
 
-The root package owns the Bun version and workspaces for the web application and
-D1 tooling. One committed `bun.lock` resolves all three packages. Installation is
-frozen in CI; dependency changes must update that lock deliberately. Lefthook is
+The root package owns the Bun version, API tooling and D1 tests. The web
+application is its only workspace. One committed `bun.lock` resolves both
+packages. The separate D1 package was removed when ADR-0015 retired the completed
+PostgreSQL transfer tooling. Installation is frozen in CI; dependency changes
+must update that lock deliberately. Lefthook is
 a local development dependency installed by the root prepare script, not a
 custom launcher that fetches its own package at commit time.
 
@@ -28,10 +30,12 @@ Vitest and Playwright keep their supported execution paths.
 ## Script ownership
 
 First-party scripts use TypeScript throughout. The root `scripts/` directory
-contains only the API builder, deployment command, shared source-revision helper
-and secret scanner. API fixtures and the disposable runner live with API tests;
-script checks live in `tests/tooling/`. Duplicate checks are consolidated rather
-than retained in both suites. The one-time Withings setup commands are retired;
+contains the API builder, deployment command, shared source-revision helper
+and secret scanner, with their checks in `scripts/tests/`. API fixtures and the
+disposable runner live with API tests. Database tests, including migration-history
+and configuration checks, live in `db/tests/`. There is no root `tests/` directory;
+each area owns its tests. Duplicate checks are consolidated rather than retained
+in both suites. The one-time Withings setup commands are retired;
 Git history preserves them without retaining an active credential-writing tool.
 Normal Withings synchronization is unchanged.
 
@@ -61,7 +65,7 @@ package's Bun configuration, since Bun resolves that configuration from the
 selected working directory. Development commands explicitly load their intended
 local secret file. Build and test commands must not acquire credentials merely
 because a local `.env` exists. A synthetic-file test verifies this behavior for
-all three packages, not just the configuration text.
+both packages, not just the configuration text.
 
 Bun 1.4.2's package manager is a separate boundary: `bun install` still loads
 `.env`, even with `env = false` or `--no-env-file`. Dependency installation is a
