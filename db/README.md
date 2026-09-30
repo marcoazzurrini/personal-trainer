@@ -1,11 +1,19 @@
 # Database
 
-D1 is the application's only database. This directory contains its schema history and isolated persistence tests, not a copy of production records.
+D1 is the application's only database. This directory owns persistence, not HTTP, coaching decisions or a copy of production records.
 
+- `client.ts`: constructs Drizzle from the current invocation's D1 binding. No connection pool or global database handle.
+- `schema/`: typed table and view mappings. Stored integers and full-precision timestamp strings remain unchanged.
+- `repositories/`: named reads and complete atomic writes. API services receive these operations, not a query builder.
+- `contracts/`: persistence inputs and results shared across a feature's operations. They do not depend on HTTP schemas.
+- `storage.ts`: pure precision, calendar, UUID and Unicode conversion functions.
+- `errors.ts`: database failures without HTTP status codes. The API owns refusal messages and safe diagnostics.
+- `native.ts`: the contained escape hatch for reviewed complex SQLite queries and assertion batches.
+- `write.ts`: bounded JSON parameters and affected-row assertions used within atomic writes.
 - `migrations/`: the ordered D1 SQL migrations used by development, tests and deployment. Applied migrations keep their names and contents; add a new file for a schema change. Tests protect the four already-released migrations.
 - `tests/`: D1 schema, persistence and Worker integration tests, with their local helpers and Worker entry points. `fixtures/storage.json` holds independent expectations for the application tables and decimal precision, not runtime configuration or health records.
 
-The API's storage conversion functions live in `api/shared/storage.ts`. The root package owns the commands and dependencies; there is no separate DB package or local environment file. Root `.gitignore` protects nested dependencies, local Worker state, secret files and private snapshot/import outputs.
+Database runtime modules never import `api/`, Hono, the dashboard or the plugin. API services own validation and arithmetic, and translate database failures into the existing refusal contract. The root package owns the commands and dependencies; there is no separate DB package or local environment file. Root `.gitignore` protects nested dependencies, local Worker state, secret files and private snapshot/import outputs.
 
 ## Local verification
 
@@ -20,11 +28,28 @@ These tests execute the application inside workerd with disposable D1 bindings. 
 
 The SQLite parser only identifies complete migration statements, including trigger bodies. Tests execute those statements against actual local D1 as well; passing only the parser is not sufficient. Local test results are not evidence of a deployment, hosted limits or a production restore.
 
+## Migration ownership
+
+Wrangler remains the only migration runner. Drizzle does not run migrations when a Worker starts, and production `drizzle-kit push` is not part of this project.
+
+`drizzle.config.ts` describes the SQLite schema for offline tooling. `migrations/meta/0004_snapshot.json` is Kit's generated description of the structure after the four released migrations. It contains table and view definitions, not records or credentials. `_journal.json` anchors that description to the existing `0004_nutrition_writes.sql`; the next generated migration starts at `0005`. This is generation metadata, not a second applied-migration ledger. No generated initial CREATE migration is retained or applied. This ORM conversion changes no schema and requires no migration.
+
+For a future schema change:
+
+1. Update the relevant definition under `schema/`.
+2. Run `bun run db:generate --name describe_the_change` from the repository root. Kit compares the definition with its last saved snapshot and writes only the proposed differences.
+3. Review the new SQL before applying it. Preserve data, `STRICT`, triggers, views and constraints; add custom SQL when Kit cannot represent a database feature. Never edit an already-released migration.
+4. Run `bun run db:check`, `bun run test:d1` and `bun run test:api`. Test migration effects on disposable D1, including existing records, before deployment.
+
+Unchanged generation writes nothing. Tests run the real Kit CLI on temporary copies and apply an example additive column migration to disposable D1. They verify record precision, STRICT tables, indexes, triggers and views survive. CI checks the metadata and runs these tests without production access.
+
+SQL remains authoritative for `STRICT` tables, triggers, view definitions and constraints that the pinned generator cannot faithfully reproduce. A generated table rebuild needs explicit review of those properties. Keep one reviewed SQL history under `migrations/`; do not introduce a second migration executor or ledger.
+
 ## Stored representations
 
 Measured decimals use bounded scaled integers. For example, stored `bodyweight.value_kg = 8235` means `82.35 kg`. Decimal ties retain the original PostgreSQL rounding rather than binary-floating-point approximations. Stored instants preserve all six fractional digits; public JSON timestamps retain the existing millisecond format. Correcting another field must not round-trip an omitted timestamp.
 
-The API supplies Unicode lowercase `name_key` and `alias_key` values, including on rename, without erasing accents or merging normalization variants. It also supplies the Europe/Rome date for bodyweight, including daylight-saving changes. Both weekly views include unfinished and future weeks; API readers apply the completed-week cutoff. Other view contracts preserve historical winners and null totals on flagged days without entries.
+Repositories supply Unicode lowercase `name_key` and `alias_key` values, including on rename, without erasing accents or merging normalization variants. Bodyweight persistence also supplies the Europe/Rome date, including daylight-saving changes. Both weekly views include unfinished and future weeks; API readers apply the completed-week cutoff. Other view contracts preserve historical winners and null totals on flagged days without entries.
 
 ## Atomic writes
 

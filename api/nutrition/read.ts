@@ -1,37 +1,22 @@
-import { bodyfatStore } from "../body/bodyfat.ts";
+import type { ExpenditureRepository } from "../../db/repositories/nutrition/expenditure.ts";
+import type { ReadRepository } from "../../db/repositories/nutrition/read.ts";
+import type { BodyfatService } from "../body/bodyfat.ts";
 import type { TrendPoint } from "../body/trend.ts";
-import { date, instant, romeDate, rows, systemClock } from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
 import { addDays, daysBetween } from "../shared/dates.ts";
-import { eventStore } from "./events.ts";
+import {
+  date,
+  instant,
+  romeDate,
+  systemClock,
+  wireInstant,
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
+import type { ActiveTransient } from "./events.types.ts";
 import { backSolve, damp, DEFAULT_WINDOW_DAYS } from "./expenditure.ts";
 import type { Expenditure } from "./expenditure.ts";
 import type { ActiveTarget, ExpenditureRead } from "./read.types.ts";
-import type { TargetRow } from "./targets.types.ts";
 
-// Everything that reads the nutrition picture out of the database and hands it
-// to the pure arithmetic in expenditure.ts. Kept apart from the routes because
-// three of them need the same picture and it must not drift between them.
-
-// How far back to look for a window that still qualifies before giving up.
 const MAX_STALE_WEEKS = 4;
-
-interface IntakeWindow {
-  intakeByDay: Map<string, number>;
-  excludedDays: Set<string>;
-}
-
-export const targetColumns = `id, effective_from, goal, rate_pct_bw_week / 100.0 AS rate_pct_bw_week, kcal_target,
- protein_g_target, decision, clipped, clipped_reasons, tdee_at_creation, substr(created_at, 1, 23) || 'Z' AS created_at`;
-export type StoredTarget = Omit<TargetRow, "clipped" | "clipped_reasons"> & {
-  clipped: number;
-  clipped_reasons: string;
-};
-export const decodeTarget = (row: StoredTarget): TargetRow => ({
-  ...row,
-  clipped: Boolean(row.clipped),
-  clipped_reasons: JSON.parse(row.clipped_reasons),
-});
 
 function windowDays(to: string, length: number): string[] {
   const days: string[] = [];
@@ -41,29 +26,24 @@ function windowDays(to: string, length: number): string[] {
   return days;
 }
 
-export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
-  const { activeTransients } = eventStore(db, clock);
-  const { latestBodyfat } = bodyfatStore(db, clock);
-  const lastFinishedDay = () => {
-    const today = romeDate(instant(clock().toISOString()));
-    const weekday = new Date(`${today}T00:00:00Z`).getUTCDay() || 7;
-    return addDays(today, -weekday);
-  };
-  async function loadIntake(from: string, to: string): Promise<IntakeWindow> {
-    // One read where there were two, because daily_intake already knows both
-    // halves. A day it reports with a null kcal logged nothing, and stays out of
-    // intakeByDay rather than entering it as a zero the back-solve would treat
-    // as a fast.
-    const entries = await rows<{
-      day: string;
-      kcal: number | null;
-      incomplete: number;
-    }>(
-      db,
-      "SELECT day, kcal, incomplete FROM daily_intake WHERE day >= ? AND day <= ?",
-      from,
-      to
-    );
+export function expenditureStore(
+  repository: ExpenditureRepository,
+  bodyfat: BodyfatService,
+  clock: Clock = systemClock
+) {
+  async function activeTransients(asOf: string): Promise<ActiveTransient[]> {
+    const day = date(asOf);
+    return await repository.transients(addDays(day, -14), day);
+  }
+
+  async function solveWindow(
+    to: string,
+    trend: readonly TrendPoint[],
+    bodyfatPercent: number | null
+  ): Promise<Expenditure> {
+    const days = windowDays(to, DEFAULT_WINDOW_DAYS);
+    // A missing calorie observation is not a zero-calorie day.
+    const entries = await repository.intakeDays(days[0], to);
     const intakeByDay = new Map<string, number>();
     const excludedDays = new Set<string>();
     for (const row of entries) {
@@ -74,18 +54,6 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
         excludedDays.add(row.day);
       }
     }
-    return { intakeByDay, excludedDays };
-  }
-
-  async function solveWindow(
-    to: string,
-    trend: readonly TrendPoint[],
-    bodyfatPercent: number | null
-  ): Promise<Expenditure> {
-    const days = windowDays(to, DEFAULT_WINDOW_DAYS);
-    // SAFETY: windowDays produces DEFAULT_WINDOW_DAYS entries, a positive fixed count.
-    const lastDay = days.at(-1) as string;
-    const { intakeByDay, excludedDays } = await loadIntake(days[0], lastDay);
     return backSolve({
       days,
       intakeByDay,
@@ -95,22 +63,17 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
     });
   }
 
-  // The whole estimate, with the two things that stop it lying: damping when a
-  // registered transient is being absorbed, and holding the last good estimate
-  // rather than extrapolating when the current window stops qualifying.
   async function currentExpenditure(
     trend: readonly TrendPoint[]
   ): Promise<ExpenditureRead> {
-    const to = await lastFinishedDay();
-    const bodyfat = (await latestBodyfat())?.percent ?? null;
+    const today = romeDate(instant(clock().toISOString()));
+    const weekday = new Date(`${today}T00:00:00Z`).getUTCDay() || 7;
+    const to = addDays(today, -weekday);
+    const bodyfatPercent = (await bodyfat.latestBodyfat())?.percent ?? null;
+    let current = await solveWindow(to, trend, bodyfatPercent);
 
-    let current = await solveWindow(to, trend, bodyfat);
-
-    // Weigh-ins made after the window closed are real but invisible to the
-    // back-solve until their week finishes. Say so in the blocker itself, or
-    // "0 weigh-in days" lands on the very morning the scale synced and the
-    // coach relays a contradiction — the pure function cannot know what
-    // happened after its window, so the acknowledgment is stitched in here.
+    // Acknowledge observations outside the finished window without using
+    // unfinished weeks in the back-solve.
     if (current.status !== "ok") {
       const sinceClose = trend.filter(
         (p) => !p.interpolated && daysBetween(to, p.day) > 0
@@ -131,9 +94,11 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
     }
 
     if (current.status === "ok") {
-      // Compare against the window one week back; a step no metabolism makes,
-      // with a transient on record, is water.
-      const previous = await solveWindow(addDays(to, -7), trend, bodyfat);
+      const previous = await solveWindow(
+        addDays(to, -7),
+        trend,
+        bodyfatPercent
+      );
       const transients = await activeTransients(to);
       const damped = damp(
         current,
@@ -145,12 +110,10 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
       return { ...damped, as_of: to };
     }
 
-    // The current window failed. Hold the most recent one that didn't, rather
-    // than extrapolating — an estimate that keeps moving on no new data is
-    // worse than one that admits it is old.
+    // Hold the last qualifying estimate instead of extrapolating missing data.
     for (let back = 1; back <= MAX_STALE_WEEKS; back++) {
       const earlier = addDays(to, -7 * back);
-      const held = await solveWindow(earlier, trend, bodyfat);
+      const held = await solveWindow(earlier, trend, bodyfatPercent);
       if (held.status === "ok") {
         return {
           ...held,
@@ -162,21 +125,13 @@ export function nutritionReadStore(db: Database, clock: Clock = systemClock) {
         };
       }
     }
-
-    // No estimate, so nothing to stamp.
     return { ...current, as_of: null };
   }
 
-  async function activeTarget(asOf: string): Promise<ActiveTarget | null> {
-    const [row] = await rows<StoredTarget>(
-      db,
-      `SELECT ${targetColumns} FROM nutrition_targets WHERE effective_from <= ? ORDER BY effective_from DESC, id DESC LIMIT 1`,
-      date(asOf)
-    );
-    return row ? decodeTarget(row) : null;
-  }
-  return { currentExpenditure, activeTarget, slopePctBwWeek };
+  return { currentExpenditure, activeTransients };
 }
+
+export type ExpenditureService = ReturnType<typeof expenditureStore>;
 
 /** Trend slope over the last n days, in kg/week — the rate to compare a target against. */
 export function slopePctBwWeek(
@@ -201,4 +156,21 @@ export function slopePctBwWeek(
   };
 }
 
+export function nutritionReadStore(
+  repository: ReadRepository,
+  bodyfat: BodyfatService,
+  clock: Clock = systemClock
+) {
+  const { currentExpenditure } = expenditureStore(
+    repository.expenditure,
+    bodyfat,
+    clock
+  );
+  async function activeTarget(asOf: string): Promise<ActiveTarget | null> {
+    const row = await repository.activeTarget(date(asOf));
+    return row ? { ...row, created_at: wireInstant(row.created_at) } : null;
+  }
+  return { currentExpenditure, activeTarget, slopePctBwWeek };
+}
 export const nutritionReader = nutritionReadStore;
+export type NutritionReader = ReturnType<typeof nutritionReadStore>;

@@ -126,3 +126,13 @@ backup, migration-time snapshot, restore receipt or retained volume is deleted.
 The existing recovery and retention obligations still apply. Ongoing recovery
 uses D1 Time Travel and verified portable D1 exports, not replay of the old
 PostgreSQL transfer into a record that has since accepted writes.
+
+## Epilogue: Drizzle owns the application persistence boundary
+
+[ADR-0017](0017-drizzle-and-persistence-belong-to-the-database-module.md)
+moves the client, queries, stored-value conversions and atomic writes to `db/`.
+This supersedes their placement in `api/`, not D1 hosting or the stored
+representations. Drizzle uses the invocation's existing D1 binding. Reviewed
+native SQL remains contained in the database module where it protects complex
+write assertions and reporting queries. The four released migrations, Wrangler
+migration ledger, rollback guarantees and recovery obligations remain unchanged.

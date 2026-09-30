@@ -1,77 +1,47 @@
-import { stat, readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { test } from "node:test";
 
+import { dependencies } from "../../db/tests/source.ts";
 import { assert, assertEquals } from "./assertions.ts";
-// The two rules about reaching the database, held against the source that has
-// to obey them: the pure arithmetic may not ask D1 anything, and neither
-// may a file that declares HTTP routes.
-//
-// The pure modules hold the laws the database cannot express: the Forbes
-// energy math, the measure/dose/effort relationships, the macro checks, the
-// day arithmetic. None of it asks D1 anything, which is what makes all
-// of it testable without a database. Importing a persistence helper would end that quietly
-// — the file would still pass every test it has and the suite would still be
-// green, and nothing would say so.
-//
-// ApiError is deliberately not forbidden here. Almost every pure module
-// refuses something, the refusal sentence is the contract with a model
-// client, and the code that knows why a call is wrong is the code that
-// should write the sentence. ADR-0003 records that choice.
-//
-// shared/ is not checked as a whole, and must not be. d1.ts and
-// aliases.ts belong to no topic and reach the database on purpose, so a
-// rule over that folder would be a rule the repository does not keep.
-// dates.ts is pure and is in the list below by name for exactly that reason.
-// errors.ts and schema.ts never ask D1 anything either, and are left
-// out deliberately: this list means "holds a law the database cannot
-// express", and the envelope and the request shapes are a different thing.
-//
-// The walk is transitive, because a direct persistence import is
-// conspicuous in review. It breaks by
-// a pure file reaching for a helper in its topic, which asks D1 a
-// hop further down, where nobody reading the arithmetic can see it. So the
-// failure names the whole chain: the entry point alone would say a rule was
-// broken without saying which import to take back.
-const API_DIR = "api";
-const DB = `${API_DIR}/shared/d1.ts`;
-// The pure modules, named one by one.
-//
-// A folder carried this rule until #31 dissolved it: rules/ meant "no database
-// below here", and each topic owns its own arithmetic now, so there is no
-// folder left to point at. A list is the honest replacement rather than a
-// lesser one — the folder never covered a pure file written anywhere else
-// either, and a list at least says what it checks instead of implying it
-// checks a place. What it cannot do is notice a new pure module nobody adds to
-// it, which is the cost taken knowingly.
-//
-// Each entry is checked to exist, so a file renamed out from under this list
-// fails loudly here rather than dropping out of the walk in silence.
+
+// ADR-0017 moves persistence into db/. Arithmetic may use pure value conversion
+// and failure contracts, but must never acquire a query builder or repository.
 const PURE = [
-  `${API_DIR}/body/trend.ts`,
-  `${API_DIR}/nutrition/expenditure.ts`,
-  `${API_DIR}/nutrition/rules.ts`,
-  `${API_DIR}/shared/dates.ts`,
-  `${API_DIR}/training/rules.ts`,
-  `${API_DIR}/training/set_correction.ts`,
+  "api/body/trend.ts",
+  "api/nutrition/expenditure.ts",
+  "api/nutrition/rules.ts",
+  "api/shared/dates.ts",
+  "api/training/rules.ts",
+  "api/training/set_correction.ts",
 ];
-// Static imports, side-effect imports, re-exports and dynamic imports all
-// name their target the same way.
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*)"(?<specifier>[^"]+)"/gu;
-async function readable(file: string): Promise<boolean> {
-  try {
-    await stat(file);
-    return true;
-  } catch {
-    return false;
-  }
+
+function databaseCapability(file: string): boolean {
+  return /^(?:db\/(?:client\.ts|native\.ts|schema\/|repositories\/)|drizzle-orm(?:$|\/(?!errors$)))/u.test(
+    file
+  );
 }
-async function filesUnder(dir: string): Promise<string[]> {
+
+// Type-only imports describe the operations a service receives. They do not
+// grant access to the database at runtime and must not create false graph edges.
+function runtimeImports(source: string): { specifier: string; line: number }[] {
+  return dependencies(source)
+    .filter((item) => !item.typeOnly)
+    .map((item) => ({ specifier: item.target, line: item.line }));
+}
+
+function target(file: string, specifier: string): string {
+  return specifier.startsWith(".")
+    ? new URL(specifier, `file:///${file}`).pathname.slice(1)
+    : specifier;
+}
+
+async function filesUnder(directory: string): Promise<string[]> {
   const found: string[] = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = `${dir}/${entry.name}`;
-    if (path === `${API_DIR}/tests`) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.name === "tests") {
       continue;
     }
+    const path = `${directory}/${entry.name}`;
     if (entry.isDirectory()) {
       found.push(...(await filesUnder(path)));
     } else if (entry.name.endsWith(".ts")) {
@@ -80,60 +50,37 @@ async function filesUnder(dir: string): Promise<string[]> {
   }
   return found.toSorted();
 }
-// Bare specifiers are import-map entries, never a file in this tree.
-function target(file: string, specifier: string): string | null {
-  if (!specifier.startsWith(".")) {
-    return null;
-  }
-  return new URL(specifier, `file:///${file}`).pathname.slice(1);
-}
-// Depth-first from one file, carrying the hops taken to arrive at it, and
-// answering with the first chain that ends at the database.
-//
-// `seen` holds every file this walk has entered. It is what keeps two files
-// that import each other from walking forever, and entering a file once is
-// enough to be sure: a file that does not reach the database by one route
-// does not reach it by another.
+
 async function chainToDatabase(
   file: string,
   seen: Set<string>,
   taken: string[]
 ): Promise<string[] | null> {
-  let source: string;
-  try {
-    source = await readFile(file, "utf-8");
-  } catch {
-    // A specifier naming no file on disk. Whatever is wrong there, deno
-    // check reports it in the caller's own words; this test stays quiet
-    // rather than reporting it a second time and worse.
-    return null;
-  }
-  const lines = source.split("\n");
-  for (let line = 0; line < lines.length; line++) {
-    for (const [, specifier] of lines[line].matchAll(SPECIFIER)) {
-      const next = target(file, specifier);
-      if (next === null) {
-        continue;
-      }
-      const hops = [...taken, `${file}:${line + 1}`];
-      if (next === DB) {
-        return [...hops, DB];
-      }
-      if (seen.has(next)) {
-        continue;
-      }
-      seen.add(next);
-      const found = await chainToDatabase(next, seen, hops);
-      if (found !== null) {
-        return found;
-      }
+  const source = await readFile(file, "utf-8");
+  for (const { specifier, line } of runtimeImports(source)) {
+    const next = target(file, specifier);
+    const hops = [...taken, `${file}:${line}`];
+    if (databaseCapability(next)) {
+      return [...hops, next];
+    }
+    if (!specifier.startsWith(".") || seen.has(next)) {
+      continue;
+    }
+    seen.add(next);
+    const found = await chainToDatabase(next, seen, hops);
+    if (found !== null) {
+      return found;
     }
   }
   return null;
 }
+
 test("application runtime has no PostgreSQL driver or Deno process globals", async () => {
   const offenders: string[] = [];
-  for (const file of await filesUnder(API_DIR)) {
+  for (const file of [
+    ...(await filesUnder("api")),
+    ...(await filesUnder("db")),
+  ]) {
     const source = await readFile(file, "utf-8");
     if (
       /\bDeno\./u.test(source) ||
@@ -147,77 +94,72 @@ test("application runtime has no PostgreSQL driver or Deno process globals", asy
   assertEquals(
     offenders,
     [],
-    "Workers use request bindings, not PostgreSQL or Deno process state."
+    "Workers use invocation bindings, not PostgreSQL or Deno process state."
   );
 });
+
 test("nothing pure reaches the database", async () => {
   const offenders: string[] = [];
   for (const file of PURE) {
     assert(
-      await readable(file),
-      `${file} is listed as pure and is not there. If it moved, move it in ` +
-        `PURE too; if it is gone, take it out — a stale entry is a module ` +
-        `nobody is checking.`
+      (await stat(file)).isFile(),
+      `${file} is listed as pure and must exist.`
     );
     const chain = await chainToDatabase(file, new Set([file]), []);
     if (chain !== null) {
-      offenders.push(chain.join("\n      \u2192 "));
+      offenders.push(chain.join("\n      -> "));
     }
   }
   assertEquals(
     offenders,
     [],
-    `these modules are pure by rule — they may refuse, but they may not ask ` +
-      `the database anything:\n  ${offenders.join("\n  ")}\nPut the query in ` +
-      `the topic module beside them, and pass the values down.`
+    `Pure modules may refuse but cannot query. Pass values from a service instead:\n${offenders.join("\n")}`
   );
 });
-// The second subject, from ADR-0006: a file that declares HTTP routes parses
-// the request, calls one named function, and shapes the answer. It may not
-// hold the query.
-//
-// Checked by name rather than by content, because content classifies two ways
-// at once — withings.routes.ts holds three plain Hono handlers above the token
-// middleware and one createRoute below it, and docs.routes.ts holds no
-// createRoute at all. *.routes.ts is a convention this migration establishes,
-// so it is the convention that is enforced.
-//
-// And checked at one hop, where rules/ above is checked transitively. That is
-// not an oversight, it is the difference between the two rules. Pure
-// arithmetic has no legitimate route to the database at all, so any chain is a
-// break and the failure has to name the whole chain. A route file is the
-// opposite: reaching the database *through one named function in its topic*
-// is the entire design, so every route file has a chain to persistence by
-// construction, and a transitive check here would fail the shape it exists to
-// enforce. What is forbidden is the route building the query itself.
+
 test("no file declaring HTTP routes imports the database", async () => {
-  const files = (await filesUnder(API_DIR)).filter((f) =>
-    f.endsWith(".routes.ts")
+  const routes = (await filesUnder("api")).filter((file) =>
+    file.endsWith(".routes.ts")
   );
-  assert(files.length > 0, `no *.routes.ts found under ${API_DIR}`);
+  assert(routes.length > 0, "No *.routes.ts found under api.");
   const offenders: string[] = [];
-  for (const file of files) {
-    const lines = (await readFile(file, "utf-8")).split("\n");
-    for (const [i, line] of lines.entries()) {
-      // The binding itself must not become a way around the module boundary.
-      if (
-        !line.trimStart().startsWith("//") &&
-        /\.DB\b|\.prepare\s*\(|\.batch\s*\(/u.test(line)
-      ) {
-        offenders.push(`${file}:${i + 1}`);
+  for (const file of routes) {
+    const source = await readFile(file, "utf-8");
+    for (const { specifier, line } of runtimeImports(source)) {
+      if (databaseCapability(target(file, specifier))) {
+        offenders.push(`${file}:${line}`);
       }
-      for (const [, specifier] of line.matchAll(SPECIFIER)) {
-        if (target(file, specifier) === DB) {
-          offenders.push(`${file}:${i + 1}`);
-        }
+    }
+    for (const [line, text] of source.split("\n").entries()) {
+      if (
+        !text.trimStart().startsWith("//") &&
+        /\.DB\b|\.prepare\s*\(|\.batch\s*\(/u.test(text)
+      ) {
+        offenders.push(`${file}:${line + 1}`);
       }
     }
   }
   assertEquals(
     offenders,
     [],
-    `a route file may not reach the database — it parses the request, calls ` +
-      `one named function, and shapes the answer:\n  ${offenders.join("\n  ")}\nMove the query into the topic module beside it, and let that module ` +
-      `own its database operations.`
+    "Routes call application services; repositories own queries."
   );
+});
+
+test("purity imports preserve runtime edges and ignore erased contracts", () => {
+  const imports = runtimeImports(`
+    import type { Client } from "../db/client.ts";
+    import { type Client as Database } from "../db/client.ts";
+    import { type Services, createServices } from "./services.ts";
+    export { createClient } from "../db/client.ts";
+    await import("../db/native.ts");
+  `);
+  assertEquals(
+    imports.map((item) => item.specifier),
+    ["./services.ts", "../db/client.ts", "../db/native.ts"]
+  );
+  assert(databaseCapability("db/repositories/bodyweight.ts"));
+  assert(databaseCapability("drizzle-orm/d1"));
+  assert(!databaseCapability("db/storage.ts"));
+  assert(!databaseCapability("db/errors.ts"));
 });

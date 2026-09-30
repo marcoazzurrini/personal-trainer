@@ -1,6 +1,11 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
+import {
+  classifyDatabaseFailure,
+  DatabaseFailureError,
+} from "../../db/errors.ts";
+
 // Thrown anywhere in a route; the app-level onError turns it into JSON.
 // The client is an LLM: every message states what was wrong and what a
 // correct call looks like.
@@ -97,6 +102,96 @@ export const constraintMessages = {
     'source must be one of: label, crea, usda, off, estimate. Use "estimate" honestly rather than dressing a guess as a lookup — a disclosed estimate is fine, an invented number is not.',
 };
 
+// SQLite identifies UNIQUE failures by physical columns, not constraint names.
+const uniqueConstraints = {
+  "exercises.name_key": "exercises_name_key",
+  "exercise_aliases.alias_key": "exercise_aliases_alias_key",
+  "muscles.name": "muscles_name_key",
+  "mesocycles.track": "mesocycles_one_active_per_track",
+  "mesocycle_decisions.request_id": "mesocycle_decisions_request_id_key",
+  "mesocycle_exercises.mesocycle_id, mesocycle_exercises.exercise_id":
+    "mesocycle_exercises_mesocycle_exercise_key",
+  "sets.session_id, sets.position": "sets_position_key",
+  "foods.name_key": "foods_name_key",
+  "food_aliases.alias_key": "food_aliases_alias_key",
+  "meals.name_key": "meals_name_key",
+  "meal_aliases.alias_key": "meal_aliases_alias_key",
+  "meal_items.meal_id, meal_items.food_id": "meal_items_meal_food_key",
+  "intake_entries.request_id, intake_entries.food_id":
+    "intake_entries_request_food_key",
+  "intake_entries.request_id": "intake_entries_request_food_key",
+  "day_flags.day, day_flags.flag": "day_flags_day_flag_key",
+  "bodyfat_estimates.day, bodyfat_estimates.method":
+    "bodyfat_estimates_day_method_key",
+  "week_schedules.week_start": "week_schedules_week_start_key",
+};
+
+function hasKey<T extends object>(value: T, key: PropertyKey): key is keyof T {
+  return Object.hasOwn(value, key);
+}
+
+function constraintMessage(name: string | undefined): string | undefined {
+  return name !== undefined && hasKey(constraintMessages, name)
+    ? constraintMessages[name]
+    : undefined;
+}
+
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- Exception boundary: translate classified constraints and pass every other thrown value unchanged to the diagnostic handler. */
+export function databaseError(error: unknown): unknown {
+  if (error instanceof ApiError) {
+    return error;
+  }
+  const failure = classifyDatabaseFailure(error);
+  if (!(failure instanceof DatabaseFailureError)) {
+    // Unknown failures may contain SQL, bound values or provider credentials.
+    return failure;
+  }
+  if (failure.kind === "too_large") {
+    return new ApiError(
+      413,
+      "One entry exceeds the database value limit. Shorten its text before retrying. Nothing was written."
+    );
+  }
+  if (failure.kind === "unique") {
+    const name = hasKey(uniqueConstraints, failure.subject)
+      ? uniqueConstraints[failure.subject]
+      : undefined;
+    return new ApiError(
+      409,
+      constraintMessage(name) ??
+        "That would duplicate an existing record. Read the existing record; reuse the original request_id only when retrying the same operation."
+    );
+  }
+  if (failure.kind === "check" && failure.subject === "api_incomplete_write") {
+    return new ApiError(
+      409,
+      "The record changed while saving it. Nothing was saved. Read the record before retrying."
+    );
+  }
+  if (failure.kind === "check") {
+    return new ApiError(
+      422,
+      constraintMessage(failure.subject) ??
+        `The database rejected a value (check constraint "${
+          failure.subject
+        }"). Fix the offending field and retry.`
+    );
+  }
+  if (failure.kind === "required") {
+    return new ApiError(
+      422,
+      `"${
+        failure.subject
+      }" is required and cannot be null. Omit the field to leave it unchanged, or send a real value.`
+    );
+  }
+  return new ApiError(
+    422,
+    "A referenced row does not exist. Read the referenced record and use its current id."
+  );
+}
+/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
+
 // Where a schema refusal becomes the envelope every other refusal uses.
 //
 // Zod hands back a list of issues; the contract is exactly { "error": "<a
@@ -142,10 +237,10 @@ export function internalError(diagnostic: Diagnostic, method: string): string {
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Exception boundary: arbitrary thrown values must reach the safe diagnostic envelope.
 export function errorResponse(err: unknown, c: Context): Response {
-  if (err instanceof ApiError) {
-    return c.json({ error: err.message }, err.status);
+  const refusal = databaseError(err);
+  if (refusal instanceof ApiError) {
+    return c.json({ error: refusal.message }, refusal.status);
   }
-  // Persistence maps known D1 failures to ApiError before this boundary.
   // Unknown failures are diagnostics, never raw SQL or bound parameters.
   const diagnostic: Diagnostic = c.get("diagnostic") ?? {
     id: crypto.randomUUID(),

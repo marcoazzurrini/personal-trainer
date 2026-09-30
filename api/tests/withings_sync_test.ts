@@ -1,9 +1,9 @@
 import { test } from "node:test";
 
-import { withingsStore } from "../body/withings.ts";
 import type { Bindings, Invocation } from "../environment.ts";
+import { createWithingsService } from "../services.ts";
 import { buildMetadata } from "../shared/build.ts";
-import { instant } from "../shared/d1.ts";
+import { instant } from "../shared/values.ts";
 import worker from "../worker.ts";
 import {
   assert,
@@ -80,7 +80,7 @@ test("the sync between Withings and the bodyweight table", async (t) => {
     WITHINGS_CLIENT_SECRET: "test-secret",
     WITHINGS_API_BASE: `http://127.0.0.1:${stub.port}`,
   };
-  const { catchUp, catchUpIfDue, syncNotifiedWindow } = withingsStore(
+  const { catchUp, catchUpIfDue, syncNotifiedWindow } = createWithingsService(
     database,
     {
       clientId: env.WITHINGS_CLIENT_ID,

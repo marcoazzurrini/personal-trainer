@@ -1,96 +1,52 @@
-// Membership, dose history, intent and the decision remain one atomic write.
-// Unlike session corrections, plan preconditions fit in SQL itself: no extra
-// plan version counter or lock service is needed.
+import { DatabaseFailureError } from "../../db/errors.ts";
+import type { MesocyclesRepository } from "../../db/repositories/training/mesocycles.ts";
+import { ApiError, databaseError, requireRow } from "../shared/errors.ts";
 import {
-  batch,
-  databaseError,
   date,
   decimal,
   instant,
-  jsonChunks,
   requestId,
   romeDate,
-  rows,
-  statement,
   systemClock,
   wireInstant,
-} from "../shared/d1.ts";
-import type { Clock, Database, Parameter, Result } from "../shared/d1.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
 import type {
   CreateMesocycleInput,
   DecisionInput,
-  DecisionRow,
   MesocycleDetail,
   PlanEntry,
   PlanExercise,
-  PlanExerciseRow,
   RecordedRow,
   RenameMesocycleInput,
 } from "./mesocycles.types.ts";
-import { trainingResolver } from "./resolve.ts";
+import type { trainingResolver } from "./resolve.ts";
 import { assertDoseUnit } from "./rules.ts";
-import { affectedRows, finishWrite } from "./session_write.ts";
 
-type Header = Omit<MesocycleDetail, "week" | "exercises"> & { week: number };
-const decisionColumns = "id, mesocycle_id, made_at, what_changed, why";
 const publicDecision = (row: RecordedRow): RecordedRow => ({
   ...row,
   made_at: wireInstant(row.made_at),
 });
 
-type PlanRead = Header | PlanExerciseRow | RecordedRow;
-
-function detail(results: Result<PlanRead>[], key: Parameter): MesocycleDetail {
-  // SAFETY: detailStatements always puts the header SELECT first and the exercises SELECT second.
-  const header = requireRow(
-    results[0].results as Header[],
-    `No mesocycle with id ${key}.`
-  );
-  // SAFETY: the second detailStatements query selects exactly the PlanExerciseRow columns.
-  const exercises = results[1].results as PlanExerciseRow[];
-  return { ...header, week: header.week < 1 ? null : header.week, exercises };
+function detail(
+  current: Awaited<ReturnType<MesocyclesRepository["read"]>>,
+  key: string | number
+): MesocycleDetail {
+  const header = requireRow(current.headers, `No mesocycle with id ${key}.`);
+  return {
+    ...header,
+    week: header.week < 1 ? null : header.week,
+    exercises: current.exercises,
+  };
 }
-
-export function mesocycleStore(db: Database, clock: Clock = systemClock) {
-  const resolver = trainingResolver(db);
-
-  function detailStatements(key: Parameter, today: string, byRequest = false) {
-    const predicate = byRequest ? "m.request_id = ?" : "m.id = ?";
-    return [
-      statement(
-        db,
-        `SELECT m.id, m.block_id, m.name, m.track, m.intent, m.planned_weeks,
-          m.sessions_per_week, m.started_on, m.ended_on,
-          CAST((julianday(?) - julianday(m.started_on)) / 7 AS INTEGER) + 1 AS week
-         FROM mesocycles m WHERE ${predicate}`,
-        today,
-        key
-      ),
-      statement(
-        db,
-        `SELECT me.id, e.id AS exercise_id, e.name AS exercise, e.measure,
-          me.role, me.priority, d.weekly_dose / 10.0 AS weekly_dose,
-          d.weekly_dose_unit, me.notes
-         FROM mesocycle_exercises me JOIN mesocycles m ON m.id = me.mesocycle_id
-         JOIN exercises e ON e.id = me.exercise_id
-         JOIN mesocycle_exercise_doses d ON d.id = (
-           SELECT h.id FROM mesocycle_exercise_doses h
-           WHERE h.mesocycle_id = m.id AND h.exercise_id = me.exercise_id
-             AND h.effective_from <= max(?, m.started_on)
-           ORDER BY h.effective_from DESC, h.id DESC LIMIT 1
-         ) WHERE ${predicate} ORDER BY me.priority, e.name`,
-        today,
-        key
-      ),
-    ];
-  }
+export function mesocycleStore(
+  repository: MesocyclesRepository,
+  resolver: ReturnType<typeof trainingResolver>,
+  clock: Clock = systemClock
+) {
   async function mesocycleDetail(id: number): Promise<MesocycleDetail> {
     return detail(
-      await batch<PlanRead>(
-        db,
-        detailStatements(id, romeDate(instant(clock().toISOString())))
-      ),
+      await repository.read(id, romeDate(instant(clock().toISOString()))),
       id
     );
   }
@@ -129,11 +85,12 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       }
       const exercise = await references.resolveExercise(entry.exercise);
       assertDoseUnit(exercise.measure, entry.weekly_dose_unit, exercise.name);
+      decimal(entry.weekly_dose, 6, 1);
       add.push({
         exerciseId: exercise.id,
         role: entry.role,
         priority: entry.priority,
-        weeklyDose: decimal(entry.weekly_dose, 6, 1),
+        weeklyDose: entry.weekly_dose,
         weeklyDoseUnit: entry.weekly_dose_unit,
         notes: entry.notes ?? null,
       });
@@ -142,55 +99,19 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
     for (const entry of redoses) {
       const exercise = await references.resolveExercise(entry.exercise);
       assertDoseUnit(exercise.measure, entry.weekly_dose_unit, exercise.name);
+      decimal(entry.weekly_dose, 6, 1);
       redose.push({
         exerciseId: exercise.id,
         name: exercise.name,
-        dose: decimal(entry.weekly_dose, 6, 1),
+        dose: entry.weekly_dose,
         unit: entry.weekly_dose_unit,
       });
     }
     return { remove, add, redose };
   }
 
-  function additions(
-    key: Parameter,
-    items: PlanExercise[],
-    today: string,
-    now: string,
-    byRequest = false
-  ) {
-    const predicate = byRequest ? "m.request_id = ?" : "m.id = ?";
-    return jsonChunks(items).flatMap((chunk) => [
-      statement(
-        db,
-        `INSERT INTO mesocycle_exercises (mesocycle_id, exercise_id, role, priority, notes)
-         SELECT m.id, json_extract(v.value, '$.exerciseId'), json_extract(v.value, '$.role'),
-           json_extract(v.value, '$.priority'), json_extract(v.value, '$.notes')
-         FROM json_each(?) v CROSS JOIN mesocycles m WHERE ${predicate} ORDER BY CAST(v.key AS INTEGER)`,
-        chunk.json,
-        key
-      ),
-      affectedRows(db, chunk.count),
-      statement(
-        db,
-        `INSERT INTO mesocycle_exercise_doses (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit, effective_from, created_at)
-         SELECT m.id, json_extract(v.value, '$.exerciseId'), json_extract(v.value, '$.weeklyDose'),
-           json_extract(v.value, '$.weeklyDoseUnit'), max(?, m.started_on), ?
-         FROM json_each(?) v CROSS JOIN mesocycles m WHERE ${predicate} ORDER BY CAST(v.key AS INTEGER)`,
-        today,
-        now,
-        chunk.json,
-        key
-      ),
-      affectedRows(db, chunk.count),
-    ]);
-  }
   async function seenPlan(uuid: string) {
-    const [seen] = await rows<{ id: number }>(
-      db,
-      "SELECT id FROM mesocycles WHERE request_id = ?",
-      uuid
-    );
+    const [seen] = await repository.findRequest(uuid);
     return seen ? await mesocycleDetail(seen.id) : undefined;
   }
   async function createMesocycle(b: CreateMesocycleInput) {
@@ -203,27 +124,15 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
       const prepared = await prepare(b.exercises);
       const now = instant(clock().toISOString());
       const start = date(b.started_on);
-      const results = await db.batch<PlanRead>([
-        statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
-        statement(
-          db,
-          `INSERT INTO mesocycles (block_id, name, track, intent, planned_weeks, sessions_per_week, started_on, request_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          b.block_id,
-          b.name,
-          b.track,
-          b.intent,
-          b.planned_weeks,
-          b.sessions_per_week,
-          start,
-          uuid
-        ),
-        affectedRows(db, 1),
-        ...additions(uuid, prepared.add, start, now, true),
-        ...detailStatements(uuid, romeDate(now), true),
-        finishWrite(db),
-      ]);
-      return { mesocycle: detail(results.slice(-3, -1), uuid), created: true };
+      const results = await repository.create({
+        ...b,
+        started_on: start,
+        request_id: uuid,
+        exercises: prepared.add,
+        now,
+        today: romeDate(now),
+      });
+      return { mesocycle: detail(results, uuid), created: true };
     } catch (error) {
       // Recover a concurrent replay or a confirmed completed request by reading
       // its key, never by retrying an uncertain non-idempotent write.
@@ -248,28 +157,16 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
         'Ending a plan is a plan change, so it carries its reason: POST /mesocycles/:id/decisions with {"ended_on": "YYYY-MM-DD", "what_changed": …, "why": …}.'
       );
     }
-    const results = await batch<PlanRead>(db, [
-      statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
-      statement(
-        db,
-        "UPDATE mesocycles SET name = ? WHERE id = ?",
-        b.name,
-        m.id
-      ),
-      affectedRows(db, 1),
-      ...detailStatements(m.id, romeDate(instant(clock().toISOString()))),
-      finishWrite(db),
-    ]);
-    return detail(results.slice(-3, -1), m.id);
+    const results = await repository.rename(
+      m.id,
+      b.name,
+      romeDate(instant(clock().toISOString()))
+    );
+    return detail(results, m.id);
   }
 
   async function seenDecision(id: number, uuid: string) {
-    const [seen] = await rows<RecordedRow>(
-      db,
-      `SELECT ${decisionColumns} FROM mesocycle_decisions WHERE mesocycle_id = ? AND request_id = ?`,
-      id,
-      uuid
-    );
+    const [seen] = await repository.findDecision(id, uuid);
     return seen
       ? {
           mesocycle: await mesocycleDetail(id),
@@ -277,13 +174,6 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
           created: false,
         }
       : undefined;
-  }
-  function memberCount(expected: number) {
-    return statement(
-      db,
-      "UPDATE api_write_assertions SET plan_matches = (changes() = ?) WHERE id = 1",
-      expected
-    );
   }
   async function recordDecision(ref: string, b: DecisionInput) {
     const m = await resolver.resolveMesocycle(ref);
@@ -312,13 +202,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
           b.redose ?? []
         );
         const members = new Set(
-          (
-            await rows<{ exercise_id: number }>(
-              db,
-              "SELECT exercise_id FROM mesocycle_exercises WHERE mesocycle_id = ?",
-              m.id
-            )
-          ).map((row) => row.exercise_id)
+          (await repository.members(m.id)).map((row) => row.exercise_id)
         );
         for (const exercise of inputs.remove) {
           if (!members.delete(exercise.id)) {
@@ -342,81 +226,26 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
         const now = instant(clock().toISOString());
         const today = romeDate(now);
         const newIntent = b.intent ?? null;
-        const endedOn =
-          b.ended_on === null || b.ended_on === undefined
-            ? null
-            : date(b.ended_on);
-        const results = await db.batch<PlanRead>([
-          statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
-          // Capture the intent being displaced inside the transaction, not from
-          // a stale application read. A failed later change rolls this back.
-          statement(
-            db,
-            `INSERT INTO mesocycle_decisions
-            (mesocycle_id, what_changed, why, request_id, prior_intent, made_at)
-            SELECT id, ?, ?, ?, CASE WHEN ? THEN intent ELSE NULL END, ? FROM mesocycles WHERE id = ?`,
-            b.what_changed,
-            b.why,
-            uuid,
-            Number(newIntent !== null),
-            now,
-            m.id
-          ),
-          affectedRows(db, 1),
-          ...jsonChunks(inputs.remove.map((exercise) => exercise.id)).flatMap(
-            (chunk) => [
-              statement(
-                db,
-                "DELETE FROM mesocycle_exercises WHERE mesocycle_id = ? AND exercise_id IN (SELECT value FROM json_each(?))",
-                m.id,
-                chunk.json
-              ),
-              memberCount(chunk.count),
-            ]
-          ),
-          ...additions(m.id, inputs.add, today, now),
-          ...jsonChunks(inputs.redose).flatMap((chunk) => [
-            statement(
-              db,
-              `INSERT INTO mesocycle_exercise_doses
-              (mesocycle_id, exercise_id, weekly_dose, weekly_dose_unit, effective_from, created_at)
-              SELECT m.id, me.exercise_id, json_extract(v.value, '$.dose'), json_extract(v.value, '$.unit'), max(?, m.started_on), ?
-              FROM json_each(?) v JOIN mesocycle_exercises me ON me.exercise_id = json_extract(v.value, '$.exerciseId')
-              JOIN mesocycles m ON m.id = me.mesocycle_id WHERE m.id = ? ORDER BY CAST(v.key AS INTEGER)`,
-              today,
-              now,
-              chunk.json,
-              m.id
-            ),
-            memberCount(chunk.count),
-          ]),
-          statement(
-            db,
-            `UPDATE mesocycles SET intent = CASE WHEN ? THEN ? ELSE intent END,
-            ended_on = CASE WHEN ? THEN ? ELSE ended_on END WHERE id = ?`,
-            Number(newIntent !== null),
-            newIntent,
-            Number(b.ended_on !== undefined),
-            endedOn,
-            m.id
-          ),
-          affectedRows(db, 1),
-          statement(
-            db,
-            `SELECT ${decisionColumns} FROM mesocycle_decisions WHERE mesocycle_id = ? AND request_id = ?`,
-            m.id,
-            uuid
-          ),
-          ...detailStatements(m.id, today),
-          finishWrite(db),
-        ]);
-        // SAFETY: the fourth-to-last statement selects decisionColumns; detail reads and cleanup follow it.
-        const recorded = results.at(-4) as Result<RecordedRow>;
+        const endedOn = optionalDate(b.ended_on);
+        const results = await repository.record({
+          mesocycle_id: m.id,
+          request_id: uuid,
+          what_changed: b.what_changed,
+          why: b.why,
+          intent: newIntent,
+          changeEndedOn: b.ended_on !== undefined,
+          ended_on: endedOn,
+          remove: inputs.remove.map((exercise) => exercise.id),
+          add: inputs.add,
+          redose: inputs.redose,
+          now,
+          today,
+        });
         return {
-          mesocycle: detail(results.slice(-3, -1), m.id),
+          mesocycle: detail(results, m.id),
           decision: publicDecision(
             requireRow(
-              recorded.results,
+              results.decisions,
               "The decision could not be read after saving."
             )
           ),
@@ -428,10 +257,9 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
           return replay;
         }
         if (
-          error instanceof Error &&
-          /CHECK constraint failed: api_plan_membership_changed\b/u.test(
-            error.message
-          )
+          error instanceof DatabaseFailureError &&
+          error.kind === "check" &&
+          error.subject === "api_plan_membership_changed"
         ) {
           continue;
         }
@@ -445,11 +273,7 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
   }
   async function decisionLog(ref: string) {
     const m = await resolver.resolveMesocycle(ref);
-    const decisions = await rows<DecisionRow>(
-      db,
-      "SELECT id, made_at, what_changed, why, prior_intent FROM mesocycle_decisions WHERE mesocycle_id = ? ORDER BY made_at, id",
-      m.id
-    );
+    const decisions = await repository.decisions(m.id);
     return {
       mesocycle_id: m.id,
       decisions: decisions.map((row) => ({
@@ -466,4 +290,8 @@ export function mesocycleStore(db: Database, clock: Clock = systemClock) {
     recordDecision,
     decisionLog,
   };
+}
+
+function optionalDate(value: string | null | undefined) {
+  return value === null || value === undefined ? null : date(value);
 }

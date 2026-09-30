@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 
-import { scaledInteger } from "../../api/shared/storage.ts";
+import { scaledInteger } from "../storage.ts";
 import storage from "./fixtures/storage.json" with { type: "json" };
 import { migrationStatements } from "./local.ts";
 import { testJson } from "./test-json.ts";
@@ -135,12 +135,14 @@ async function session(
   day: string,
   sets: Record<string, string | number | null>[]
 ) {
-  const [{ id }] = (
-    await f.sql(
-      "INSERT INTO sessions (date, rationale) VALUES (?, 'Synthetic') RETURNING id",
-      day
+  const created = await f.db
+    .prepare(
+      "INSERT INTO sessions (date, rationale) VALUES (?, 'Synthetic') RETURNING id"
     )
-  ).results;
+    .bind(day)
+    .first<{ id: number }>();
+  assert.ok(created);
+  const { id } = created;
   for (let i = 0; i < sets.length; i++) {
     const s = {
       exercise_id: 1,

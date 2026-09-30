@@ -1,19 +1,18 @@
-import { bodyfatStore } from "../../api/body/bodyfat.ts";
-import { bodyweightStore } from "../../api/body/bodyweight.ts";
-import { databaseError, instant, jsonChunks } from "../../api/shared/d1.ts";
-import type { Database, Parameter, Statement } from "../../api/shared/d1.ts";
-import { ApiError } from "../../api/shared/errors.ts";
-import { blockStore } from "../../api/training/blocks.ts";
-import { mesocycleStore } from "../../api/training/mesocycles.ts";
-import { sessionStore } from "../../api/training/sessions.ts";
-import { contextStore } from "../../api/training/user_context.ts";
-import { scheduleStore } from "../../api/training/week_schedule.ts";
+import type {
+  D1Database,
+  D1PreparedStatement,
+} from "@cloudflare/workers-types";
+
+import { createServices } from "../../api/services.ts";
+import { ApiError, databaseError } from "../../api/shared/errors.ts";
+import { instant } from "../../api/shared/values.ts";
+import { jsonChunks } from "../write.ts";
 // Local test harness, not a deployable API. It deliberately bypasses HTTP
 // schemas to exercise persistence under workerd, with synthetic records only.
 import { operationInput } from "./test-input.ts";
 
 export default {
-  async fetch(request: Request, env: { DB: Database }): Promise<Response> {
+  async fetch(request: Request, env: { DB: D1Database }): Promise<Response> {
     try {
       const input = operationInput.parse(await request.json());
       // Deterministically place a competing committed write between the
@@ -21,19 +20,25 @@ export default {
       let injected = false;
       let queries = 0;
       const prepared = new WeakMap<
-        Statement,
-        { sql: string; native: Statement }
+        D1PreparedStatement,
+        { sql: string; native: D1PreparedStatement }
       >();
-      const wrap = (sql: string, values: Parameter[] = []): Statement => {
+      const wrap = (
+        sql: string,
+        values: unknown[] = []
+      ): D1PreparedStatement => {
         const native = env.DB.prepare(sql).bind(...values);
-        const wrapped: Statement = {
+        const wrapped: D1PreparedStatement = {
           bind: (...next) => wrap(sql, next),
           all: <T>() => native.all<T>(),
+          run: <T>() => native.run<T>(),
+          first: native.first.bind(native),
+          raw: native.raw.bind(native),
         };
         prepared.set(wrapped, { sql, native });
         return wrapped;
       };
-      const db: Database = {
+      const db: D1Database = {
         prepare: (sql) => {
           queries += 1;
           if (queries > (input.maxQueries ?? 1000)) {
@@ -41,7 +46,7 @@ export default {
           }
           return wrap(sql);
         },
-        async batch<T>(statements: Statement[]) {
+        async batch<T>(statements: D1PreparedStatement[]) {
           const metadata = statements.map((value) => {
             const entry = prepared.get(value);
             if (!entry) {
@@ -70,16 +75,30 @@ export default {
           }
           return await env.DB.batch<T>(native);
         },
+        exec() {
+          throw new Error(
+            "Test D1 exec bypasses query tracking; use prepared statements."
+          );
+        },
+        dump() {
+          throw new Error("Test D1 dump is unsupported.");
+        },
+        withSession() {
+          throw new Error(
+            "Test D1 sessions bypass query tracking and are unsupported."
+          );
+        },
       };
       const clock = () => new Date(input.now ?? "2026-08-30T12:00:00Z");
+      const services = createServices(db, clock);
       const stores = {
-        sessions: sessionStore(db, clock),
-        bodyweight: bodyweightStore(db, clock),
-        bodyfat: bodyfatStore(db, clock),
-        blocks: blockStore(db),
-        context: contextStore(db, clock),
-        schedule: scheduleStore(db, clock),
-        plans: mesocycleStore(db, clock),
+        sessions: services.sessions,
+        bodyweight: services.bodyweight,
+        bodyfat: services.bodyfat,
+        blocks: services.blocks,
+        context: services.context,
+        schedule: services.schedule,
+        plans: services.plans,
         codec: {
           instant,
           chunks(values: unknown[]) {
@@ -116,14 +135,16 @@ export default {
       // oxlint-disable-next-line anti-slop/no-reflect-apply -- Negative persistence tests intentionally pass unvalidated arguments to an own store method.
       return Response.json(await Reflect.apply(operation, store, input.args));
     } catch (error) {
+      // Match the production HTTP boundary when calling services directly.
+      const refusal = databaseError(error);
       // Diagnostic text is allowed only here: the harness holds no real data
       // and has no provider access. Production keeps the safe error envelope.
       return Response.json(
         {
           error:
-            error instanceof Error ? error.message : "Unknown test failure",
+            refusal instanceof Error ? refusal.message : "Unknown test failure",
         },
-        { status: error instanceof ApiError ? error.status : 500 }
+        { status: refusal instanceof ApiError ? refusal.status : 500 }
       );
     }
   },

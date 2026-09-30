@@ -1,7 +1,11 @@
-import { instant, rows, statement, systemClock } from "../shared/d1.ts";
-import type { Clock, Database, Statement } from "../shared/d1.ts";
-import { ApiError } from "../shared/errors.ts";
-import { bodyweightStore } from "./bodyweight.ts";
+import type {
+  WithingsAuth,
+  WithingsRepository,
+} from "../../db/repositories/withings.ts";
+import { ApiError, databaseError } from "../shared/errors.ts";
+import { instant, systemClock } from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
+import type { BodyweightService } from "./bodyweight.ts";
 import {
   getWeights,
   NOTIFY_WINDOW_MARGIN_S,
@@ -29,17 +33,10 @@ export interface SyncSummary {
   ignored: number;
   refused: number;
 }
-interface AuthRow {
-  withings_user_id: string;
-  access_token: string;
-  refresh_token: string;
-  access_token_expires_at: string;
-  last_sync_at: string | null;
-}
-
-/** Request-bound persistence. The caller owns all work through await or waitUntil. */
+/** Request-bound workflow. The caller owns all work through await or waitUntil. */
 export function withingsStore(
-  db: Database,
+  repository: WithingsRepository,
+  weightsForAccount: (accountId: string) => BodyweightService,
   config: WithingsStoreConfig,
   clock: Clock = systemClock
 ) {
@@ -56,20 +53,16 @@ export function withingsStore(
       clientSecret: config.clientSecret,
     };
   }
-  async function readAuth(): Promise<AuthRow | null> {
-    return (
-      (
-        await rows<AuthRow>(
-          db,
-          `SELECT withings_user_id, access_token, refresh_token,
-      access_token_expires_at, last_sync_at FROM withings_auth WHERE id = 1`
-        )
-      )[0] ?? null
-    );
+  async function readAuth(): Promise<WithingsAuth | null> {
+    try {
+      return await repository.readAuth();
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
   async function accessTokenFor(
     cfg: WithingsConfig,
-    auth: AuthRow
+    auth: WithingsAuth
   ): Promise<string> {
     if (
       new Date(auth.access_token_expires_at).getTime() - clock().getTime() >
@@ -82,20 +75,18 @@ export function withingsStore(
     );
     // Provider refreshes are never retried automatically. Do not overwrite a
     // reseeded account or credentials another request has already rotated.
-    const changed = await rows(
-      db,
-      `UPDATE withings_auth SET access_token = ?, refresh_token = ?,
-      access_token_expires_at = ?, updated_at = ?
-      WHERE id = 1 AND withings_user_id = ? AND refresh_token = ? AND access_token = ? RETURNING id`,
-      tokens.accessToken,
-      tokens.refreshToken,
-      instant(tokens.expiresAt),
-      now(),
-      auth.withings_user_id,
-      auth.refresh_token,
-      auth.access_token
-    );
-    if (!changed.length) {
+    let changed: boolean;
+    try {
+      changed = await repository.rotateCredentials(auth, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: instant(tokens.expiresAt),
+        updatedAt: now(),
+      });
+    } catch (error) {
+      throw databaseError(error);
+    }
+    if (!changed) {
       throw new WithingsError(
         "Withings credentials changed during refresh. The provider may already have rotated its token; check synchronization before retrying."
       );
@@ -106,7 +97,7 @@ export function withingsStore(
     range: MeasureRange,
     label: string,
     advanceWatermark: boolean,
-    auth: AuthRow
+    auth: WithingsAuth
   ): Promise<SyncSummary> {
     const cfg = clientConfig();
     const token = await accessTokenFor(cfg, auth);
@@ -114,23 +105,7 @@ export function withingsStore(
     const { accepted, skipped } = selectWeights(groups);
     // Every reading's write batch asserts account ownership atomically. An
     // account reseed during provider I/O must never import the old account.
-    const guarded: Database = {
-      prepare: (sql) => db.prepare(sql),
-      async batch<T>(statements: Statement[]) {
-        const result = await db.batch<T>([
-          statement(
-            db,
-            `INSERT INTO api_write_assertions (id, rows_match)
-            VALUES (1, EXISTS (SELECT 1 FROM withings_auth WHERE id = 1 AND withings_user_id = ?))`,
-            auth.withings_user_id
-          ),
-          ...statements,
-          statement(db, "DELETE FROM api_write_assertions WHERE id = 1"),
-        ]);
-        return result.slice(1, -1);
-      },
-    };
-    const weights = bodyweightStore(guarded, clock);
+    const weights = weightsForAccount(auth.withings_user_id);
     let duplicate = 0;
     let refused = 0;
     let written = 0;
@@ -162,17 +137,17 @@ export function withingsStore(
       // Only a complete lastupdate pass advances the provider-clock watermark.
       // A slower concurrent pass must not move an already newer mark backwards.
       const watermark = instant(new Date(updatetime * 1000).toISOString());
-      const changed = await rows(
-        db,
-        `UPDATE withings_auth SET
-        last_sync_at = CASE WHEN last_sync_at IS NULL OR last_sync_at < ? THEN ? ELSE last_sync_at END,
-        updated_at = ? WHERE id = 1 AND withings_user_id = ? RETURNING id`,
-        watermark,
-        watermark,
-        now(),
-        auth.withings_user_id
-      );
-      if (!changed.length) {
+      let changed: boolean;
+      try {
+        changed = await repository.advanceWatermark(
+          auth.withings_user_id,
+          watermark,
+          now()
+        );
+      } catch (error) {
+        throw databaseError(error);
+      }
+      if (!changed) {
         throw new WithingsError(
           "The Withings account changed during synchronization. The checkpoint is unchanged."
         );
@@ -187,7 +162,7 @@ export function withingsStore(
       refused,
     };
   }
-  async function requireAuth(expectedUserId?: string): Promise<AuthRow> {
+  async function requireAuth(expectedUserId?: string): Promise<WithingsAuth> {
     const auth = await readAuth();
     if (!auth) {
       throw new WithingsError(
@@ -236,19 +211,14 @@ export function withingsStore(
   > {
     try {
       const at = clock();
-      const claimed = await rows<{ withings_user_id: string }>(
-        db,
-        `UPDATE withings_auth
-        SET last_sync_attempt_at = ?, updated_at = ? WHERE id = 1
-        AND (last_sync_attempt_at IS NULL OR last_sync_attempt_at < ?) RETURNING withings_user_id`,
-        instant(at.toISOString()),
+      const claimed = await repository.claimCatchUp(
         instant(at.toISOString()),
         instant(new Date(at.getTime() - CATCH_UP_INTERVAL_MS).toISOString())
       );
-      if (!claimed.length) {
+      if (claimed === null) {
         return null;
       }
-      return await catchUp(undefined, claimed[0].withings_user_id);
+      return await catchUp(undefined, claimed);
     } catch {
       // Scheduled work never exposes provider text or database parameters.
       const error =

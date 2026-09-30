@@ -51,6 +51,7 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - run: bun run db:check
       - run: bun run test:d1
 
   web:

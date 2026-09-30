@@ -1,5 +1,7 @@
-import { instant, rows, systemClock } from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
+import type { AccessRepository } from "../../db/repositories/access.ts";
+import { databaseError } from "../shared/errors.ts";
+import { instant, systemClock } from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
 
 export const TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
@@ -13,8 +15,10 @@ export async function hashToken(token: string): Promise<string> {
   ).join("");
 }
 
-/** Construct for the current request's D1 binding; never retain a binding globally. */
-export function tokenStore(db: Database, clock: Clock = systemClock) {
+export function tokenStore(
+  repository: AccessRepository,
+  clock: Clock = systemClock
+) {
   async function issueToken(
     subject: string
   ): Promise<{ token: string; expires_at: string }> {
@@ -26,22 +30,19 @@ export function tokenStore(db: Database, clock: Clock = systemClock) {
       .replace(/=+$/u, "");
     const now = clock();
     const expiresAt = new Date(now.getTime() + TOKEN_LIFETIME_MS).toISOString();
-    await rows(
-      db,
-      `INSERT INTO api_tokens (token_hash, subject, issued_at, expires_at)
-      VALUES (?, ?, ?, ?)`,
-      await hashToken(token),
-      subject,
-      instant(now.toISOString()),
-      instant(expiresAt)
-    );
+    try {
+      await repository.insertToken({
+        token_hash: await hashToken(token),
+        subject,
+        issued_at: instant(now.toISOString()),
+        expires_at: instant(expiresAt),
+      });
+    } catch (error) {
+      throw databaseError(error);
+    }
     // Cleanup is independent of minting. A failed sweep cannot hide a usable token.
     try {
-      await rows(
-        db,
-        "DELETE FROM api_tokens WHERE expires_at < ?",
-        instant(now.toISOString())
-      );
+      await repository.deleteExpiredTokens(instant(now.toISOString()));
     } catch {
       console.error("Expired API token cleanup failed.");
     }
@@ -51,13 +52,14 @@ export function tokenStore(db: Database, clock: Clock = systemClock) {
   async function verifyToken(
     token: string
   ): Promise<{ subject: string } | null> {
-    const result = await rows<{ subject: string }>(
-      db,
-      "SELECT subject FROM api_tokens WHERE token_hash = ? AND expires_at > ?",
-      await hashToken(token),
-      instant(clock().toISOString())
-    );
-    return result[0] ?? null;
+    try {
+      return await repository.findActiveToken(
+        await hashToken(token),
+        instant(clock().toISOString())
+      );
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
   return { issueToken, mint: issueToken, verifyToken };
 }

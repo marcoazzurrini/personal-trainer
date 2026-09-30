@@ -60,9 +60,13 @@ test("production and isolated tests use one D1 migration history without a DB pa
   const manifest = JSON.parse(await read("package.json"));
   assert.deepEqual(manifest.workspaces, ["web"]);
   assert.equal(manifest.scripts["test:postgres-import"], undefined);
+  assert.equal(manifest.dependencies?.postgres, undefined);
+  assert.equal(manifest.devDependencies?.postgres, undefined);
+  // Drizzle declares optional drivers for other backends. Their peer metadata
+  // is not an installed package; reject resolved PostgreSQL entries instead.
   assert.doesNotMatch(
     await read("bun.lock"),
-    /"postgres"\s*:|personal-trainer-d1-migration/u
+    /^\s*"(?:[^"\n]+\/)?postgres"\s*:\s*\[|personal-trainer-d1-migration/mu
   );
 });
 
@@ -78,6 +82,8 @@ test("root ignore rules protect nested database artifacts without hiding migrati
     ["db/tests/private.snapshot.json", 0],
     ["db/tests/private.import.sql", 0],
     ["db/migrations/0001_record.sql", 1],
+    ["db/migrations/meta/0004_snapshot.json", 1],
+    ["db/migrations/meta/_journal.json", 1],
     ["db/tests/fixtures/storage.json", 1],
   ] as const) {
     const result = spawnSync("git", ["check-ignore", "--no-index", path], {

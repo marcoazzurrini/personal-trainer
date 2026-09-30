@@ -1,51 +1,31 @@
-import { batch, caseKey, jsonChunks, rows, statement } from "./d1.ts";
-import type { Database } from "./d1.ts";
-import { ApiError, requireRow } from "./errors.ts";
+import type { AliasRepository } from "../../db/repositories/aliases.ts";
+import { ApiError, databaseError } from "./errors.ts";
+
+export type { AliasKind } from "../../db/repositories/aliases.ts";
 
 const kinds = {
   exercise: {
-    table: "exercises",
-    aliases: "exercise_aliases",
-    key: "exercise_id",
     route: "/exercises",
   },
   food: {
-    table: "foods",
-    aliases: "food_aliases",
-    key: "food_id",
     route: "/foods",
   },
   meal: {
-    table: "meals",
-    aliases: "meal_aliases",
-    key: "meal_id",
     route: "/meals",
   },
 } as const;
-export type AliasKind = keyof typeof kinds;
 
-/** Identifiers come only from this trusted catalogue, never from request input. */
-export function aliasStore(db: Database, kind: AliasKind) {
+export function aliasStore(repository: AliasRepository) {
+  const { kind } = repository;
   if (!Object.hasOwn(kinds, kind)) {
     throw new Error("Unknown alias kind.");
   }
   const spec = kinds[kind];
 
   async function assertAliasesFree(aliases: readonly string[]): Promise<void> {
-    const taken: { alias: string; id: number; name: string }[] = [];
-    for (const chunk of jsonChunks([
-      ...new Set(aliases.map((a) => caseKey(a.trim()))),
-    ])) {
-      taken.push(
-        ...(await rows<{ alias: string; id: number; name: string }>(
-          db,
-          `SELECT a.alias, e.id, e.name FROM ${spec.aliases} a
-         JOIN ${spec.table} e ON e.id = a.${spec.key}
-         WHERE a.alias_key IN (SELECT value FROM json_each(?)) ORDER BY a.alias`,
-          chunk.json
-        ))
-      );
-    }
+    const taken = await repository.findTaken(aliases).catch((error) => {
+      throw databaseError(error);
+    });
     if (!taken.length) {
       return;
     }
@@ -80,19 +60,11 @@ export function aliasStore(db: Database, kind: AliasKind) {
     if (!aliases.length) {
       return;
     }
-    await batch(
-      db,
-      jsonChunks(aliases.map((alias) => ({ alias, key: caseKey(alias) }))).map(
-        (chunk) =>
-          statement(
-            db,
-            `INSERT INTO ${spec.aliases} (${spec.key}, alias, alias_key)
-       SELECT ?, json_extract(value, '$.alias'), json_extract(value, '$.key') FROM json_each(?)`,
-            id,
-            chunk.json
-          )
-      )
-    );
+    try {
+      await repository.add(id, aliases);
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
 
   async function releaseAlias(input: {
@@ -100,15 +72,13 @@ export function aliasStore(db: Database, kind: AliasKind) {
     alias: string;
     notAnAlias: string;
   }): Promise<void> {
-    requireRow(
-      await rows(
-        db,
-        `DELETE FROM ${spec.aliases} WHERE ${spec.key} = ? AND alias_key = ? RETURNING id`,
-        input.id,
-        caseKey(input.alias)
-      ),
-      input.notAnAlias
-    );
+    try {
+      if (!(await repository.release(input.id, input.alias))) {
+        throw new ApiError(404, input.notAnAlias);
+      }
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
   return { addAliases, releaseAlias, assertAliasesFree };
 }

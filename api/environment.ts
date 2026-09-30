@@ -1,9 +1,10 @@
-import type { Database } from "./shared/d1.ts";
+import type { D1Database } from "@cloudflare/workers-types";
+
 import type { IssueBindings } from "./surfaces/issues.ts";
 
 /** Secrets and capabilities are supplied to each invocation, never read globally. */
 export interface Bindings extends IssueBindings {
-  DB: Database;
+  DB: D1Database;
   AUTH_ISSUER?: string;
   AUTH_JWKS_URL?: string;
   ALLOWED_SUBJECT?: string;

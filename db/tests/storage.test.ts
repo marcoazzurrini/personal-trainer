@@ -8,7 +8,7 @@ import {
   caseKey,
   romeDate,
   scaledInteger,
-} from "../../api/shared/storage.ts";
+} from "../storage.ts";
 import { migrationStatements } from "./local.ts";
 
 test("decimal storage matches numeric rounding without binary-float ties", () => {

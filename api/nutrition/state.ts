@@ -1,16 +1,20 @@
-import { bodyfatStore } from "../body/bodyfat.ts";
-import { bodyweightStore } from "../body/bodyweight.ts";
-import { romeDate, rows, systemClock } from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
+import type { StateRepository } from "../../db/repositories/nutrition/state.ts";
+import type { BodyfatService } from "../body/bodyfat.ts";
+import type { BodyweightService } from "../body/bodyweight.ts";
 import { addDays } from "../shared/dates.ts";
-import { eventStore } from "./events.ts";
-import type { IntakeEntry } from "./intake.types.ts";
-import { nutritionReader, slopePctBwWeek } from "./read.ts";
+import { romeDate, systemClock, wireInstant } from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
+import { expenditureStore, slopePctBwWeek } from "./read.ts";
 import { sumMacros } from "./rules.ts";
-import type { Adherence, NutritionState, RecentDay } from "./state.types.ts";
+import type { NutritionState } from "./state.types.ts";
 import { targetStore } from "./targets.ts";
 
-export function nutritionStateStore(db: Database, clock: Clock = systemClock) {
+export function nutritionStateStore(
+  repository: StateRepository,
+  bodyweight: BodyweightService,
+  bodyfat: BodyfatService,
+  clock: Clock = systemClock
+) {
   async function nutritionState(): Promise<NutritionState> {
     // All nested reads see the same instant, including across Rome midnight.
     const instant = clock();
@@ -33,70 +37,44 @@ export function nutritionStateStore(db: Database, clock: Clock = systemClock) {
 
     // Keep this small projection aligned with intakeStore.viewDay. The view,
     // not stored snapshots, owns corrected labels and override invalidation.
-    const entries = await rows<IntakeEntry>(
-      db,
-      `
-      SELECT i.id, i.day, i.grams, i.kcal, i.protein_g, i.carbs_g,
-        i.fat_g, i.fiber_g, i.note,
-        substr(i.created_at, 1, 23) || 'Z' AS created_at,
-        i.food_id, f.name AS food, i.meal_id, m.name AS meal
-      FROM intake_values i
-      LEFT JOIN foods f ON f.id = i.food_id
-      LEFT JOIN meals m ON m.id = i.meal_id
-      WHERE i.day = ? ORDER BY i.created_at, i.id`,
-      today
-    );
+    const entries = (await repository.entries(today)).map((entry) => ({
+      ...entry,
+      created_at: wireInstant(entry.created_at),
+    }));
     const totals = sumMacros(entries);
 
     // The legacy state reports thirteen completed days, not today's partial
     // intake. Only entry counts and flag bits get defaults; unknown is not zero.
-    const recent = await rows<
-      Omit<RecentDay, "incomplete"> & { incomplete: number }
-    >(
-      db,
-      `
-      WITH RECURSIVE days(day) AS (
-        SELECT ? UNION ALL SELECT date(day, '+1 day') FROM days WHERE day < ?
-      )
-      SELECT d.day, i.kcal, i.protein_g, coalesce(i.entries, 0) AS entries,
-        coalesce(i.incomplete, 0) AS incomplete, b.value_kg AS weight_kg
-      FROM days d LEFT JOIN daily_intake i ON i.day = d.day
-      LEFT JOIN daily_bodyweight b ON b.day = d.day ORDER BY d.day`,
+    const recent = await repository.recentDays(
       addDays(today, -13),
       addDays(today, -1)
     );
-    const [adherence] = await rows<Adherence>(
-      db,
-      `
-      SELECT
-        (SELECT count(*) FROM daily_intake WHERE day >= ? AND day < ? AND entries > 0) AS days_logged_last_7,
-        (SELECT count(*) FROM daily_intake WHERE day >= ? AND day < ? AND entries > 0) AS days_logged_last_21,
-        (SELECT count(*) FROM daily_bodyweight WHERE day >= ? AND day <= ?) AS weigh_ins_last_7,
-        (SELECT count(*) FROM daily_bodyweight WHERE day >= ? AND day <= ?) AS weigh_ins_last_21,
-        (SELECT max(day) FROM daily_intake WHERE day < ? AND entries > 0) AS last_logged_day,
-        (SELECT max(day) FROM daily_bodyweight) AS last_weigh_in`,
-      addDays(today, -7),
+    const adherence = await repository.adherence({
       today,
-      addDays(today, -21),
-      today,
-      addDays(today, -6),
-      today,
-      addDays(today, -20),
-      today,
-      today
-    );
-    const flags = await rows<{ day: string; flag: string }>(
-      db,
-      "SELECT day, flag FROM day_flags WHERE day >= ? ORDER BY day",
-      addDays(today, -21)
-    );
-    const trend = await bodyweightStore(db, snapshot).loadTrend();
+      loggedFrom7: addDays(today, -7),
+      loggedFrom21: addDays(today, -21),
+      weighedFrom7: addDays(today, -6),
+      weighedFrom21: addDays(today, -20),
+    });
+    const flags = await repository.flags(addDays(today, -21));
+    const trend = await bodyweight.loadTrend();
     const latest = trend.length ? trend.at(-1) : null;
-    const expenditure = await nutritionReader(db, snapshot).currentExpenditure(
-      trend
-    );
-    const target = await targetStore(db, snapshot).activeTarget(today);
-    const transients = await eventStore(db, snapshot).activeTransients(today);
+    const expenditure = await expenditureStore(
+      repository.expenditure,
+      bodyfat,
+      snapshot
+    ).currentExpenditure(trend);
+    const target = await targetStore(
+      repository.targets,
+      bodyweight,
+      bodyfat,
+      snapshot
+    ).activeTarget(today);
+    const transients = await expenditureStore(
+      repository.expenditure,
+      bodyfat,
+      snapshot
+    ).activeTransients(today);
     return {
       now,
       today_so_far: {
@@ -135,9 +113,11 @@ export function nutritionStateStore(db: Database, clock: Clock = systemClock) {
         incomplete: Boolean(day.incomplete),
       })),
       adherence,
-      latest_bodyfat: await bodyfatStore(db, snapshot).latestBodyfat(),
+      latest_bodyfat: await bodyfat.latestBodyfat(),
       recent_flags: flags,
     };
   }
   return { nutritionState };
 }
+
+export type NutritionStateService = ReturnType<typeof nutritionStateStore>;

@@ -213,3 +213,14 @@ db.ts          the client; no *.routes.ts may import it
 shared/        aliases  calendar  dates  errors  idempotency  resolve  schema
 body/  nutrition/  training/  surfaces/
 ```
+
+## Epilogue: persistence gets an explicit database boundary
+
+[ADR-0017](0017-drizzle-and-persistence-belong-to-the-database-module.md)
+replaces the decision to keep queries beside API routes and not use an ORM.
+Drizzle, schema definitions, stored-value conversions and complete atomic
+persistence operations now belong to `db/`. API topic modules retain validation,
+arithmetic, workflows and refusal messages. The composition module supplies
+operation-shaped repositories; neither routes nor application services receive
+a query builder or raw database handle. The HTTP and pure-rule boundaries
+remain, and tests additionally prohibit database modules from importing the API.

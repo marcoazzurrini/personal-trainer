@@ -96,7 +96,8 @@ test("bodyweight preserves microseconds, Rome days, numeric bounds, and earliest
   await db.prepare(insert).bind(8400, instant, "2026-07-02", "withings").run();
   const row = await db
     .prepare("SELECT * FROM daily_bodyweight WHERE day = '2026-07-02'")
-    .first();
+    .first<{ value_kg: number; measured_at: string }>();
+  assert.ok(row);
   assert.equal(row.value_kg, 82.35);
   assert.equal(row.measured_at, instant);
   await assert.rejects(
@@ -142,7 +143,8 @@ test("foreign keys reject missing references and deleting history", async () => 
   );
   const exercise = await db
     .prepare("SELECT id FROM exercises WHERE name_key = 'caffè'")
-    .first();
+    .first<{ id: number }>();
+  assert.ok(exercise);
   await db
     .prepare(
       "INSERT INTO exercise_aliases (exercise_id, alias, alias_key) VALUES (?, 'alias', 'alias')"
@@ -156,7 +158,8 @@ test("foreign keys reject missing references and deleting history", async () => 
     .run();
   const session = await db
     .prepare("SELECT id FROM sessions ORDER BY id DESC LIMIT 1")
-    .first();
+    .first<{ id: number }>();
+  assert.ok(session);
   await db
     .prepare(
       "INSERT INTO sets (session_id, exercise_id, position, kind, reps, effort) VALUES (?, ?, 1, 'working', 5, 'hard')"
@@ -166,15 +169,12 @@ test("foreign keys reject missing references and deleting history", async () => 
   await assert.rejects(
     db.prepare("DELETE FROM exercises WHERE id = ?").bind(exercise.id).run()
   );
-  assert.equal(
-    (
-      await db
-        .prepare("SELECT COUNT(*) AS n FROM sets WHERE session_id = ?")
-        .bind(session.id)
-        .first()
-    ).n,
-    1
-  );
+  const sets = await db
+    .prepare("SELECT COUNT(*) AS n FROM sets WHERE session_id = ?")
+    .bind(session.id)
+    .first<{ n: number }>();
+  assert.ok(sets);
+  assert.equal(sets.n, 1);
   assert.equal(
     (await db.prepare("PRAGMA foreign_key_check").all()).results.length,
     0
@@ -195,7 +195,8 @@ test("request uniqueness distinguishes ad-hoc entries from different foods in on
         "INSERT INTO foods (name, name_key, kcal_100g, protein_100g, carbs_100g, fat_100g, source) VALUES (?, ?, 1000, 100, 100, 0, 'label') RETURNING id"
       )
       .bind(name, name)
-      .first();
+      .first<{ id: number }>();
+    assert.ok(food);
     const entry = db
       .prepare(
         "INSERT INTO intake_entries (day, food_id, grams, request_id) VALUES ('2020-01-06', ?, 1000, ?)"
@@ -204,17 +205,12 @@ test("request uniqueness distinguishes ad-hoc entries from different foods in on
     await entry.run();
     await assert.rejects(entry.run());
   }
-  assert.equal(
-    (
-      await db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM intake_entries WHERE request_id = ?"
-        )
-        .bind(shared)
-        .first()
-    ).n,
-    2
-  );
+  const entries = await db
+    .prepare("SELECT COUNT(*) AS n FROM intake_entries WHERE request_id = ?")
+    .bind(shared)
+    .first<{ n: number }>();
+  assert.ok(entries);
+  assert.equal(entries.n, 2);
 });
 
 test("JSON clipping reasons enforce array shape and allowed membership on local D1", async () => {
@@ -251,6 +247,7 @@ test("identity allocation preserves a high-water mark even after deleting the la
     .prepare(
       "INSERT INTO users (name) VALUES ('synthetic next ID') RETURNING id"
     )
-    .first();
+    .first<{ id: number }>();
+  assert.ok(created);
   assert.equal(created.id, 501);
 });

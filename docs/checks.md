@@ -8,6 +8,54 @@ CI runs the release gate in
 Dated implementation results below are historical evidence, not a description
 of the current hosting platform or proof that a later revision passed.
 
+## Drizzle persistence boundary (30 September 2026)
+
+The database module now owns the Drizzle D1 client, schema mappings, repositories,
+stored-value conversions and database failures. API services own validation,
+arithmetic, HTTP behavior and external-provider workflows. Production database
+code does not import the API or Hono. Architecture tests enforce the boundary;
+local fixture Workers may exercise both sides.
+
+All four released migrations retain their filenames and bytes. Schema tests
+compare every mapped column, constraint, index and foreign key across 29 tables
+(the 27 application tables and two internal tables), plus all seven existing
+views. Native D1 tests preserve precision, atomic writes, replay handling,
+concurrency refusals and rollback when response reads fail. Withings provider
+calls stay outside database writes and retries. Unknown database failures retain
+the safe diagnostic envelope rather than exposing Drizzle queries or parameters.
+
+Local verification passed against the uncommitted working tree:
+
+- **221 API tests**, **120 D1 tests** and **21 tooling tests**.
+- Dashboard: **54 Vitest tests**, **14 browser tests** and **3 built-Worker tests**.
+- Root and dashboard type checks, Ultracite checks, both production builds and
+  `git diff --check`.
+- Wrangler 4.131.2 deployment dry run of the API artifact: 264.09 KiB gzip,
+  the expected D1 binding and no upload.
+- A clean temporary `bun install --frozen-lockfile --ignore-scripts` installation.
+- Gitleaks 8.30.1 against an isolated snapshot of 369 working-source files,
+  including new files, without changing the repository's index.
+
+An offline bundle comparison with `e93fb45` measured 225,430 gzip bytes before
+and 270,355 after, an increase of 44,925 bytes (19.9%). Neither bundle includes
+Drizzle Kit, the test-only source parser or a PostgreSQL runtime. Local workerd
+checks passed; hosted CPU usage was not measured and requires deployment evidence.
+
+Wrangler remains the sole migration runner. Drizzle Kit's generated structure
+snapshot now anchors to the fourth released migration, without adding a SQL
+migration or changing the existing files. `db:generate` produces incremental
+SQL drafts and `db:check` validates the generation metadata; CI runs the check.
+Unchanged generation writes no files. A temporary schema change produces only
+one `0005_*` migration adding a nullable column, and actual disposable D1 retains
+an existing record's scaled value and microsecond timestamp. The test also checks
+that indexes, triggers, views and the table's `STRICT` setting survive. Existing
+SQL remains authoritative for features the generator cannot reproduce.
+See [ADR-0017](adr/0017-drizzle-and-persistence-belong-to-the-database-module.md).
+
+No production data, deployed Worker or recovery material was read or changed.
+No commit, push or deployment was performed. Root `dist/` was removed after the
+build checks; a future build can recreate it. There is no root `tests/` directory.
+
 ## Database directory cleanup (30 September 2026)
 
 The four released D1 migrations now live in `db/migrations/`. Their filenames and
@@ -212,9 +260,9 @@ These are local results, not GitHub CI, deployment or installed-plugin proof.
   database isolation. Bun runs assertions; Miniflare runs the application in
   workerd against ephemeral D1. Use this harness rather than bare `bun test` for
   API tests: its identity, environment and network guards are required.
-- `bun run test:postgres-import`: one-time transfer compatibility against a
-  disposable PostgreSQL reference. Docker is needed for this test, not for
-  production or the ordinary API/D1 suite.
+- `bun run test:d1`: database ownership, schema mappings, released migration
+  digests and persistence behavior against disposable local D1. PostgreSQL
+  transfer tests are retired; Docker is not needed for the API/D1 suites.
 - The web package keeps Vitest and Playwright. It separately checks types, unit
   tests, browser behavior and the built artifact in workerd. CI runs all four.
 - `bun run check:style`: Oxfmt and Oxlint through Ultracite, including its
@@ -222,7 +270,7 @@ These are local results, not GitHub CI, deployment or installed-plugin proof.
 - `bun run secrets`: scans the Git index. `bun run test:tooling` includes its
   boundary checks alongside the other script tests; both require Docker.
 
-Install all three workspaces from the root with `bun install --frozen-lockfile`.
+Install the root package and web workspace with `bun install --frozen-lockfile`.
 The root `bun.lock` owns dependency resolution. Bun does not replace workerd or
 force Node-based Cloudflare and web tools to run under Bun. See
 [ADR-0016](adr/0016-bun-owns-development-with-workers-unchanged.md).

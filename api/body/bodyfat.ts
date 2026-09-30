@@ -1,25 +1,47 @@
+import type {
+  BodyfatMeasurement,
+  BodyfatRepository,
+} from "../../db/repositories/bodyfat.ts";
+import { requireNotFuture } from "../shared/dates.ts";
+import { ApiError, databaseError } from "../shared/errors.ts";
 import {
   date,
   decimal,
   instant,
   requestId,
   romeDate,
-  rows,
   systemClock,
-} from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
-import { requireNotFuture } from "../shared/dates.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
+  wireInstant,
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
 import type {
   BodyfatRow,
+  Method,
   RecordBodyfatInput,
   RecordedBodyfat,
 } from "./bodyfat.types.ts";
+import { METHODS } from "./constants.ts";
 
-const columns =
-  "id, day, percent / 10.0 AS percent, method, note, substr(created_at, 1, 23) || 'Z' AS created_at";
+function storedMethod(value: string): Method {
+  const method = METHODS.find((candidate) => candidate === value);
+  if (!method) {
+    throw new Error("Unknown stored body-fat method.");
+  }
+  return method;
+}
 
-export function bodyfatStore(db: Database, clock: Clock = systemClock) {
+function wireMeasurement(row: BodyfatMeasurement): BodyfatRow {
+  return {
+    ...row,
+    method: storedMethod(row.method),
+    created_at: wireInstant(row.created_at),
+  };
+}
+
+export function bodyfatStore(
+  repository: BodyfatRepository,
+  clock: Clock = systemClock
+) {
   async function recordBodyfat(
     input: RecordBodyfatInput
   ): Promise<RecordedBodyfat> {
@@ -27,76 +49,78 @@ export function bodyfatStore(db: Database, clock: Clock = systemClock) {
     const today = romeDate(now);
     const day = requireNotFuture(date(input.day ?? today), today, "day");
     const value = decimal(input.percent, 4, 1);
-    // Keep natural-key precedence over request-id replay, including a changed
-    // reading sent after midnight. A retry cannot overwrite a measurement.
-    const [found] = await rows<BodyfatRow & { stored_value: number }>(
-      db,
-      `SELECT ${columns}, percent AS stored_value FROM bodyfat_estimates WHERE day = ? AND method = ?`,
-      day,
-      input.method
-    );
-    if (found) {
-      const { stored_value, ...existing } = found;
-      if (stored_value === value) {
-        return { row: existing, created: false };
-      }
+    function conflict(existing: BodyfatRow): never {
       throw new ApiError(
         409,
         `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${input.method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`
       );
     }
-    const uuid = requestId(input.requestId);
-    const [seen] = await rows<BodyfatRow>(
-      db,
-      `SELECT ${columns} FROM bodyfat_estimates WHERE request_id = ?`,
-      uuid
-    );
-    if (seen) {
-      return { row: seen, created: false };
-    }
-    const row = requireRow(
-      await rows<BodyfatRow>(
-        db,
-        `INSERT INTO bodyfat_estimates (day, percent, method, note, request_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?) RETURNING ${columns}`,
+    try {
+      // Natural-key precedence includes request-id validation: an existing
+      // measurement is answered before inspecting the retry identifier.
+      const found = await repository.findByDayMethod(day, input.method);
+      if (found) {
+        const row = wireMeasurement(found);
+        if (found.percent === value / 10) {
+          return { row, created: false };
+        }
+        return conflict(row);
+      }
+      const result = await repository.save({
         day,
-        value,
-        input.method,
-        input.note ?? null,
-        uuid,
-        now
-      ),
-      "The body-fat estimate could not be read after saving."
-    );
-    return { row, created: true };
+        percent: input.percent,
+        method: input.method,
+        note: input.note ?? null,
+        requestId: requestId(input.requestId),
+        createdAt: now,
+      });
+      if (result.kind === "missing") {
+        throw new ApiError(
+          404,
+          "The body-fat estimate could not be read after saving."
+        );
+      }
+      const row = wireMeasurement(result.row);
+      if (result.kind === "conflict") {
+        return conflict(row);
+      }
+      return { row, created: result.kind === "created" };
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
+
   async function listBodyfat(): Promise<BodyfatRow[]> {
-    return await rows<BodyfatRow>(
-      db,
-      `SELECT ${columns} FROM bodyfat_estimates ORDER BY day, method`
-    );
+    try {
+      return (await repository.list()).map(wireMeasurement);
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
+
   async function latestBodyfat(): Promise<BodyfatRow | null> {
-    return (
-      (
-        await rows<BodyfatRow>(
-          db,
-          `SELECT ${columns} FROM bodyfat_estimates ORDER BY day DESC, id DESC LIMIT 1`
-        )
-      )[0] ?? null
-    );
+    try {
+      const row = await repository.latest();
+      return row ? wireMeasurement(row) : null;
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
+
   async function removeBodyfat(
     id: number
   ): Promise<Pick<BodyfatRow, "day" | "percent" | "method">> {
-    return requireRow(
-      await rows<Pick<BodyfatRow, "day" | "percent" | "method">>(
-        db,
-        "DELETE FROM bodyfat_estimates WHERE id = ? RETURNING day, percent / 10.0 AS percent, method",
-        id
-      ),
-      `No body-fat estimate with id ${id}.`
-    );
+    try {
+      const row = await repository.remove(id);
+      if (!row) {
+        throw new ApiError(404, `No body-fat estimate with id ${id}.`);
+      }
+      return { ...row, method: storedMethod(row.method) };
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
   return { recordBodyfat, listBodyfat, latestBodyfat, removeBodyfat };
 }
+
+export type BodyfatService = ReturnType<typeof bodyfatStore>;

@@ -1,6 +1,6 @@
-import { batch, caseKey, jsonChunks, rows, statement } from "../shared/d1.ts";
-import type { Database } from "../shared/d1.ts";
+import type { ResolutionRepository } from "../../db/repositories/training/resolve.ts";
 import { ApiError, requireRow } from "../shared/errors.ts";
+import { caseKey } from "../shared/values.ts";
 import { TRACKS } from "./rules.ts";
 import type { Measure, StimulusType } from "./rules.ts";
 
@@ -26,16 +26,12 @@ export interface SetResolver {
 }
 
 /** Same id/name/alias and active-plan rules as the PostgreSQL reference. */
-export function trainingResolver(db: Database) {
+export function trainingResolver(repository: ResolutionRepository) {
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This function validates raw id/name/alias inputs before issuing a lookup.
   async function resolveExercise(ref: unknown): Promise<Exercise> {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Numeric references require a safe-integer check before the id lookup.
     if (typeof ref === "number" && Number.isSafeInteger(ref)) {
-      const [row] = await rows<Exercise>(
-        db,
-        "SELECT id, name, measure, stimulus_type FROM exercises WHERE id = ?",
-        ref
-      );
+      const row = await repository.exerciseById(ref);
       if (row) {
         return row;
       }
@@ -47,19 +43,7 @@ export function trainingResolver(db: Database) {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- String references require nonempty trimmed text before name/alias lookup.
     if (typeof ref === "string" && ref.trim() !== "") {
       const name = ref.trim();
-      const [row] = await rows<Exercise>(
-        db,
-        `SELECT e.id, e.name, e.measure, e.stimulus_type FROM exercises e
-        WHERE e.id = (
-          SELECT id FROM (
-            SELECT id, 1 AS rank FROM exercises WHERE name_key = ?
-            UNION ALL
-            SELECT exercise_id AS id, 2 AS rank FROM exercise_aliases WHERE alias_key = ?
-          ) ORDER BY rank LIMIT 1
-        )`,
-        caseKey(name),
-        caseKey(name)
-      );
+      const row = await repository.exerciseByKey(caseKey(name));
       if (row) {
         return row;
       }
@@ -79,10 +63,7 @@ export function trainingResolver(db: Database) {
 
   async function resolveMesocycle(ref: string): Promise<Plan> {
     if (ref === "current" || ref.startsWith("current:")) {
-      const active = await rows<Plan>(
-        db,
-        "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track"
-      );
+      const active = await repository.activePlans();
       const tracks = active.map((m) => m.track).join(", ");
       if (ref === "current") {
         if (active.length === 1) {
@@ -130,11 +111,7 @@ export function trainingResolver(db: Database) {
       );
     }
     return requireRow(
-      await rows<Plan>(
-        db,
-        "SELECT id, track FROM mesocycles WHERE id = ?",
-        Number(ref)
-      ),
+      await repository.planById(Number(ref)),
       `No mesocycle with id ${ref}.`
     );
   }
@@ -147,13 +124,7 @@ export function trainingResolver(db: Database) {
     if (ref !== undefined && ref !== null) {
       return (await resolveMesocycle(String(ref))).id;
     }
-    const plans = await rows<Plan>(
-      db,
-      `SELECT m.id, m.track FROM mesocycles m
-      JOIN mesocycle_exercises me ON me.mesocycle_id = m.id
-      WHERE m.ended_on IS NULL AND me.exercise_id = ? ORDER BY m.track`,
-      exerciseId
-    );
+    const plans = await repository.activePlansForExercise(exerciseId);
     if (plans.length === 0) {
       return null;
     }
@@ -191,31 +162,13 @@ export function trainingResolver(db: Database) {
             : null,
       };
     });
-    const chunks = jsonChunks(inputs);
-    const found = await batch<Exercise & { item: number }>(
-      db,
-      chunks.map((chunk) =>
-        statement(
-          db,
-          `SELECT CAST(v.key AS INTEGER) + ? AS item, e.id, e.name, e.measure, e.stimulus_type
-       FROM json_each(?) v JOIN exercises e ON e.id = COALESCE(
-         (SELECT id FROM exercises WHERE name_key = json_extract(v.value, '$.key')),
-         (SELECT exercise_id FROM exercise_aliases WHERE alias_key = json_extract(v.value, '$.key')),
-         (SELECT id FROM exercises WHERE id = json_extract(v.value, '$.id'))
-       )`,
-          chunk.offset,
-          chunk.json
-        )
-      )
-    );
+    const found = await repository.exercisesForReferences(inputs);
     const exercises = new Map<unknown, Exercise>();
     const byId = new Map<number, Exercise>();
-    for (const result of found) {
-      for (const value of result.results) {
-        const { item, ...row } = value;
-        exercises.set(refs[item], row);
-        byId.set(row.id, row);
-      }
+    for (const value of found) {
+      const { item, ...row } = value;
+      exercises.set(refs[item], row);
+      byId.set(row.id, row);
     }
     const explicit = [
       ...new Set(
@@ -230,37 +183,19 @@ export function trainingResolver(db: Database) {
         })
       ),
     ];
-    const active = await rows<Plan>(
-      db,
-      "SELECT id, track FROM mesocycles WHERE ended_on IS NULL ORDER BY track"
-    );
+    const active = await repository.activePlans();
     const plansById = new Map(active.map((plan) => [plan.id, plan]));
     if (explicit.length) {
-      for (const chunk of jsonChunks(explicit)) {
-        for (const plan of await rows<Plan>(
-          db,
-          "SELECT id, track FROM mesocycles WHERE id IN (SELECT value FROM json_each(?))",
-          chunk.json
-        )) {
-          plansById.set(plan.id, plan);
-        }
+      for (const plan of await repository.plansByIds(explicit)) {
+        plansById.set(plan.id, plan);
       }
     }
     const membership = new Map<number, Plan[]>();
-    for (const chunk of jsonChunks([...byId.keys()])) {
-      const plans = await rows<Plan & { exercise_id: number }>(
-        db,
-        `SELECT me.exercise_id, m.id, m.track FROM mesocycle_exercises me
-         JOIN mesocycles m ON m.id = me.mesocycle_id
-         WHERE m.ended_on IS NULL AND me.exercise_id IN (SELECT value FROM json_each(?))
-         ORDER BY m.track`,
-        chunk.json
-      );
-      for (const plan of plans) {
-        const list = membership.get(plan.exercise_id) ?? [];
-        list.push(plan);
-        membership.set(plan.exercise_id, list);
-      }
+    const memberships = await repository.activeMembership([...byId.keys()]);
+    for (const plan of memberships) {
+      const list = membership.get(plan.exercise_id) ?? [];
+      list.push(plan);
+      membership.set(plan.exercise_id, list);
     }
     return {
       resolveExercise: (ref) => {
@@ -304,3 +239,5 @@ export function trainingResolver(db: Database) {
 
   return { resolveExercise, resolveMesocycle, resolveSetMesocycleId, forSets };
 }
+
+export type TrainingResolver = ReturnType<typeof trainingResolver>;

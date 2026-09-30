@@ -1,0 +1,3111 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "e7a8f5f9-cd6a-44bb-ac43-f7db80703751",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "api_tokens": {
+      "name": "api_tokens",
+      "columns": {
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "api_tokens_expires_after_issue": {
+          "name": "api_tokens_expires_after_issue",
+          "value": "expires_at > issued_at"
+        },
+        "api_tokens_issued_at_utc": {
+          "name": "api_tokens_issued_at_utc",
+          "value": "\"api_tokens\".\"issued_at\" IS NULL OR (\n    length(cast(\"api_tokens\".\"issued_at\" as blob)) = 27 AND substr(\"api_tokens\".\"issued_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"api_tokens\".\"issued_at\", 1, 19), '+0 seconds') IS substr(\"api_tokens\".\"issued_at\", 1, 19)\n    AND substr(\"api_tokens\".\"issued_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "api_tokens_expires_at_utc": {
+          "name": "api_tokens_expires_at_utc",
+          "value": "\"api_tokens\".\"expires_at\" IS NULL OR (\n    length(cast(\"api_tokens\".\"expires_at\" as blob)) = 27 AND substr(\"api_tokens\".\"expires_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"api_tokens\".\"expires_at\", 1, 19), '+0 seconds') IS substr(\"api_tokens\".\"expires_at\", 1, 19)\n    AND substr(\"api_tokens\".\"expires_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        }
+      }
+    },
+    "api_write_assertions": {
+      "name": "api_write_assertions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version_matches": {
+          "name": "version_matches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "rows_match": {
+          "name": "rows_match",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "plan_matches": {
+          "name": "plan_matches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "api_write_assertions_id_check": {
+          "name": "api_write_assertions_id_check",
+          "value": "id = 1"
+        },
+        "api_plan_membership_changed": {
+          "name": "api_plan_membership_changed",
+          "value": "plan_matches = 1"
+        },
+        "api_session_changed": {
+          "name": "api_session_changed",
+          "value": "version_matches = 1"
+        },
+        "api_incomplete_write": {
+          "name": "api_incomplete_write",
+          "value": "rows_match = 1"
+        }
+      }
+    },
+    "blocks": {
+      "name": "blocks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "goal": {
+          "name": "goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_on": {
+          "name": "started_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ended_on": {
+          "name": "ended_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "blocks_request_id_key": {
+          "name": "blocks_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "blocks_dates_ordered": {
+          "name": "blocks_dates_ordered",
+          "value": "ended_on IS NULL OR ended_on >= started_on"
+        },
+        "blocks_started_on_date": {
+          "name": "blocks_started_on_date",
+          "value": "\"blocks\".\"started_on\" IS NULL OR (\n    length(cast(\"blocks\".\"started_on\" as blob)) = 10 AND substr(\"blocks\".\"started_on\", 1, 4) >= '0001'\n    AND date(\"blocks\".\"started_on\", '+0 days') IS \"blocks\".\"started_on\"\n  )"
+        },
+        "blocks_ended_on_date": {
+          "name": "blocks_ended_on_date",
+          "value": "\"blocks\".\"ended_on\" IS NULL OR (\n    length(cast(\"blocks\".\"ended_on\" as blob)) = 10 AND substr(\"blocks\".\"ended_on\", 1, 4) >= '0001'\n    AND date(\"blocks\".\"ended_on\", '+0 days') IS \"blocks\".\"ended_on\"\n  )"
+        },
+        "blocks_request_id_uuid": {
+          "name": "blocks_request_id_uuid",
+          "value": "\"blocks\".\"request_id\" IS NULL OR (\n    length(cast(\"blocks\".\"request_id\" as blob)) = 36 AND substr(\"blocks\".\"request_id\", 9, 1) = '-' AND substr(\"blocks\".\"request_id\", 14, 1) = '-'\n    AND substr(\"blocks\".\"request_id\", 19, 1) = '-' AND substr(\"blocks\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"blocks\".\"request_id\", '-', '')) = 32 AND replace(\"blocks\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "bodyfat_estimates": {
+      "name": "bodyfat_estimates",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "percent": {
+          "name": "percent",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "method": {
+          "name": "method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        }
+      },
+      "indexes": {
+        "bodyfat_estimates_day_method_key": {
+          "name": "bodyfat_estimates_day_method_key",
+          "columns": ["day", "method"],
+          "isUnique": true
+        },
+        "bodyfat_estimates_request_id_key": {
+          "name": "bodyfat_estimates_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "bodyfat_estimates_percent_check": {
+          "name": "bodyfat_estimates_percent_check",
+          "value": "percent BETWEEN -9999 AND 9999"
+        },
+        "bodyfat_estimates_method_check": {
+          "name": "bodyfat_estimates_method_check",
+          "value": "method IN ('bia', 'dxa', 'caliper', 'visual', 'other')"
+        },
+        "bodyfat_estimates_percent_range": {
+          "name": "bodyfat_estimates_percent_range",
+          "value": "percent > 0 AND percent < 750"
+        },
+        "bodyfat_estimates_day_date": {
+          "name": "bodyfat_estimates_day_date",
+          "value": "\"bodyfat_estimates\".\"day\" IS NULL OR (\n    length(cast(\"bodyfat_estimates\".\"day\" as blob)) = 10 AND substr(\"bodyfat_estimates\".\"day\", 1, 4) >= '0001'\n    AND date(\"bodyfat_estimates\".\"day\", '+0 days') IS \"bodyfat_estimates\".\"day\"\n  )"
+        },
+        "bodyfat_estimates_created_at_utc": {
+          "name": "bodyfat_estimates_created_at_utc",
+          "value": "\"bodyfat_estimates\".\"created_at\" IS NULL OR (\n    length(cast(\"bodyfat_estimates\".\"created_at\" as blob)) = 27 AND substr(\"bodyfat_estimates\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"bodyfat_estimates\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"bodyfat_estimates\".\"created_at\", 1, 19)\n    AND substr(\"bodyfat_estimates\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "bodyfat_estimates_request_id_uuid": {
+          "name": "bodyfat_estimates_request_id_uuid",
+          "value": "\"bodyfat_estimates\".\"request_id\" IS NULL OR (\n    length(cast(\"bodyfat_estimates\".\"request_id\" as blob)) = 36 AND substr(\"bodyfat_estimates\".\"request_id\", 9, 1) = '-' AND substr(\"bodyfat_estimates\".\"request_id\", 14, 1) = '-'\n    AND substr(\"bodyfat_estimates\".\"request_id\", 19, 1) = '-' AND substr(\"bodyfat_estimates\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"bodyfat_estimates\".\"request_id\", '-', '')) = 32 AND replace(\"bodyfat_estimates\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "bodyweight": {
+      "name": "bodyweight",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "value_kg": {
+          "name": "value_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "measured_at": {
+          "name": "measured_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
+        },
+        "measured_date": {
+          "name": "measured_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "bodyweight_measured_date_instant_idx": {
+          "name": "bodyweight_measured_date_instant_idx",
+          "columns": ["measured_date", "measured_at", "id"],
+          "isUnique": false
+        },
+        "bodyweight_measured_at_source_key": {
+          "name": "bodyweight_measured_at_source_key",
+          "columns": ["measured_at", "source"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "bodyweight_value_kg_check": {
+          "name": "bodyweight_value_kg_check",
+          "value": "value_kg BETWEEN -99999 AND 99999"
+        },
+        "bodyweight_value_positive": {
+          "name": "bodyweight_value_positive",
+          "value": "value_kg > 0"
+        },
+        "bodyweight_measured_date_date": {
+          "name": "bodyweight_measured_date_date",
+          "value": "\"bodyweight\".\"measured_date\" IS NULL OR (\n    length(cast(\"bodyweight\".\"measured_date\" as blob)) = 10 AND substr(\"bodyweight\".\"measured_date\", 1, 4) >= '0001'\n    AND date(\"bodyweight\".\"measured_date\", '+0 days') IS \"bodyweight\".\"measured_date\"\n  )"
+        },
+        "bodyweight_measured_at_utc": {
+          "name": "bodyweight_measured_at_utc",
+          "value": "\"bodyweight\".\"measured_at\" IS NULL OR (\n    length(cast(\"bodyweight\".\"measured_at\" as blob)) = 27 AND substr(\"bodyweight\".\"measured_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"bodyweight\".\"measured_at\", 1, 19), '+0 seconds') IS substr(\"bodyweight\".\"measured_at\", 1, 19)\n    AND substr(\"bodyweight\".\"measured_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        }
+      }
+    },
+    "day_flags": {
+      "name": "day_flags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "flag": {
+          "name": "flag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        }
+      },
+      "indexes": {
+        "day_flags_day_flag_key": {
+          "name": "day_flags_day_flag_key",
+          "columns": ["day", "flag"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "day_flags_flag_check": {
+          "name": "day_flags_flag_check",
+          "value": "flag IN ('incomplete')"
+        },
+        "day_flags_day_date": {
+          "name": "day_flags_day_date",
+          "value": "\"day_flags\".\"day\" IS NULL OR (\n    length(cast(\"day_flags\".\"day\" as blob)) = 10 AND substr(\"day_flags\".\"day\", 1, 4) >= '0001'\n    AND date(\"day_flags\".\"day\", '+0 days') IS \"day_flags\".\"day\"\n  )"
+        },
+        "day_flags_created_at_utc": {
+          "name": "day_flags_created_at_utc",
+          "value": "\"day_flags\".\"created_at\" IS NULL OR (\n    length(cast(\"day_flags\".\"created_at\" as blob)) = 27 AND substr(\"day_flags\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"day_flags\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"day_flags\".\"created_at\", 1, 19)\n    AND substr(\"day_flags\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        }
+      }
+    },
+    "exercise_aliases": {
+      "name": "exercise_aliases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alias": {
+          "name": "alias",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alias_key": {
+          "name": "alias_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "exercise_aliases_alias_key": {
+          "name": "exercise_aliases_alias_key",
+          "columns": ["alias_key"],
+          "isUnique": true
+        },
+        "exercise_aliases_exercise_id_idx": {
+          "name": "exercise_aliases_exercise_id_idx",
+          "columns": ["exercise_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "exercise_aliases_exercise_id_fkey": {
+          "name": "exercise_aliases_exercise_id_fkey",
+          "tableFrom": "exercise_aliases",
+          "tableTo": "exercises",
+          "columnsFrom": ["exercise_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "exercise_muscles": {
+      "name": "exercise_muscles",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "muscle_id": {
+          "name": "muscle_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "volume_factor": {
+          "name": "volume_factor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "exercise_muscles_muscle_id_idx": {
+          "name": "exercise_muscles_muscle_id_idx",
+          "columns": ["muscle_id"],
+          "isUnique": false
+        },
+        "exercise_muscles_exercise_muscle_key": {
+          "name": "exercise_muscles_exercise_muscle_key",
+          "columns": ["exercise_id", "muscle_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "exercise_muscles_muscle_id_muscles_id_fk": {
+          "name": "exercise_muscles_muscle_id_muscles_id_fk",
+          "tableFrom": "exercise_muscles",
+          "tableTo": "muscles",
+          "columnsFrom": ["muscle_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "exercise_muscles_exercise_id_fkey": {
+          "name": "exercise_muscles_exercise_id_fkey",
+          "tableFrom": "exercise_muscles",
+          "tableTo": "exercises",
+          "columnsFrom": ["exercise_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "exercise_muscles_volume_factor_storage_check": {
+          "name": "exercise_muscles_volume_factor_storage_check",
+          "value": "volume_factor BETWEEN -99 AND 99"
+        },
+        "exercise_muscles_volume_factor_check": {
+          "name": "exercise_muscles_volume_factor_check",
+          "value": "volume_factor IN (0, 5, 10)"
+        }
+      }
+    },
+    "exercises": {
+      "name": "exercises",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "equipment": {
+          "name": "equipment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pattern": {
+          "name": "pattern",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stimulus_type": {
+          "name": "stimulus_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'strength'"
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "systemic_fatigue": {
+          "name": "systemic_fatigue",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'normal'"
+        },
+        "measure": {
+          "name": "measure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'load_reps'"
+        },
+        "name_key": {
+          "name": "name_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "exercises_name_key": {
+          "name": "exercises_name_key",
+          "columns": ["name_key"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "exercises_stimulus_type_check": {
+          "name": "exercises_stimulus_type_check",
+          "value": "stimulus_type IN ('strength', 'power', 'conditioning')"
+        },
+        "exercises_systemic_fatigue_check": {
+          "name": "exercises_systemic_fatigue_check",
+          "value": "systemic_fatigue IN ('normal', 'high')"
+        },
+        "exercises_measure_check": {
+          "name": "exercises_measure_check",
+          "value": "measure IN ('load_reps', 'reps', 'distance', 'duration', 'distance_duration')"
+        }
+      }
+    },
+    "food_aliases": {
+      "name": "food_aliases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "food_id": {
+          "name": "food_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alias": {
+          "name": "alias",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alias_key": {
+          "name": "alias_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "food_aliases_alias_key": {
+          "name": "food_aliases_alias_key",
+          "columns": ["alias_key"],
+          "isUnique": true
+        },
+        "food_aliases_food_id_idx": {
+          "name": "food_aliases_food_id_idx",
+          "columns": ["food_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "food_aliases_food_id_fkey": {
+          "name": "food_aliases_food_id_fkey",
+          "tableFrom": "food_aliases",
+          "tableTo": "foods",
+          "columnsFrom": ["food_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "foods": {
+      "name": "foods",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "brand": {
+          "name": "brand",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kcal_100g": {
+          "name": "kcal_100g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "protein_100g": {
+          "name": "protein_100g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "carbs_100g": {
+          "name": "carbs_100g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fat_100g": {
+          "name": "fat_100g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fiber_100g": {
+          "name": "fiber_100g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "grams_per_unit": {
+          "name": "grams_per_unit",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_note": {
+          "name": "source_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        },
+        "macro_revision": {
+          "name": "macro_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "name_key": {
+          "name": "name_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "foods_name_key": {
+          "name": "foods_name_key",
+          "columns": ["name_key"],
+          "isUnique": true
+        },
+        "foods_request_id_key": {
+          "name": "foods_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "foods_kcal_100g_check": {
+          "name": "foods_kcal_100g_check",
+          "value": "kcal_100g BETWEEN -999999 AND 999999"
+        },
+        "foods_protein_100g_check": {
+          "name": "foods_protein_100g_check",
+          "value": "protein_100g BETWEEN -99999 AND 99999"
+        },
+        "foods_carbs_100g_check": {
+          "name": "foods_carbs_100g_check",
+          "value": "carbs_100g BETWEEN -99999 AND 99999"
+        },
+        "foods_fat_100g_check": {
+          "name": "foods_fat_100g_check",
+          "value": "fat_100g BETWEEN -99999 AND 99999"
+        },
+        "foods_fiber_100g_check": {
+          "name": "foods_fiber_100g_check",
+          "value": "fiber_100g BETWEEN -99999 AND 99999"
+        },
+        "foods_grams_per_unit_check": {
+          "name": "foods_grams_per_unit_check",
+          "value": "grams_per_unit BETWEEN -999999 AND 999999"
+        },
+        "foods_macro_revision_check": {
+          "name": "foods_macro_revision_check",
+          "value": "macro_revision >= 0"
+        },
+        "foods_source_check": {
+          "name": "foods_source_check",
+          "value": "source IN ('label', 'crea', 'usda', 'off', 'estimate')"
+        },
+        "foods_kcal_not_negative": {
+          "name": "foods_kcal_not_negative",
+          "value": "kcal_100g >= 0"
+        },
+        "foods_protein_not_negative": {
+          "name": "foods_protein_not_negative",
+          "value": "protein_100g >= 0"
+        },
+        "foods_carbs_not_negative": {
+          "name": "foods_carbs_not_negative",
+          "value": "carbs_100g >= 0"
+        },
+        "foods_fat_not_negative": {
+          "name": "foods_fat_not_negative",
+          "value": "fat_100g >= 0"
+        },
+        "foods_fiber_not_negative": {
+          "name": "foods_fiber_not_negative",
+          "value": "fiber_100g IS NULL OR fiber_100g >= 0"
+        },
+        "foods_grams_per_unit_positive": {
+          "name": "foods_grams_per_unit_positive",
+          "value": "grams_per_unit IS NULL OR grams_per_unit > 0"
+        },
+        "foods_created_at_utc": {
+          "name": "foods_created_at_utc",
+          "value": "\"foods\".\"created_at\" IS NULL OR (\n    length(cast(\"foods\".\"created_at\" as blob)) = 27 AND substr(\"foods\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"foods\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"foods\".\"created_at\", 1, 19)\n    AND substr(\"foods\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "foods_request_id_uuid": {
+          "name": "foods_request_id_uuid",
+          "value": "\"foods\".\"request_id\" IS NULL OR (\n    length(cast(\"foods\".\"request_id\" as blob)) = 36 AND substr(\"foods\".\"request_id\", 9, 1) = '-' AND substr(\"foods\".\"request_id\", 14, 1) = '-'\n    AND substr(\"foods\".\"request_id\", 19, 1) = '-' AND substr(\"foods\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"foods\".\"request_id\", '-', '')) = 32 AND replace(\"foods\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "intake_entries": {
+      "name": "intake_entries",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "food_id": {
+          "name": "food_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "grams": {
+          "name": "grams",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "meal_id": {
+          "name": "meal_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kcal": {
+          "name": "kcal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "protein_g": {
+          "name": "protein_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "carbs_g": {
+          "name": "carbs_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fat_g": {
+          "name": "fat_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fiber_g": {
+          "name": "fiber_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        },
+        "food_macro_revision": {
+          "name": "food_macro_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "intake_entries_request_food_key": {
+          "name": "intake_entries_request_food_key",
+          "columns": ["request_id", "food_id"],
+          "isUnique": true,
+          "where": "request_id is not null and food_id is not null"
+        },
+        "intake_entries_request_adhoc_key": {
+          "name": "intake_entries_request_adhoc_key",
+          "columns": ["request_id"],
+          "isUnique": true,
+          "where": "request_id is not null and food_id is null"
+        },
+        "intake_entries_day_idx": {
+          "name": "intake_entries_day_idx",
+          "columns": ["day"],
+          "isUnique": false
+        },
+        "intake_entries_food_id_idx": {
+          "name": "intake_entries_food_id_idx",
+          "columns": ["food_id"],
+          "isUnique": false
+        },
+        "intake_entries_meal_id_idx": {
+          "name": "intake_entries_meal_id_idx",
+          "columns": ["meal_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "intake_entries_food_id_foods_id_fk": {
+          "name": "intake_entries_food_id_foods_id_fk",
+          "tableFrom": "intake_entries",
+          "tableTo": "foods",
+          "columnsFrom": ["food_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "intake_entries_meal_id_meals_id_fk": {
+          "name": "intake_entries_meal_id_meals_id_fk",
+          "tableFrom": "intake_entries",
+          "tableTo": "meals",
+          "columnsFrom": ["meal_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "intake_entries_grams_check": {
+          "name": "intake_entries_grams_check",
+          "value": "grams BETWEEN -9999999 AND 9999999"
+        },
+        "intake_entries_kcal_check": {
+          "name": "intake_entries_kcal_check",
+          "value": "kcal BETWEEN -9999999 AND 9999999"
+        },
+        "intake_entries_protein_g_check": {
+          "name": "intake_entries_protein_g_check",
+          "value": "protein_g BETWEEN -999999 AND 999999"
+        },
+        "intake_entries_carbs_g_check": {
+          "name": "intake_entries_carbs_g_check",
+          "value": "carbs_g BETWEEN -999999 AND 999999"
+        },
+        "intake_entries_fat_g_check": {
+          "name": "intake_entries_fat_g_check",
+          "value": "fat_g BETWEEN -999999 AND 999999"
+        },
+        "intake_entries_fiber_g_check": {
+          "name": "intake_entries_fiber_g_check",
+          "value": "fiber_g BETWEEN -999999 AND 999999"
+        },
+        "intake_entries_food_macro_revision_check": {
+          "name": "intake_entries_food_macro_revision_check",
+          "value": "food_macro_revision >= 0"
+        },
+        "intake_entries_grams_positive": {
+          "name": "intake_entries_grams_positive",
+          "value": "grams IS NULL OR grams > 0"
+        },
+        "intake_entries_kcal_not_negative": {
+          "name": "intake_entries_kcal_not_negative",
+          "value": "kcal >= 0"
+        },
+        "intake_entries_protein_not_negative": {
+          "name": "intake_entries_protein_not_negative",
+          "value": "protein_g IS NULL OR protein_g >= 0"
+        },
+        "intake_entries_carbs_not_negative": {
+          "name": "intake_entries_carbs_not_negative",
+          "value": "carbs_g IS NULL OR carbs_g >= 0"
+        },
+        "intake_entries_fat_not_negative": {
+          "name": "intake_entries_fat_not_negative",
+          "value": "fat_g IS NULL OR fat_g >= 0"
+        },
+        "intake_entries_fiber_not_negative": {
+          "name": "intake_entries_fiber_not_negative",
+          "value": "fiber_g IS NULL OR fiber_g >= 0"
+        },
+        "intake_entries_food_grams_pair": {
+          "name": "intake_entries_food_grams_pair",
+          "value": "(food_id IS NULL) = (grams IS NULL)"
+        },
+        "intake_entries_macro_shape": {
+          "name": "intake_entries_macro_shape",
+          "value": "(food_id IS NULL AND kcal IS NOT NULL AND food_macro_revision IS NULL) OR (food_id IS NOT NULL AND ( (food_macro_revision IS NULL AND kcal IS NULL AND protein_g IS NULL AND carbs_g IS NULL AND fat_g IS NULL AND fiber_g IS NULL) OR (food_macro_revision IS NOT NULL AND kcal IS NOT NULL AND protein_g IS NOT NULL AND carbs_g IS NOT NULL AND fat_g IS NOT NULL) ))"
+        },
+        "intake_entries_day_date": {
+          "name": "intake_entries_day_date",
+          "value": "\"intake_entries\".\"day\" IS NULL OR (\n    length(cast(\"intake_entries\".\"day\" as blob)) = 10 AND substr(\"intake_entries\".\"day\", 1, 4) >= '0001'\n    AND date(\"intake_entries\".\"day\", '+0 days') IS \"intake_entries\".\"day\"\n  )"
+        },
+        "intake_entries_created_at_utc": {
+          "name": "intake_entries_created_at_utc",
+          "value": "\"intake_entries\".\"created_at\" IS NULL OR (\n    length(cast(\"intake_entries\".\"created_at\" as blob)) = 27 AND substr(\"intake_entries\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"intake_entries\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"intake_entries\".\"created_at\", 1, 19)\n    AND substr(\"intake_entries\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "intake_entries_request_id_uuid": {
+          "name": "intake_entries_request_id_uuid",
+          "value": "\"intake_entries\".\"request_id\" IS NULL OR (\n    length(cast(\"intake_entries\".\"request_id\" as blob)) = 36 AND substr(\"intake_entries\".\"request_id\", 9, 1) = '-' AND substr(\"intake_entries\".\"request_id\", 14, 1) = '-'\n    AND substr(\"intake_entries\".\"request_id\", 19, 1) = '-' AND substr(\"intake_entries\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"intake_entries\".\"request_id\", '-', '')) = 32 AND replace(\"intake_entries\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "meal_aliases": {
+      "name": "meal_aliases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "meal_id": {
+          "name": "meal_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alias": {
+          "name": "alias",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alias_key": {
+          "name": "alias_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "meal_aliases_alias_key": {
+          "name": "meal_aliases_alias_key",
+          "columns": ["alias_key"],
+          "isUnique": true
+        },
+        "meal_aliases_meal_id_idx": {
+          "name": "meal_aliases_meal_id_idx",
+          "columns": ["meal_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "meal_aliases_meal_id_meals_id_fk": {
+          "name": "meal_aliases_meal_id_meals_id_fk",
+          "tableFrom": "meal_aliases",
+          "tableTo": "meals",
+          "columnsFrom": ["meal_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "meal_items": {
+      "name": "meal_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "meal_id": {
+          "name": "meal_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "food_id": {
+          "name": "food_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "grams": {
+          "name": "grams",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "meal_items_food_id_idx": {
+          "name": "meal_items_food_id_idx",
+          "columns": ["food_id"],
+          "isUnique": false
+        },
+        "meal_items_meal_food_key": {
+          "name": "meal_items_meal_food_key",
+          "columns": ["meal_id", "food_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "meal_items_meal_id_meals_id_fk": {
+          "name": "meal_items_meal_id_meals_id_fk",
+          "tableFrom": "meal_items",
+          "tableTo": "meals",
+          "columnsFrom": ["meal_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "meal_items_food_id_foods_id_fk": {
+          "name": "meal_items_food_id_foods_id_fk",
+          "tableFrom": "meal_items",
+          "tableTo": "foods",
+          "columnsFrom": ["food_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "meal_items_grams_check": {
+          "name": "meal_items_grams_check",
+          "value": "grams BETWEEN -9999999 AND 9999999"
+        },
+        "meal_items_grams_positive": {
+          "name": "meal_items_grams_positive",
+          "value": "grams > 0"
+        }
+      }
+    },
+    "meals": {
+      "name": "meals",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        },
+        "name_key": {
+          "name": "name_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "meals_name_key": {
+          "name": "meals_name_key",
+          "columns": ["name_key"],
+          "isUnique": true
+        },
+        "meals_request_id_key": {
+          "name": "meals_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "meals_created_at_utc": {
+          "name": "meals_created_at_utc",
+          "value": "\"meals\".\"created_at\" IS NULL OR (\n    length(cast(\"meals\".\"created_at\" as blob)) = 27 AND substr(\"meals\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"meals\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"meals\".\"created_at\", 1, 19)\n    AND substr(\"meals\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "meals_request_id_uuid": {
+          "name": "meals_request_id_uuid",
+          "value": "\"meals\".\"request_id\" IS NULL OR (\n    length(cast(\"meals\".\"request_id\" as blob)) = 36 AND substr(\"meals\".\"request_id\", 9, 1) = '-' AND substr(\"meals\".\"request_id\", 14, 1) = '-'\n    AND substr(\"meals\".\"request_id\", 19, 1) = '-' AND substr(\"meals\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"meals\".\"request_id\", '-', '')) = 32 AND replace(\"meals\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "mesocycle_decisions": {
+      "name": "mesocycle_decisions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "mesocycle_id": {
+          "name": "mesocycle_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "made_at": {
+          "name": "made_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        },
+        "what_changed": {
+          "name": "what_changed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "why": {
+          "name": "why",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prior_intent": {
+          "name": "prior_intent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mesocycle_decisions_mesocycle_id_idx": {
+          "name": "mesocycle_decisions_mesocycle_id_idx",
+          "columns": ["mesocycle_id"],
+          "isUnique": false
+        },
+        "mesocycle_decisions_request_id_key": {
+          "name": "mesocycle_decisions_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "mesocycle_decisions_mesocycle_id_mesocycles_id_fk": {
+          "name": "mesocycle_decisions_mesocycle_id_mesocycles_id_fk",
+          "tableFrom": "mesocycle_decisions",
+          "tableTo": "mesocycles",
+          "columnsFrom": ["mesocycle_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mesocycle_decisions_made_at_utc": {
+          "name": "mesocycle_decisions_made_at_utc",
+          "value": "\"mesocycle_decisions\".\"made_at\" IS NULL OR (\n    length(cast(\"mesocycle_decisions\".\"made_at\" as blob)) = 27 AND substr(\"mesocycle_decisions\".\"made_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"mesocycle_decisions\".\"made_at\", 1, 19), '+0 seconds') IS substr(\"mesocycle_decisions\".\"made_at\", 1, 19)\n    AND substr(\"mesocycle_decisions\".\"made_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "mesocycle_decisions_request_id_uuid": {
+          "name": "mesocycle_decisions_request_id_uuid",
+          "value": "\"mesocycle_decisions\".\"request_id\" IS NULL OR (\n    length(cast(\"mesocycle_decisions\".\"request_id\" as blob)) = 36 AND substr(\"mesocycle_decisions\".\"request_id\", 9, 1) = '-' AND substr(\"mesocycle_decisions\".\"request_id\", 14, 1) = '-'\n    AND substr(\"mesocycle_decisions\".\"request_id\", 19, 1) = '-' AND substr(\"mesocycle_decisions\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"mesocycle_decisions\".\"request_id\", '-', '')) = 32 AND replace(\"mesocycle_decisions\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "mesocycle_exercise_doses": {
+      "name": "mesocycle_exercise_doses",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "mesocycle_id": {
+          "name": "mesocycle_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "weekly_dose": {
+          "name": "weekly_dose",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "weekly_dose_unit": {
+          "name": "weekly_dose_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "effective_from": {
+          "name": "effective_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        }
+      },
+      "indexes": {
+        "mesocycle_exercise_doses_lookup_idx": {
+          "name": "mesocycle_exercise_doses_lookup_idx",
+          "columns": ["mesocycle_id", "exercise_id", "effective_from"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "mesocycle_exercise_doses_mesocycle_id_mesocycles_id_fk": {
+          "name": "mesocycle_exercise_doses_mesocycle_id_mesocycles_id_fk",
+          "tableFrom": "mesocycle_exercise_doses",
+          "tableTo": "mesocycles",
+          "columnsFrom": ["mesocycle_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "mesocycle_exercise_doses_exercise_id_exercises_id_fk": {
+          "name": "mesocycle_exercise_doses_exercise_id_exercises_id_fk",
+          "tableFrom": "mesocycle_exercise_doses",
+          "tableTo": "exercises",
+          "columnsFrom": ["exercise_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mesocycle_exercise_doses_weekly_dose_check": {
+          "name": "mesocycle_exercise_doses_weekly_dose_check",
+          "value": "weekly_dose BETWEEN -999999 AND 999999"
+        },
+        "mesocycle_exercises_weekly_dose_positive": {
+          "name": "mesocycle_exercises_weekly_dose_positive",
+          "value": "weekly_dose > 0"
+        },
+        "mesocycle_exercises_weekly_dose_unit_check": {
+          "name": "mesocycle_exercises_weekly_dose_unit_check",
+          "value": "weekly_dose_unit IN ('sets', 'minutes', 'km')"
+        },
+        "mesocycle_exercise_doses_effective_from_date": {
+          "name": "mesocycle_exercise_doses_effective_from_date",
+          "value": "\"mesocycle_exercise_doses\".\"effective_from\" IS NULL OR (\n    length(cast(\"mesocycle_exercise_doses\".\"effective_from\" as blob)) = 10 AND substr(\"mesocycle_exercise_doses\".\"effective_from\", 1, 4) >= '0001'\n    AND date(\"mesocycle_exercise_doses\".\"effective_from\", '+0 days') IS \"mesocycle_exercise_doses\".\"effective_from\"\n  )"
+        },
+        "mesocycle_exercise_doses_created_at_utc": {
+          "name": "mesocycle_exercise_doses_created_at_utc",
+          "value": "\"mesocycle_exercise_doses\".\"created_at\" IS NULL OR (\n    length(cast(\"mesocycle_exercise_doses\".\"created_at\" as blob)) = 27 AND substr(\"mesocycle_exercise_doses\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"mesocycle_exercise_doses\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"mesocycle_exercise_doses\".\"created_at\", 1, 19)\n    AND substr(\"mesocycle_exercise_doses\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        }
+      }
+    },
+    "mesocycle_exercises": {
+      "name": "mesocycle_exercises",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "mesocycle_id": {
+          "name": "mesocycle_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mesocycle_exercises_exercise_id_idx": {
+          "name": "mesocycle_exercises_exercise_id_idx",
+          "columns": ["exercise_id"],
+          "isUnique": false
+        },
+        "mesocycle_exercises_mesocycle_exercise_key": {
+          "name": "mesocycle_exercises_mesocycle_exercise_key",
+          "columns": ["mesocycle_id", "exercise_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "mesocycle_exercises_mesocycle_id_mesocycles_id_fk": {
+          "name": "mesocycle_exercises_mesocycle_id_mesocycles_id_fk",
+          "tableFrom": "mesocycle_exercises",
+          "tableTo": "mesocycles",
+          "columnsFrom": ["mesocycle_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "mesocycle_exercises_exercise_id_exercises_id_fk": {
+          "name": "mesocycle_exercises_exercise_id_exercises_id_fk",
+          "tableFrom": "mesocycle_exercises",
+          "tableTo": "exercises",
+          "columnsFrom": ["exercise_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mesocycle_exercises_priority_check": {
+          "name": "mesocycle_exercises_priority_check",
+          "value": "priority BETWEEN -2147483648 AND 2147483647"
+        },
+        "mesocycle_exercises_role_check": {
+          "name": "mesocycle_exercises_role_check",
+          "value": "role IN ('main', 'accessory', 'rehab')"
+        }
+      }
+    },
+    "mesocycles": {
+      "name": "mesocycles",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "block_id": {
+          "name": "block_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "intent": {
+          "name": "intent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "planned_weeks": {
+          "name": "planned_weeks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sessions_per_week": {
+          "name": "sessions_per_week",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_on": {
+          "name": "started_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ended_on": {
+          "name": "ended_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "track": {
+          "name": "track",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mesocycles_block_id_idx": {
+          "name": "mesocycles_block_id_idx",
+          "columns": ["block_id"],
+          "isUnique": false
+        },
+        "mesocycles_one_active_per_track": {
+          "name": "mesocycles_one_active_per_track",
+          "columns": ["track"],
+          "isUnique": true,
+          "where": "ended_on is null"
+        },
+        "mesocycles_request_id_key": {
+          "name": "mesocycles_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "mesocycles_block_id_blocks_id_fk": {
+          "name": "mesocycles_block_id_blocks_id_fk",
+          "tableFrom": "mesocycles",
+          "tableTo": "blocks",
+          "columnsFrom": ["block_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mesocycles_planned_weeks_check": {
+          "name": "mesocycles_planned_weeks_check",
+          "value": "planned_weeks BETWEEN -2147483648 AND 2147483647"
+        },
+        "mesocycles_sessions_per_week_check": {
+          "name": "mesocycles_sessions_per_week_check",
+          "value": "sessions_per_week BETWEEN -2147483648 AND 2147483647"
+        },
+        "mesocycles_planned_weeks_positive": {
+          "name": "mesocycles_planned_weeks_positive",
+          "value": "planned_weeks > 0"
+        },
+        "mesocycles_sessions_per_week_positive": {
+          "name": "mesocycles_sessions_per_week_positive",
+          "value": "sessions_per_week > 0"
+        },
+        "mesocycles_starts_on_monday": {
+          "name": "mesocycles_starts_on_monday",
+          "value": "strftime('%w', started_on) = '1'"
+        },
+        "mesocycles_dates_ordered": {
+          "name": "mesocycles_dates_ordered",
+          "value": "ended_on IS NULL OR ended_on >= started_on"
+        },
+        "mesocycles_track_check": {
+          "name": "mesocycles_track_check",
+          "value": "track IN ('hypertrophy', 'strength', 'speed', 'endurance')"
+        },
+        "mesocycles_started_on_date": {
+          "name": "mesocycles_started_on_date",
+          "value": "\"mesocycles\".\"started_on\" IS NULL OR (\n    length(cast(\"mesocycles\".\"started_on\" as blob)) = 10 AND substr(\"mesocycles\".\"started_on\", 1, 4) >= '0001'\n    AND date(\"mesocycles\".\"started_on\", '+0 days') IS \"mesocycles\".\"started_on\"\n  )"
+        },
+        "mesocycles_ended_on_date": {
+          "name": "mesocycles_ended_on_date",
+          "value": "\"mesocycles\".\"ended_on\" IS NULL OR (\n    length(cast(\"mesocycles\".\"ended_on\" as blob)) = 10 AND substr(\"mesocycles\".\"ended_on\", 1, 4) >= '0001'\n    AND date(\"mesocycles\".\"ended_on\", '+0 days') IS \"mesocycles\".\"ended_on\"\n  )"
+        },
+        "mesocycles_request_id_uuid": {
+          "name": "mesocycles_request_id_uuid",
+          "value": "\"mesocycles\".\"request_id\" IS NULL OR (\n    length(cast(\"mesocycles\".\"request_id\" as blob)) = 36 AND substr(\"mesocycles\".\"request_id\", 9, 1) = '-' AND substr(\"mesocycles\".\"request_id\", 14, 1) = '-'\n    AND substr(\"mesocycles\".\"request_id\", 19, 1) = '-' AND substr(\"mesocycles\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"mesocycles\".\"request_id\", '-', '')) = 32 AND replace(\"mesocycles\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "muscles": {
+      "name": "muscles",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "muscles_name_key": {
+          "name": "muscles_name_key",
+          "columns": ["name"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "nutrition_events": {
+      "name": "nutrition_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        }
+      },
+      "indexes": {
+        "nutrition_events_day_idx": {
+          "name": "nutrition_events_day_idx",
+          "columns": ["\"day\" desc"],
+          "isUnique": false
+        },
+        "nutrition_events_request_id_key": {
+          "name": "nutrition_events_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "nutrition_events_kind_check": {
+          "name": "nutrition_events_kind_check",
+          "value": "kind IN ('creatine_start', 'phase_switch', 'program_change', 'logging_change', 'other')"
+        },
+        "nutrition_events_day_date": {
+          "name": "nutrition_events_day_date",
+          "value": "\"nutrition_events\".\"day\" IS NULL OR (\n    length(cast(\"nutrition_events\".\"day\" as blob)) = 10 AND substr(\"nutrition_events\".\"day\", 1, 4) >= '0001'\n    AND date(\"nutrition_events\".\"day\", '+0 days') IS \"nutrition_events\".\"day\"\n  )"
+        },
+        "nutrition_events_created_at_utc": {
+          "name": "nutrition_events_created_at_utc",
+          "value": "\"nutrition_events\".\"created_at\" IS NULL OR (\n    length(cast(\"nutrition_events\".\"created_at\" as blob)) = 27 AND substr(\"nutrition_events\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"nutrition_events\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"nutrition_events\".\"created_at\", 1, 19)\n    AND substr(\"nutrition_events\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "nutrition_events_request_id_uuid": {
+          "name": "nutrition_events_request_id_uuid",
+          "value": "\"nutrition_events\".\"request_id\" IS NULL OR (\n    length(cast(\"nutrition_events\".\"request_id\" as blob)) = 36 AND substr(\"nutrition_events\".\"request_id\", 9, 1) = '-' AND substr(\"nutrition_events\".\"request_id\", 14, 1) = '-'\n    AND substr(\"nutrition_events\".\"request_id\", 19, 1) = '-' AND substr(\"nutrition_events\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"nutrition_events\".\"request_id\", '-', '')) = 32 AND replace(\"nutrition_events\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "nutrition_targets": {
+      "name": "nutrition_targets",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "effective_from": {
+          "name": "effective_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "goal": {
+          "name": "goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rate_pct_bw_week": {
+          "name": "rate_pct_bw_week",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kcal_target": {
+          "name": "kcal_target",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "protein_g_target": {
+          "name": "protein_g_target",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "decision": {
+          "name": "decision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tdee_at_creation": {
+          "name": "tdee_at_creation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "clipped": {
+          "name": "clipped",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "clipped_reasons": {
+          "name": "clipped_reasons",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        },
+        "phase_switch_suppressed": {
+          "name": "phase_switch_suppressed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "nutrition_targets_effective_from_idx": {
+          "name": "nutrition_targets_effective_from_idx",
+          "columns": ["\"effective_from\" desc"],
+          "isUnique": false
+        },
+        "nutrition_targets_request_id_key": {
+          "name": "nutrition_targets_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "nutrition_targets_rate_pct_bw_week_check": {
+          "name": "nutrition_targets_rate_pct_bw_week_check",
+          "value": "rate_pct_bw_week BETWEEN -9999 AND 9999"
+        },
+        "nutrition_targets_kcal_target_check": {
+          "name": "nutrition_targets_kcal_target_check",
+          "value": "kcal_target BETWEEN -2147483648 AND 2147483647"
+        },
+        "nutrition_targets_protein_g_target_check": {
+          "name": "nutrition_targets_protein_g_target_check",
+          "value": "protein_g_target BETWEEN -2147483648 AND 2147483647"
+        },
+        "nutrition_targets_tdee_at_creation_check": {
+          "name": "nutrition_targets_tdee_at_creation_check",
+          "value": "tdee_at_creation BETWEEN -2147483648 AND 2147483647"
+        },
+        "nutrition_targets_clipped_check": {
+          "name": "nutrition_targets_clipped_check",
+          "value": "clipped IN (0, 1)"
+        },
+        "nutrition_targets_phase_switch_suppressed_check": {
+          "name": "nutrition_targets_phase_switch_suppressed_check",
+          "value": "phase_switch_suppressed IN (0, 1)"
+        },
+        "nutrition_targets_goal_check": {
+          "name": "nutrition_targets_goal_check",
+          "value": "goal IN ('cut', 'maintain', 'gain', 'recomp')"
+        },
+        "nutrition_targets_kcal_positive": {
+          "name": "nutrition_targets_kcal_positive",
+          "value": "kcal_target > 0"
+        },
+        "nutrition_targets_protein_positive": {
+          "name": "nutrition_targets_protein_positive",
+          "value": "protein_g_target > 0"
+        },
+        "nutrition_targets_rate_sane": {
+          "name": "nutrition_targets_rate_sane",
+          "value": "rate_pct_bw_week > -300 AND rate_pct_bw_week < 300"
+        },
+        "nutrition_targets_clipped_reasons_check": {
+          "name": "nutrition_targets_clipped_reasons_check",
+          "value": "CASE WHEN json_valid(clipped_reasons) THEN json_type(clipped_reasons) = 'array' ELSE 0 END"
+        },
+        "nutrition_targets_clipped_pair": {
+          "name": "nutrition_targets_clipped_pair",
+          "value": "CASE WHEN json_valid(clipped_reasons) THEN clipped = (json_array_length(clipped_reasons) > 0) ELSE 0 END"
+        },
+        "nutrition_targets_effective_from_date": {
+          "name": "nutrition_targets_effective_from_date",
+          "value": "\"nutrition_targets\".\"effective_from\" IS NULL OR (\n    length(cast(\"nutrition_targets\".\"effective_from\" as blob)) = 10 AND substr(\"nutrition_targets\".\"effective_from\", 1, 4) >= '0001'\n    AND date(\"nutrition_targets\".\"effective_from\", '+0 days') IS \"nutrition_targets\".\"effective_from\"\n  )"
+        },
+        "nutrition_targets_created_at_utc": {
+          "name": "nutrition_targets_created_at_utc",
+          "value": "\"nutrition_targets\".\"created_at\" IS NULL OR (\n    length(cast(\"nutrition_targets\".\"created_at\" as blob)) = 27 AND substr(\"nutrition_targets\".\"created_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"nutrition_targets\".\"created_at\", 1, 19), '+0 seconds') IS substr(\"nutrition_targets\".\"created_at\", 1, 19)\n    AND substr(\"nutrition_targets\".\"created_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "nutrition_targets_request_id_uuid": {
+          "name": "nutrition_targets_request_id_uuid",
+          "value": "\"nutrition_targets\".\"request_id\" IS NULL OR (\n    length(cast(\"nutrition_targets\".\"request_id\" as blob)) = 36 AND substr(\"nutrition_targets\".\"request_id\", 9, 1) = '-' AND substr(\"nutrition_targets\".\"request_id\", 14, 1) = '-'\n    AND substr(\"nutrition_targets\".\"request_id\", 19, 1) = '-' AND substr(\"nutrition_targets\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"nutrition_targets\".\"request_id\", '-', '')) = 32 AND replace(\"nutrition_targets\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "nutrition_write_assertions": {
+      "name": "nutrition_write_assertions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "valid": {
+          "name": "valid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "nutrition_write_assertions_id_check": {
+          "name": "nutrition_write_assertions_id_check",
+          "value": "id = 1"
+        },
+        "api_incomplete_write": {
+          "name": "api_incomplete_write",
+          "value": "valid = 1"
+        }
+      }
+    },
+    "sessions": {
+      "name": "sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "overall_feel": {
+          "name": "overall_feel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "write_version": {
+          "name": "write_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "sessions_date_idx": {
+          "name": "sessions_date_idx",
+          "columns": ["date"],
+          "isUnique": false
+        },
+        "sessions_request_id_key": {
+          "name": "sessions_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "sessions_write_version_check": {
+          "name": "sessions_write_version_check",
+          "value": "write_version BETWEEN 0 AND 9007199254740991"
+        },
+        "sessions_times_ordered": {
+          "name": "sessions_times_ordered",
+          "value": "started_at IS NULL OR completed_at IS NULL OR completed_at >= started_at"
+        },
+        "sessions_date_date": {
+          "name": "sessions_date_date",
+          "value": "\"sessions\".\"date\" IS NULL OR (\n    length(cast(\"sessions\".\"date\" as blob)) = 10 AND substr(\"sessions\".\"date\", 1, 4) >= '0001'\n    AND date(\"sessions\".\"date\", '+0 days') IS \"sessions\".\"date\"\n  )"
+        },
+        "sessions_started_at_utc": {
+          "name": "sessions_started_at_utc",
+          "value": "\"sessions\".\"started_at\" IS NULL OR (\n    length(cast(\"sessions\".\"started_at\" as blob)) = 27 AND substr(\"sessions\".\"started_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"sessions\".\"started_at\", 1, 19), '+0 seconds') IS substr(\"sessions\".\"started_at\", 1, 19)\n    AND substr(\"sessions\".\"started_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "sessions_completed_at_utc": {
+          "name": "sessions_completed_at_utc",
+          "value": "\"sessions\".\"completed_at\" IS NULL OR (\n    length(cast(\"sessions\".\"completed_at\" as blob)) = 27 AND substr(\"sessions\".\"completed_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"sessions\".\"completed_at\", 1, 19), '+0 seconds') IS substr(\"sessions\".\"completed_at\", 1, 19)\n    AND substr(\"sessions\".\"completed_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "sessions_request_id_uuid": {
+          "name": "sessions_request_id_uuid",
+          "value": "\"sessions\".\"request_id\" IS NULL OR (\n    length(cast(\"sessions\".\"request_id\" as blob)) = 36 AND substr(\"sessions\".\"request_id\", 9, 1) = '-' AND substr(\"sessions\".\"request_id\", 14, 1) = '-'\n    AND substr(\"sessions\".\"request_id\", 19, 1) = '-' AND substr(\"sessions\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"sessions\".\"request_id\", '-', '')) = 32 AND replace(\"sessions\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "sets": {
+      "name": "sets",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_weight_kg": {
+          "name": "target_weight_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_reps": {
+          "name": "target_reps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "weight_kg": {
+          "name": "weight_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reps": {
+          "name": "reps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effort": {
+          "name": "effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "performed_at": {
+          "name": "performed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_distance_m": {
+          "name": "target_distance_m",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "distance_m": {
+          "name": "distance_m",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_duration_s": {
+          "name": "target_duration_s",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "duration_s": {
+          "name": "duration_s",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mesocycle_id": {
+          "name": "mesocycle_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "sets_session_id_idx": {
+          "name": "sets_session_id_idx",
+          "columns": ["session_id"],
+          "isUnique": false
+        },
+        "sets_exercise_id_performed_at_idx": {
+          "name": "sets_exercise_id_performed_at_idx",
+          "columns": ["exercise_id", "performed_at"],
+          "isUnique": false
+        },
+        "sets_mesocycle_id_idx": {
+          "name": "sets_mesocycle_id_idx",
+          "columns": ["mesocycle_id"],
+          "isUnique": false
+        },
+        "sets_position_key": {
+          "name": "sets_position_key",
+          "columns": ["session_id", "position"],
+          "isUnique": true
+        },
+        "sets_request_id_key": {
+          "name": "sets_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "sets_session_id_sessions_id_fk": {
+          "name": "sets_session_id_sessions_id_fk",
+          "tableFrom": "sets",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "sets_exercise_id_exercises_id_fk": {
+          "name": "sets_exercise_id_exercises_id_fk",
+          "tableFrom": "sets",
+          "tableTo": "exercises",
+          "columnsFrom": ["exercise_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "sets_mesocycle_id_mesocycles_id_fk": {
+          "name": "sets_mesocycle_id_mesocycles_id_fk",
+          "tableFrom": "sets",
+          "tableTo": "mesocycles",
+          "columnsFrom": ["mesocycle_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "sets_position_check": {
+          "name": "sets_position_check",
+          "value": "position BETWEEN -2147483648 AND 2147483647"
+        },
+        "sets_target_weight_kg_check": {
+          "name": "sets_target_weight_kg_check",
+          "value": "target_weight_kg BETWEEN -999999 AND 999999"
+        },
+        "sets_target_reps_check": {
+          "name": "sets_target_reps_check",
+          "value": "target_reps BETWEEN -2147483648 AND 2147483647"
+        },
+        "sets_weight_kg_check": {
+          "name": "sets_weight_kg_check",
+          "value": "weight_kg BETWEEN -999999 AND 999999"
+        },
+        "sets_reps_check": {
+          "name": "sets_reps_check",
+          "value": "reps BETWEEN -2147483648 AND 2147483647"
+        },
+        "sets_target_distance_m_check": {
+          "name": "sets_target_distance_m_check",
+          "value": "target_distance_m BETWEEN -9999999 AND 9999999"
+        },
+        "sets_distance_m_check": {
+          "name": "sets_distance_m_check",
+          "value": "distance_m BETWEEN -9999999 AND 9999999"
+        },
+        "sets_target_duration_s_check": {
+          "name": "sets_target_duration_s_check",
+          "value": "target_duration_s BETWEEN -99999999 AND 99999999"
+        },
+        "sets_duration_s_check": {
+          "name": "sets_duration_s_check",
+          "value": "duration_s BETWEEN -99999999 AND 99999999"
+        },
+        "sets_kind_check": {
+          "name": "sets_kind_check",
+          "value": "kind IN ('warmup', 'working')"
+        },
+        "sets_effort_check": {
+          "name": "sets_effort_check",
+          "value": "effort IN ('easy', 'hard', 'failure')"
+        },
+        "sets_position_positive": {
+          "name": "sets_position_positive",
+          "value": "position > 0"
+        },
+        "sets_target_weight_not_negative": {
+          "name": "sets_target_weight_not_negative",
+          "value": "target_weight_kg IS NULL OR target_weight_kg >= 0"
+        },
+        "sets_target_reps_positive": {
+          "name": "sets_target_reps_positive",
+          "value": "target_reps IS NULL OR target_reps > 0"
+        },
+        "sets_weight_not_negative": {
+          "name": "sets_weight_not_negative",
+          "value": "weight_kg IS NULL OR weight_kg >= 0"
+        },
+        "sets_reps_positive": {
+          "name": "sets_reps_positive",
+          "value": "reps IS NULL OR reps > 0"
+        },
+        "sets_effort_working_only": {
+          "name": "sets_effort_working_only",
+          "value": "kind = 'working' OR effort IS NULL"
+        },
+        "sets_distance_positive": {
+          "name": "sets_distance_positive",
+          "value": "distance_m IS NULL OR distance_m > 0"
+        },
+        "sets_target_distance_positive": {
+          "name": "sets_target_distance_positive",
+          "value": "target_distance_m IS NULL OR target_distance_m > 0"
+        },
+        "sets_duration_positive": {
+          "name": "sets_duration_positive",
+          "value": "duration_s IS NULL OR duration_s > 0"
+        },
+        "sets_target_duration_positive": {
+          "name": "sets_target_duration_positive",
+          "value": "target_duration_s IS NULL OR target_duration_s > 0"
+        },
+        "sets_weight_accompanies_a_measure": {
+          "name": "sets_weight_accompanies_a_measure",
+          "value": "weight_kg IS NULL OR reps IS NOT NULL OR distance_m IS NOT NULL OR duration_s IS NOT NULL"
+        },
+        "sets_target_weight_accompanies_a_measure": {
+          "name": "sets_target_weight_accompanies_a_measure",
+          "value": "target_weight_kg IS NULL OR target_reps IS NOT NULL OR target_distance_m IS NOT NULL OR target_duration_s IS NOT NULL"
+        },
+        "sets_performed_at_utc": {
+          "name": "sets_performed_at_utc",
+          "value": "\"sets\".\"performed_at\" IS NULL OR (\n    length(cast(\"sets\".\"performed_at\" as blob)) = 27 AND substr(\"sets\".\"performed_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"sets\".\"performed_at\", 1, 19), '+0 seconds') IS substr(\"sets\".\"performed_at\", 1, 19)\n    AND substr(\"sets\".\"performed_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "sets_request_id_uuid": {
+          "name": "sets_request_id_uuid",
+          "value": "\"sets\".\"request_id\" IS NULL OR (\n    length(cast(\"sets\".\"request_id\" as blob)) = 36 AND substr(\"sets\".\"request_id\", 9, 1) = '-' AND substr(\"sets\".\"request_id\", 14, 1) = '-'\n    AND substr(\"sets\".\"request_id\", 19, 1) = '-' AND substr(\"sets\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"sets\".\"request_id\", '-', '')) = 32 AND replace(\"sets\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "user_context": {
+      "name": "user_context",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "topic": {
+          "name": "topic",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "written_at": {
+          "name": "written_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "user_context_topic_written_at_idx": {
+          "name": "user_context_topic_written_at_idx",
+          "columns": ["topic", "\"written_at\" desc"],
+          "isUnique": false
+        },
+        "user_context_request_id_key": {
+          "name": "user_context_request_id_key",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "user_context_written_at_utc": {
+          "name": "user_context_written_at_utc",
+          "value": "\"user_context\".\"written_at\" IS NULL OR (\n    length(cast(\"user_context\".\"written_at\" as blob)) = 27 AND substr(\"user_context\".\"written_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"user_context\".\"written_at\", 1, 19), '+0 seconds') IS substr(\"user_context\".\"written_at\", 1, 19)\n    AND substr(\"user_context\".\"written_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "user_context_request_id_uuid": {
+          "name": "user_context_request_id_uuid",
+          "value": "\"user_context\".\"request_id\" IS NULL OR (\n    length(cast(\"user_context\".\"request_id\" as blob)) = 36 AND substr(\"user_context\".\"request_id\", 9, 1) = '-' AND substr(\"user_context\".\"request_id\", 14, 1) = '-'\n    AND substr(\"user_context\".\"request_id\", 19, 1) = '-' AND substr(\"user_context\".\"request_id\", 24, 1) = '-'\n    AND length(replace(\"user_context\".\"request_id\", '-', '')) = 32 AND replace(\"user_context\".\"request_id\", '-', '') NOT GLOB '*[^0-9a-f]*'\n  )"
+        }
+      }
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "height_cm": {
+          "name": "height_cm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "users_height_cm_check": {
+          "name": "users_height_cm_check",
+          "value": "height_cm BETWEEN -9999 AND 9999"
+        }
+      }
+    },
+    "week_schedules": {
+      "name": "week_schedules",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "week_start": {
+          "name": "week_start",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "schedule": {
+          "name": "schedule",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "written_at": {
+          "name": "written_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        }
+      },
+      "indexes": {
+        "week_schedules_week_start_key": {
+          "name": "week_schedules_week_start_key",
+          "columns": ["week_start"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "week_schedules_starts_on_monday": {
+          "name": "week_schedules_starts_on_monday",
+          "value": "strftime('%w', week_start) = '1'"
+        },
+        "week_schedules_week_start_date": {
+          "name": "week_schedules_week_start_date",
+          "value": "\"week_schedules\".\"week_start\" IS NULL OR (\n    length(cast(\"week_schedules\".\"week_start\" as blob)) = 10 AND substr(\"week_schedules\".\"week_start\", 1, 4) >= '0001'\n    AND date(\"week_schedules\".\"week_start\", '+0 days') IS \"week_schedules\".\"week_start\"\n  )"
+        },
+        "week_schedules_written_at_utc": {
+          "name": "week_schedules_written_at_utc",
+          "value": "\"week_schedules\".\"written_at\" IS NULL OR (\n    length(cast(\"week_schedules\".\"written_at\" as blob)) = 27 AND substr(\"week_schedules\".\"written_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"week_schedules\".\"written_at\", 1, 19), '+0 seconds') IS substr(\"week_schedules\".\"written_at\", 1, 19)\n    AND substr(\"week_schedules\".\"written_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        }
+      }
+    },
+    "withings_auth": {
+      "name": "withings_auth",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "INT",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "withings_user_id": {
+          "name": "withings_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_sync_at": {
+          "name": "last_sync_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_sync_attempt_at": {
+          "name": "last_sync_attempt_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "withings_auth_single_row": {
+          "name": "withings_auth_single_row",
+          "value": "id = 1"
+        },
+        "withings_auth_access_token_expires_at_utc": {
+          "name": "withings_auth_access_token_expires_at_utc",
+          "value": "\"withings_auth\".\"access_token_expires_at\" IS NULL OR (\n    length(cast(\"withings_auth\".\"access_token_expires_at\" as blob)) = 27 AND substr(\"withings_auth\".\"access_token_expires_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"withings_auth\".\"access_token_expires_at\", 1, 19), '+0 seconds') IS substr(\"withings_auth\".\"access_token_expires_at\", 1, 19)\n    AND substr(\"withings_auth\".\"access_token_expires_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "withings_auth_last_sync_at_utc": {
+          "name": "withings_auth_last_sync_at_utc",
+          "value": "\"withings_auth\".\"last_sync_at\" IS NULL OR (\n    length(cast(\"withings_auth\".\"last_sync_at\" as blob)) = 27 AND substr(\"withings_auth\".\"last_sync_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"withings_auth\".\"last_sync_at\", 1, 19), '+0 seconds') IS substr(\"withings_auth\".\"last_sync_at\", 1, 19)\n    AND substr(\"withings_auth\".\"last_sync_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "withings_auth_last_sync_attempt_at_utc": {
+          "name": "withings_auth_last_sync_attempt_at_utc",
+          "value": "\"withings_auth\".\"last_sync_attempt_at\" IS NULL OR (\n    length(cast(\"withings_auth\".\"last_sync_attempt_at\" as blob)) = 27 AND substr(\"withings_auth\".\"last_sync_attempt_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"withings_auth\".\"last_sync_attempt_at\", 1, 19), '+0 seconds') IS substr(\"withings_auth\".\"last_sync_attempt_at\", 1, 19)\n    AND substr(\"withings_auth\".\"last_sync_attempt_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        },
+        "withings_auth_updated_at_utc": {
+          "name": "withings_auth_updated_at_utc",
+          "value": "\"withings_auth\".\"updated_at\" IS NULL OR (\n    length(cast(\"withings_auth\".\"updated_at\" as blob)) = 27 AND substr(\"withings_auth\".\"updated_at\", 1, 4) >= '0001'\n    AND strftime('%Y-%m-%dT%H:%M:%S', substr(\"withings_auth\".\"updated_at\", 1, 19), '+0 seconds') IS substr(\"withings_auth\".\"updated_at\", 1, 19)\n    AND substr(\"withings_auth\".\"updated_at\", 20) GLOB '.[0-9][0-9][0-9][0-9][0-9][0-9]Z'\n  )"
+        }
+      }
+    }
+  },
+  "views": {
+    "daily_bodyweight": {
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value_kg": {
+          "name": "value_kg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "measured_at": {
+          "name": "measured_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "name": "daily_bodyweight",
+      "isExisting": true
+    },
+    "daily_intake": {
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kcal": {
+          "name": "kcal",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "protein_g": {
+          "name": "protein_g",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "entries": {
+          "name": "entries",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "incomplete": {
+          "name": "incomplete",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "protein_entries": {
+          "name": "protein_entries",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "name": "daily_intake",
+      "isExisting": true
+    },
+    "intake_values": {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "food_id": {
+          "name": "food_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "grams": {
+          "name": "grams",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "meal_id": {
+          "name": "meal_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kcal": {
+          "name": "kcal",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "protein_g": {
+          "name": "protein_g",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "carbs_g": {
+          "name": "carbs_g",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fat_g": {
+          "name": "fat_g",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fiber_g": {
+          "name": "fiber_g",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "name": "intake_values",
+      "isExisting": true
+    },
+    "nutrition_effective_events": {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "name": "nutrition_effective_events",
+      "isExisting": true
+    },
+    "nutrition_goal_switches": {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "name": "nutrition_goal_switches",
+      "isExisting": true
+    },
+    "weekly_exercise_sets_done": {
+      "columns": {
+        "mesocycle_id": {
+          "name": "mesocycle_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "week": {
+          "name": "week",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sets_done": {
+          "name": "sets_done",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "distance_m": {
+          "name": "distance_m",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "duration_s": {
+          "name": "duration_s",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "name": "weekly_exercise_sets_done",
+      "isExisting": true
+    },
+    "weekly_volume": {
+      "columns": {
+        "week_start": {
+          "name": "week_start",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "muscle": {
+          "name": "muscle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "working_sets": {
+          "name": "working_sets",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mesocycle_id": {
+          "name": "mesocycle_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "name": "weekly_volume",
+      "isExisting": true
+    }
+  },
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {
+      "nutrition_events_day_idx": {
+        "columns": {
+          "\"day\" desc": {
+            "isExpression": true
+          }
+        }
+      },
+      "nutrition_targets_effective_from_idx": {
+        "columns": {
+          "\"effective_from\" desc": {
+            "isExpression": true
+          }
+        }
+      },
+      "user_context_topic_written_at_idx": {
+        "columns": {
+          "\"written_at\" desc": {
+            "isExpression": true
+          }
+        }
+      }
+    }
+  }
+}

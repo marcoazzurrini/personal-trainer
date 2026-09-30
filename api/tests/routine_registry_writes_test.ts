@@ -1,6 +1,11 @@
 import { test } from "node:test";
 
-import { assert, assertEquals, assertRejects } from "./assertions.ts";
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "./assertions.ts";
 import {
   api,
   ensureCatalogue,
@@ -13,11 +18,11 @@ import {
 test("routine registry writes keep their atomic and historical boundaries", async (t) => {
   const { default: d1, database } = await import("./d1.ts");
   const sql = d1();
-  const { aliasStore } = await import("../shared/aliases.ts");
-  const { exerciseStore } = await import("../training/exercises.ts");
-  const { exerciseById } = exerciseStore(database);
-  const { hashToken, tokenStore } = await import("../access/tokens.ts");
-  const { issueToken, verifyToken } = tokenStore(database);
+  const { createServices } = await import("../services.ts");
+  const services = createServices(database);
+  const { exerciseById } = services.exercises;
+  const { hashToken } = await import("../access/tokens.ts");
+  const { issueToken, verifyToken } = services.tokens;
   async function food(name: string, aliases: string[] = []) {
     const created = await api.post("/foods", {
       name,
@@ -78,11 +83,10 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
           BEGIN SELECT RAISE(ABORT, 'injected mint failure'); END`;
           const [{ n: before }] =
             await sql`select count(*) as n from api_tokens`;
-          await assertRejects(
-            () => issueToken("user_test"),
-            Error,
-            "injected mint failure"
-          );
+          const failure = await assertRejects(() => issueToken("user_test"));
+          // Drizzle retains native failures as causes, not in its query message.
+          assert(failure.cause instanceof Error);
+          assertStringIncludes(failure.cause.message, "injected mint failure");
           assertEquals(
             (await sql`select count(*) as n from api_tokens`)[0].n,
             before
@@ -124,10 +128,7 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
         ] as const) {
           const alias = `batch-${uuid()}`;
           await assertRejects(() =>
-            aliasStore(database, kind).addAliases(id, [
-              alias,
-              alias.toUpperCase(),
-            ])
+            services.aliases[kind].addAliases(id, [alias, alias.toUpperCase()])
           );
           assertEquals(
             (
@@ -138,8 +139,8 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
             ).length,
             0
           );
-          await aliasStore(database, kind).addAliases(id, []);
-          await aliasStore(database, kind).addAliases(id, [
+          await services.aliases[kind].addAliases(id, []);
+          await services.aliases[kind].addAliases(id, [
             alias,
             `${alias}-second`,
           ]);

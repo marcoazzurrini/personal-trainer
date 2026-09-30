@@ -1,36 +1,42 @@
+import type {
+  EventRecord,
+  EventsRepository,
+} from "../../db/repositories/nutrition/events.ts";
+import { addDays } from "../shared/dates.ts";
+import { databaseError, requireRow } from "../shared/errors.ts";
 import {
-  batch,
-  databaseError,
   date,
   instant,
   requestId,
   romeDate,
-  rows,
-  statement,
   systemClock,
-} from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
-import { addDays } from "../shared/dates.ts";
-import { requireRow } from "../shared/errors.ts";
+  wireInstant,
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
 import type { ActiveTransient, EventRow, Kind } from "./events.types.ts";
 
-const columns =
-  "id, day, kind, note, substr(created_at, 1, 23) || 'Z' AS created_at";
-export function eventStore(db: Database, clock: Clock = systemClock) {
+function wireEvent(row: EventRecord): EventRow {
+  return { ...row, created_at: wireInstant(row.created_at) };
+}
+
+export function eventStore(
+  repository: EventsRepository,
+  clock: Clock = systemClock
+) {
   async function listEvents(): Promise<EventRow[]> {
-    return await rows<EventRow>(
-      db,
-      `SELECT ${columns} FROM nutrition_effective_events ORDER BY day DESC, id DESC`
-    );
+    try {
+      return (await repository.list()).map(wireEvent);
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
   async function activeTransients(asOf: string): Promise<ActiveTransient[]> {
     const day = date(asOf);
-    return await rows<ActiveTransient>(
-      db,
-      "SELECT id, day, kind, note FROM nutrition_effective_events WHERE day >= ? AND day <= ? ORDER BY day DESC, id DESC",
-      addDays(day, -14),
-      day
-    );
+    try {
+      return await repository.inRange(addDays(day, -14), day);
+    } catch (error) {
+      throw databaseError(error);
+    }
   }
   async function registerEvent(b: {
     day?: string | null;
@@ -39,47 +45,39 @@ export function eventStore(db: Database, clock: Clock = systemClock) {
     request_id: string;
   }): Promise<{ row: EventRow; created: boolean }> {
     const uuid = requestId(b.request_id);
-    const seen = async () =>
-      (
-        await rows<EventRow>(
-          db,
-          `SELECT ${columns} FROM nutrition_events WHERE request_id = ?`,
-          uuid
-        )
-      )[0];
+    const seen = async () => {
+      try {
+        return await repository.findRequest(uuid);
+      } catch (error) {
+        throw databaseError(error);
+      }
+    };
     const replay = await seen();
     if (replay) {
-      return { row: replay, created: false };
+      return { row: wireEvent(replay), created: false };
     }
     try {
       const now = instant(clock().toISOString());
-      const result = await batch<EventRow>(db, [
-        statement(
-          db,
-          `INSERT INTO nutrition_events (day, kind, note, request_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (request_id) DO NOTHING RETURNING ${columns}`,
-          date(b.day ?? romeDate(now)),
-          b.kind,
-          b.note ?? null,
-          uuid,
-          now
-        ),
-        statement(
-          db,
-          `SELECT ${columns} FROM nutrition_events WHERE request_id = ?`,
-          uuid
-        ),
-      ]);
+      const result = await repository.save({
+        day: date(b.day ?? romeDate(now)),
+        kind: b.kind,
+        note: b.note ?? null,
+        request_id: uuid,
+        created_at: now,
+      });
       return {
-        row: requireRow(
-          result[1].results,
-          "The nutrition event could not be read after saving."
+        row: wireEvent(
+          requireRow(
+            result.row ? [result.row] : [],
+            "The nutrition event could not be read after saving."
+          )
         ),
-        created: result[0].results.length > 0,
+        created: result.created,
       };
     } catch (error) {
       const recovered = await seen();
       if (recovered) {
-        return { row: recovered, created: false };
+        return { row: wireEvent(recovered), created: false };
       }
       throw databaseError(error);
     }
@@ -88,36 +86,17 @@ export function eventStore(db: Database, clock: Clock = systemClock) {
     id: number
   ): Promise<Pick<EventRow, "day" | "kind" | "note">> {
     const missing = `No nutrition event with id ${id}. Read GET /nutrition-events and use an id from the current events list.`;
-    if (id < 0) {
-      const result = await batch(db, [
-        statement(
-          db,
-          "SELECT day, kind, note FROM nutrition_goal_switches WHERE id = ?",
-          id
-        ),
-        statement(
-          db,
-          `UPDATE nutrition_targets SET phase_switch_suppressed = 1 WHERE id = ? AND phase_switch_suppressed = 0
-          AND EXISTS (SELECT 1 FROM nutrition_goal_switches WHERE id = ?) RETURNING id`,
-          -id,
-          id
-        ),
-      ]);
-      requireRow(result[1].results, missing);
-      return requireRow(
-        // SAFETY: statement 0 selects day, kind and note from nutrition_goal_switches; statement 1 returns only id.
-        result[0].results as Pick<EventRow, "day" | "kind" | "note">[],
-        missing
-      );
+    try {
+      const row =
+        id < 0
+          ? await repository.suppressGoalSwitch(id)
+          : await repository.remove(id);
+      return requireRow(row ? [row] : [], missing);
+    } catch (error) {
+      throw databaseError(error);
     }
-    return requireRow(
-      await rows<Pick<EventRow, "day" | "kind" | "note">>(
-        db,
-        "DELETE FROM nutrition_events WHERE id = ? RETURNING day, kind, note",
-        id
-      ),
-      missing
-    );
   }
   return { listEvents, activeTransients, registerEvent, withdrawEvent };
 }
+
+export type EventsService = ReturnType<typeof eventStore>;

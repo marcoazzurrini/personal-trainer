@@ -1,7 +1,7 @@
 import { test } from "node:test";
 
+import { scaledInteger } from "../../db/storage.ts";
 import storage from "../../db/tests/fixtures/storage.json" with { type: "json" };
-import { scaledInteger } from "../shared/storage.ts";
 import { assert, assertEquals } from "./assertions.ts";
 import d1 from "./d1.ts";
 import {

@@ -118,7 +118,7 @@ async function fixture(t: TestContext) {
         JSON.stringify(extra.reasons ?? []),
         extra.suppressed ? 1 : 0
       )
-      .first();
+      .first<{ id: number }>();
     assert.ok(result);
     return result.id;
   };

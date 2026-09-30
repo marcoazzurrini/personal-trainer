@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+
+import { z } from "@hono/zod-openapi";
 // Only the local Miniflare runner issues this capability. A URL alone never
 // grants fixture access. Both bridges prove the same randomly owned D1 binding.
 export interface DatabaseIdentity {
@@ -12,6 +14,7 @@ export interface Disposable extends DatabaseIdentity {
 }
 const REFUSAL =
   "Unsafe test database: run bun run test:api to create a disposable Worker+D1 database.";
+const errorReply = z.object({ error: z.string() });
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Receipt fields are untrusted until this local URL check accepts them.
 function localUrl(value: unknown, path: string): boolean {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject non-string receipt fields rather than coercing them into URLs.
@@ -101,9 +104,38 @@ export async function management<T>(
   });
   const body = await res.json();
   if (!res.ok) {
-    throw new Error(body.error ?? REFUSAL);
+    const parsed = errorReply.safeParse(body);
+    throw new Error(parsed.success ? parsed.data.error : REFUSAL);
   }
   // SAFETY: T is the test caller's expected management reply, not validated here; callers check identity or assert fixture results.
+  return body as T;
+}
+// The management server exposes native batches only. Statement methods must
+// execute in workerd: reconstructing raw rows from object keys loses SQL order.
+export async function nativeStatement<T>(query: {
+  sql: string;
+  params: (string | number | null)[];
+  method: "raw" | "run" | "first";
+  columnNames?: boolean;
+  column?: string;
+}): Promise<T> {
+  const d = await verifiedDatabase();
+  const res = await fetch(`${d.apiUrl}/__test_d1`, {
+    method: "POST",
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+    headers: {
+      authorization: `Bearer ${d.secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ ...query, run: d.run }),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    const parsed = errorReply.safeParse(body);
+    throw new Error(parsed.success ? parsed.data.error : REFUSAL);
+  }
+  // SAFETY: Like native D1, the caller declares the SQL result type.
   return body as T;
 }
 export async function verifyDatabase(d: Disposable): Promise<void> {

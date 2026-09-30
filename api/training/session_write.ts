@@ -1,6 +1,5 @@
-import { databaseError, statement } from "../shared/d1.ts";
-import type { Database, Statement } from "../shared/d1.ts";
-import { ApiError } from "../shared/errors.ts";
+import { DatabaseFailureError } from "../../db/errors.ts";
+import { databaseError, ApiError } from "../shared/errors.ts";
 
 /** Retry only the batch's failed version assertion, never an uncertain write. */
 export async function retrySessionWrite<T>(
@@ -14,8 +13,9 @@ export async function retrySessionWrite<T>(
       return await operation();
     } catch (error) {
       if (
-        !(error instanceof Error) ||
-        !/CHECK constraint failed: api_session_changed\b/u.test(error.message)
+        !(error instanceof DatabaseFailureError) ||
+        error.kind !== "check" ||
+        error.subject !== "api_session_changed"
       ) {
         throw databaseError(error);
       }
@@ -25,31 +25,4 @@ export async function retrySessionWrite<T>(
     409,
     `The session kept changing. Nothing was saved by this request. Read GET /sessions/${id} before retrying.`
   );
-}
-
-export function sessionVersion(
-  db: Database,
-  id: number,
-  version: number
-): Statement {
-  return statement(
-    db,
-    `INSERT INTO api_write_assertions (id, version_matches)
-    VALUES (1, COALESCE((SELECT write_version = ? FROM sessions WHERE id = ?), 0))`,
-    version,
-    id
-  );
-}
-
-/** Place immediately after the statement whose direct row count it checks. */
-export function affectedRows(db: Database, expected: number): Statement {
-  return statement(
-    db,
-    `UPDATE api_write_assertions SET rows_match = (changes() = ?) WHERE id = 1`,
-    expected
-  );
-}
-
-export function finishWrite(db: Database): Statement {
-  return statement(db, "DELETE FROM api_write_assertions WHERE id = 1");
 }

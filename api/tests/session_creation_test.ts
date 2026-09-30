@@ -1,7 +1,8 @@
 import { test } from "node:test";
 
-import type { Database } from "../shared/d1.ts";
-import { sessionStore } from "../training/sessions.ts";
+import type { D1Database } from "@cloudflare/workers-types";
+
+import { createServices } from "../services.ts";
 import type { SetEntry } from "../training/sessions.types.ts";
 import { assert, assertEquals } from "./assertions.ts";
 import { database } from "./d1.ts";
@@ -18,14 +19,17 @@ test("session creation resolves references per request and inserts sets in batch
   await resetTraining();
   await ensureCatalogue();
   let statements: string[] = [];
-  const observed: Database = {
+  const observed: D1Database = {
+    exec: database.exec,
+    dump: database.dump,
+    withSession: database.withSession,
     prepare(query) {
       statements.push(query.trim().replaceAll(/\s+/gu, " "));
       return database.prepare(query);
     },
     batch: database.batch,
   };
-  const { writeSession } = sessionStore(observed);
+  const { writeSession } = createServices(observed).sessions;
   const measured = async (sets: SetEntry[], request_id = uuid()) => {
     statements = [];
     const result = await writeSession({

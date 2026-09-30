@@ -153,7 +153,17 @@ async function fixture(t: TestContext, { expired = false, seed = true } = {}) {
     });
     return { status: response.status, body: await testJson(response) };
   }
-  const auth = () => db.prepare("SELECT * FROM withings_auth").first();
+  const auth = async () => {
+    const row = await db.prepare("SELECT * FROM withings_auth").first<{
+      access_token: string;
+      refresh_token: string;
+      access_token_expires_at: string;
+      last_sync_at: string | null;
+      last_sync_attempt_at: string | null;
+    }>();
+    assert.ok(row);
+    return row;
+  };
   const weights = async () =>
     (await db.prepare("SELECT * FROM bodyweight ORDER BY id").all()).results;
   return { db, call, store, auth, weights, requests, replies };
@@ -352,11 +362,11 @@ test("account changed during provider I/O cannot import old account or move chec
   assert.match(result.body.error, /account changed during synchronization/u);
   assert.equal((await f.weights()).length, 0);
   assert.equal((await f.auth()).last_sync_at, null);
-  assert.equal(
-    (await f.db.prepare("SELECT count(*) n FROM api_write_assertions").first())
-      .n,
-    0
-  );
+  const assertions = await f.db
+    .prepare("SELECT count(*) n FROM api_write_assertions")
+    .first<{ n: number }>();
+  assert.ok(assertions);
+  assert.equal(assertions.n, 0);
 });
 
 test("webhook ignores other accounts, uses waitUntil, and missing windows trigger catch-up", async (t) => {

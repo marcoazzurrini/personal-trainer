@@ -1,19 +1,20 @@
-import { bodyfatStore } from "../body/bodyfat.ts";
-import { bodyweightStore } from "../body/bodyweight.ts";
+import type {
+  TargetRecord,
+  TargetsRepository,
+} from "../../db/repositories/nutrition/targets.ts";
+import type { BodyfatService } from "../body/bodyfat.ts";
+import type { BodyweightService } from "../body/bodyweight.ts";
+import { ApiError, databaseError, requireRow } from "../shared/errors.ts";
 import {
-  batch,
-  databaseError,
   date,
   decimal,
   instant,
   requestId,
   romeDate,
-  rows,
-  statement,
   systemClock,
-} from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
+  wireInstant,
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
 import {
   energyDensity,
   fatMassKg,
@@ -24,9 +25,8 @@ import {
   proteinFromMultiplier,
   targetFromRate,
 } from "./expenditure.ts";
-import type { ProteinBasis } from "./expenditure.ts";
-import { decodeTarget, nutritionReadStore, targetColumns } from "./read.ts";
-import type { StoredTarget } from "./read.ts";
+import type { ClipReason, ProteinBasis } from "./expenditure.ts";
+import { expenditureStore } from "./read.ts";
 import type {
   Computation,
   SetTargetInput,
@@ -34,36 +34,36 @@ import type {
   TargetWritten,
 } from "./targets.types.ts";
 
-export function targetStore(db: Database, clock: Clock = systemClock) {
-  const { loadTrend } = bodyweightStore(db, clock);
-  const { latestBodyfat } = bodyfatStore(db, clock);
-  const { currentExpenditure } = nutritionReadStore(db, clock);
+function wireTarget(row: TargetRecord): TargetRow {
+  return { ...row, created_at: wireInstant(row.created_at) };
+}
+
+export function targetStore(
+  repository: TargetsRepository,
+  bodyweight: BodyweightService,
+  bodyfatService: BodyfatService,
+  clock: Clock = systemClock
+) {
+  const { loadTrend } = bodyweight;
+  const { latestBodyfat } = bodyfatService;
+  const { currentExpenditure } = expenditureStore(
+    repository.expenditure,
+    bodyfatService,
+    clock
+  );
   async function listTargets(): Promise<TargetRow[]> {
-    return (
-      await rows<StoredTarget>(
-        db,
-        `SELECT ${targetColumns} FROM nutrition_targets ORDER BY effective_from DESC, id DESC`
-      )
-    ).map(decodeTarget);
+    return (await repository.list()).map(wireTarget);
   }
   async function activeTarget(asOf: string): Promise<TargetRow | null> {
-    const [row] = await rows<StoredTarget>(
-      db,
-      `SELECT ${targetColumns} FROM nutrition_targets WHERE effective_from <= ? ORDER BY effective_from DESC, id DESC LIMIT 1`,
-      date(asOf)
-    );
-    return row ? decodeTarget(row) : null;
+    const row = await repository.active(date(asOf));
+    return row ? wireTarget(row) : null;
   }
   // oxlint-disable-next-line complexity -- Keep ordered refusals, asynchronous reads and idempotent recovery together in this write boundary.
   async function setTarget(b: SetTargetInput): Promise<TargetWritten> {
     const uuid = requestId(b.request_id);
     const seen = async () => {
-      const [row] = await rows<StoredTarget>(
-        db,
-        `SELECT ${targetColumns} FROM nutrition_targets WHERE request_id = ?`,
-        uuid
-      );
-      return row ? decodeTarget(row) : undefined;
+      const row = await repository.findRequest(uuid);
+      return row ? wireTarget(row) : undefined;
     };
     const replay = await seen();
     if (replay) {
@@ -203,7 +203,7 @@ export function targetStore(db: Database, clock: Clock = systemClock) {
 
       let tdeeAtCreation: number | null = null;
       let clipped = false;
-      let clippedReasons: string[] = [];
+      let clippedReasons: ClipReason[] = [];
       let kcalTarget: number;
       let computation: Computation | null = null;
 
@@ -246,58 +246,37 @@ export function targetStore(db: Database, clock: Clock = systemClock) {
         kcalTarget = explicitKcal;
       }
 
-      // Insert, row readback and effective-history flag share one D1 transaction.
-      const result = await batch<
-        StoredTarget | { id: number } | { present: number }
-      >(db, [
-        statement(
-          db,
-          `INSERT INTO nutrition_targets (effective_from, goal, rate_pct_bw_week, kcal_target, protein_g_target, decision,
-          tdee_at_creation, clipped, clipped_reasons, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (request_id) DO NOTHING RETURNING id`,
-          effectiveFrom,
-          goal,
-          decimal(rate, 4, 2),
-          kcalTarget,
-          proteinTarget,
-          decision,
-          tdeeAtCreation,
-          Number(clipped),
-          JSON.stringify(clippedReasons),
-          uuid,
-          instant(clock().toISOString())
-        ),
-        statement(
-          db,
-          `SELECT ${targetColumns} FROM nutrition_targets WHERE request_id = ?`,
-          uuid
-        ),
-        statement(
-          db,
-          `SELECT EXISTS (SELECT 1 FROM nutrition_goal_switches WHERE id = -(SELECT id FROM nutrition_targets WHERE request_id = ?)) AS present`,
-          uuid
-        ),
-      ]);
-      // SAFETY: the second batch statement selects targetColumns from nutrition_targets.
-      const selected = result[1].results as StoredTarget[];
-      const target = decodeTarget(
+      // Validate precision here for the refusal contract; storage owns scaling.
+      decimal(rate, 4, 2);
+      const result = await repository.save({
+        effective_from: effectiveFrom,
+        goal,
+        rate_pct_bw_week: rate,
+        kcal_target: kcalTarget,
+        protein_g_target: proteinTarget,
+        decision,
+        tdee_at_creation: tdeeAtCreation,
+        clipped,
+        clipped_reasons: clippedReasons,
+        request_id: uuid,
+        created_at: instant(clock().toISOString()),
+      });
+      const target = wireTarget(
         requireRow(
-          selected,
+          result.target ? [result.target] : [],
           "The nutrition target could not be read after saving."
         )
       );
-      if (!result[0].results.length) {
+      if (!result.created) {
         return { created: false, body: { target } };
       }
-      // SAFETY: the third batch statement selects EXISTS as present.
-      const switches = result[2].results as { present: number }[];
       return {
         created: true,
         body: {
           target,
           computation,
           protein_computation: proteinComputation,
-          phase_switch_registered: Boolean(switches[0].present),
+          phase_switch_registered: result.phaseSwitchPresent,
         },
       };
     } catch (error) {
@@ -310,3 +289,5 @@ export function targetStore(db: Database, clock: Clock = systemClock) {
   }
   return { listTargets, activeTarget, setTarget };
 }
+
+export type TargetService = ReturnType<typeof targetStore>;

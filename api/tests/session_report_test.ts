@@ -1,6 +1,6 @@
 import { test } from "node:test";
 
-import { sessionStore } from "../training/sessions.ts";
+import { createServices } from "../services.ts";
 import { assert, assertEquals } from "./assertions.ts";
 import d1, { database } from "./d1.ts";
 import { api, ensureCatalogue, resetTraining, today } from "./helpers.ts";
@@ -374,21 +374,27 @@ test("session report D1 writes stay bounded and return all twenty sets", async (
   const before = await draft(20);
   const writes: number[] = [];
   const observed = {
-    ...database,
+    prepare: database.prepare,
+    exec: database.exec,
+    dump: database.dump,
+    withSession: database.withSession,
     batch: async <T>(statements: Parameters<typeof database.batch>[0]) => {
       writes.push(statements.length);
       return await database.batch<T>(statements);
     },
   };
-  const saved = await sessionStore(observed).correctSession(before.id, {
-    sets: before.sets.map((s: { id: number }) => ({
-      id: s.id,
-      weight_kg: 100,
-      reps: 5,
-      effort: "hard" as const,
-    })),
-    notes: "One report",
-  });
+  const saved = await createServices(observed).sessions.correctSession(
+    before.id,
+    {
+      sets: before.sets.map((s: { id: number }) => ({
+        id: s.id,
+        weight_kg: 100,
+        reps: 5,
+        effort: "hard" as const,
+      })),
+      notes: "One report",
+    }
+  );
   assertEquals(saved.sets.length, 20);
   assert(saved.sets.every((s) => s.reps === 5));
   assertEquals(saved.completed_at, null);

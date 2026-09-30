@@ -1,23 +1,33 @@
+import type { D1Database } from "@cloudflare/workers-types";
+
+import { bodyweightStore } from "../../api/body/bodyweight.ts";
 import { createWithingsRoutes } from "../../api/body/withings.routes.ts";
 import { withingsStore } from "../../api/body/withings.ts";
-import type { Database } from "../../api/shared/d1.ts";
+import { createClient } from "../client.ts";
+import { bodyweightRepository } from "../repositories/bodyweight.ts";
+import { withingsRepository } from "../repositories/withings.ts";
 // Local-only harness. outboundService supplies all provider responses.
 import { operationInput } from "./test-input.ts";
 
 export default {
   async fetch(
     request: Request,
-    env: { DB: Database },
+    env: { DB: D1Database },
     ctx: { waitUntil: (promise: Promise<unknown>) => void }
   ) {
+    const client = createClient(env.DB);
+    const clock = () =>
+      new Date(request.headers.get("x-clock") ?? "2026-08-30T12:00:00Z");
     const store = withingsStore(
-      env.DB,
+      withingsRepository(client),
+      (accountId) =>
+        bodyweightStore(bodyweightRepository(client, accountId), clock),
       {
         apiBase: "https://withings.invalid",
         clientId: "fake-client",
         clientSecret: "fake-secret",
       },
-      () => new Date(request.headers.get("x-clock") ?? "2026-08-30T12:00:00Z")
+      clock
     );
     if (new URL(request.url).pathname === "/store") {
       const { method, args } = operationInput.parse(await request.json());

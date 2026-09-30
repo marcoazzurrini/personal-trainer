@@ -1,3 +1,7 @@
+import type { D1Database } from "@cloudflare/workers-types";
+
+import { bodyfatStore } from "../../api/body/bodyfat.ts";
+import { bodyweightStore } from "../../api/body/bodyweight.ts";
 import { eventStore } from "../../api/nutrition/events.ts";
 import { foodStore } from "../../api/nutrition/foods.ts";
 import { intakeStore } from "../../api/nutrition/intake.ts";
@@ -5,23 +9,31 @@ import { mealStore } from "../../api/nutrition/meals.ts";
 import { nutritionReadStore } from "../../api/nutrition/read.ts";
 import { nutritionResolver } from "../../api/nutrition/resolve.ts";
 import { targetStore } from "../../api/nutrition/targets.ts";
-import type { Database } from "../../api/shared/d1.ts";
 import { ApiError } from "../../api/shared/errors.ts";
+import { createClient } from "../client.ts";
+import { bodyfatRepository } from "../repositories/bodyfat.ts";
+import { bodyweightRepository } from "../repositories/bodyweight.ts";
+import { nutritionRepositories } from "../repositories/nutrition/index.ts";
 import { operationInput } from "./test-input.ts";
 
 export default {
-  async fetch(request: Request, env: { DB: Database }): Promise<Response> {
+  async fetch(request: Request, env: { DB: D1Database }): Promise<Response> {
     try {
       const input = operationInput.parse(await request.json());
       const clock = () => new Date(input.now ?? "2026-08-24T10:00:00Z");
+      const client = createClient(env.DB);
+      const repositories = nutritionRepositories(client);
+      const resolver = nutritionResolver(repositories.resolve);
+      const bodyweight = bodyweightStore(bodyweightRepository(client), clock);
+      const bodyfat = bodyfatStore(bodyfatRepository(client), clock);
       const stores = {
-        foods: foodStore(env.DB, clock),
-        meals: mealStore(env.DB, clock),
-        intake: intakeStore(env.DB, clock),
-        targets: targetStore(env.DB, clock),
-        events: eventStore(env.DB, clock),
-        read: nutritionReadStore(env.DB, clock),
-        resolve: nutritionResolver(env.DB, clock),
+        foods: foodStore(repositories.foods, resolver, clock),
+        meals: mealStore(repositories.meals, resolver, clock),
+        intake: intakeStore(repositories.intake, resolver, clock),
+        targets: targetStore(repositories.targets, bodyweight, bodyfat, clock),
+        events: eventStore(repositories.events, clock),
+        read: nutritionReadStore(repositories.read, bodyfat, clock),
+        resolve: resolver,
       };
       const store = Object.entries(stores).find(
         ([name]) => name === input.store

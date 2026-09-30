@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 
-import { scaledInteger } from "../../api/shared/storage.ts";
+import { scaledInteger } from "../storage.ts";
 import storage from "./fixtures/storage.json" with { type: "json" };
 import { migrationStatements } from "./local.ts";
 import { testJson } from "./test-json.ts";
@@ -145,7 +145,12 @@ async function fixture(t: TestContext) {
       header: await db
         .prepare("SELECT * FROM sessions WHERE id = ?")
         .bind(id)
-        .first(),
+        .first<{
+          started_at: string | null;
+          notes: string | null;
+          rationale: string;
+          write_version: number;
+        }>(),
       sets: (
         await db
           .prepare("SELECT * FROM sets WHERE session_id = ? ORDER BY position")
@@ -1033,6 +1038,7 @@ test("D1 corrections preserve omitted microseconds and round supplied values onl
   assert.equal(corrected.performed_at, "2026-08-10T10:00:00.123Z");
   assert.equal(corrected.weight_kg, 82.35);
   const result = await f.state(s.id);
+  assert.ok(result.header);
   assert.equal(result.header.started_at, "2026-08-10T09:59:00.654321Z");
   assert.equal(result.sets[0].performed_at, precise);
   assert.equal(result.sets[0].weight_kg, 8235);
@@ -1176,6 +1182,7 @@ test("D1 stale corrections re-read and validate rather than combine incompatible
   );
   assert.equal(result.status, 422, JSON.stringify(result.body));
   const stored = await f.state(s.id);
+  assert.ok(stored.header);
   assert.equal(stored.header.notes, null);
   assert.equal(stored.sets[0].weight_kg, null);
   assert.equal(stored.sets[0].reps, null);
@@ -1185,7 +1192,9 @@ test("D1 stale corrections re-read and validate rather than combine incompatible
 test("D1 versions cover direct set insert, update, delete and parent facts", async (t) => {
   const f = await fixture(t);
   const s = await f.session();
-  let version = (await f.state(s.id)).header.write_version;
+  const initial = await f.state(s.id);
+  assert.ok(initial.header);
+  let version = initial.header.write_version;
   for (const sql of [
     "UPDATE sets SET notes = 'other writer' WHERE session_id = ?",
     "UPDATE sessions SET notes = 'other writer' WHERE id = ?",
@@ -1193,7 +1202,9 @@ test("D1 versions cover direct set insert, update, delete and parent facts", asy
     "DELETE FROM sets WHERE session_id = ? AND position = 2",
   ]) {
     await f.db.prepare(sql).bind(s.id).run();
-    const next = (await f.state(s.id)).header.write_version;
+    const updated = await f.state(s.id);
+    assert.ok(updated.header);
+    const next = updated.header.write_version;
     assert.ok(next > version);
     version = next;
   }
@@ -1243,6 +1254,7 @@ test("D1 bounded contention retries refuse without committing the request", asyn
   assert.equal(result.status, 409);
   assert.match(result.body.error, /kept changing/u);
   const state = await f.state(s.id);
+  assert.ok(state.header);
   assert.equal(state.header.notes, null);
   assert.equal(state.header.rationale, "Competing writer");
   assert.equal(await f.count("api_write_assertions"), 0);
@@ -1296,7 +1308,12 @@ test("D1 bodyweight retains storage precision, rejects changed retries and uses 
     },
   ]);
   assert.equal(conflict.status, 409);
-  const row = await f.db.prepare("SELECT * FROM bodyweight").first();
+  const row = await f.db.prepare("SELECT * FROM bodyweight").first<{
+    value_kg: number;
+    measured_at: string;
+    measured_date: string;
+  }>();
+  assert.ok(row);
   assert.equal(row.value_kg, 8235);
   assert.equal(row.measured_at, "2026-08-10T21:30:00.123456Z");
   assert.equal(row.measured_date, "2026-08-10");
@@ -1307,16 +1324,11 @@ test("D1 bodyweight retains storage precision, rejects changed retries and uses 
       measuredAt: "2026-08-10T23:30:00Z",
     },
   ]);
-  assert.equal(
-    (
-      await f.db
-        .prepare(
-          "SELECT measured_date FROM bodyweight ORDER BY id DESC LIMIT 1"
-        )
-        .first()
-    ).measured_date,
-    "2026-08-11"
-  );
+  const latest = await f.db
+    .prepare("SELECT measured_date FROM bodyweight ORDER BY id DESC LIMIT 1")
+    .first<{ measured_date: string }>();
+  assert.ok(latest);
+  assert.equal(latest.measured_date, "2026-08-11");
   const invalid = await f.call("bodyweight", "recordBodyweight", [
     {
       ...input,

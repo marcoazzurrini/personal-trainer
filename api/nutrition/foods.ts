@@ -1,29 +1,24 @@
+import type {
+  FoodsRepository,
+  FoodRecord,
+} from "../../db/repositories/nutrition/foods.ts";
+import { ApiError, databaseError, requireRow } from "../shared/errors.ts";
 import {
-  batch,
   caseKey,
-  databaseError,
   decimal,
   instant,
-  jsonChunks,
   requestId,
-  rows,
-  statement,
   systemClock,
-} from "../shared/d1.ts";
-import type { Clock, Database, Parameter, Result } from "../shared/d1.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
+  wireInstant,
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
 import type {
   CorrectedFood,
   CorrectFoodInput,
   FoodRow,
   SaveFoodInput,
 } from "./foods.types.ts";
-import {
-  beginNutritionWrite,
-  finishNutritionWrite,
-  nutritionResolver,
-  nutritionRows,
-} from "./resolve.ts";
+import type { NutritionResolver } from "./resolve.ts";
 import { checkEnergy, checkMacroMass } from "./rules.ts";
 
 const macros = [
@@ -41,54 +36,32 @@ const fields = [
   "source",
   "source_note",
 ] as const;
-const columns = `f.id, f.name, f.brand, ${macros
-  .map((k) => `f.${k} / 10.0 AS ${k}`)
-  .join(", ")},
- f.grams_per_unit / 10.0 AS grams_per_unit, f.source, f.source_note,
- substr(f.created_at, 1, 23) || 'Z' AS created_at,
- (SELECT json_group_array(alias) FROM (SELECT alias FROM food_aliases WHERE food_id = f.id ORDER BY alias)) AS aliases`;
-type StoredFood = Omit<FoodRow, "aliases"> & { aliases: string };
-const decode = (r: StoredFood): FoodRow => ({
-  ...r,
-  aliases: JSON.parse(r.aliases),
+const wireFood = (row: FoodRecord): FoodRow => ({
+  ...row,
+  created_at: wireInstant(row.created_at),
 });
-
-const readResult = (result: Result<StoredFood>): FoodRow =>
-  decode(
-    requireRow(result.results, "The food could not be read after saving.")
-  );
-
-function isMacro(key: (typeof fields)[number]): key is (typeof macros)[number] {
-  return macros.some((macro) => macro === key);
-}
-
-function encoded(b: CorrectFoodInput, key: (typeof fields)[number]): Parameter {
-  if (isMacro(key) || key === "grams_per_unit") {
-    return decimal(
-      b[key] ?? null,
-      key === "kcal_100g" || key === "grams_per_unit" ? 6 : 5,
-      1
-    );
+function validateNumbers(input: CorrectFoodInput) {
+  for (const key of [...macros, "grams_per_unit"] as const) {
+    if (input[key] !== undefined) {
+      decimal(
+        input[key] ?? null,
+        key === "kcal_100g" || key === "grams_per_unit" ? 6 : 5,
+        1
+      );
+    }
   }
-  // Only keys whose values are defined reach this encoder.
-  return b[key] ?? null;
 }
-
-export function foodStore(db: Database, clock: Clock = systemClock) {
-  const resolver = nutritionResolver(db);
-  const select = (where = "", ...values: Parameter[]) =>
-    statement(
-      db,
-      `SELECT ${columns} FROM foods f ${where} ORDER BY f.name`,
-      ...values
-    );
+export function foodStore(
+  repository: FoodsRepository,
+  resolver: NutritionResolver,
+  clock: Clock = systemClock
+) {
   async function foodById(id: number): Promise<FoodRow> {
-    return decode(
-      requireRow(
-        (await select("WHERE f.id = ?", id).all<StoredFood>()).results,
-        `No food with id ${id}. GET /foods?q=<search> lists them.`
-      )
+    const { macro_revision: _revision, ...food } = requireRow(
+      await repository.byId(id),
+      `No food with id ${id}. GET /foods?q=<search> lists them.`
     );
+    return wireFood(food);
   }
   async function foodByRef(ref: string) {
     return await foodById(await resolver.resolveFoodId(ref));
@@ -97,7 +70,7 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
     const term = q?.trim();
     // SQLite LIKE cannot fold Unicode. Names and aliases already carry Unicode keys;
     // brand matching is done in JS so its casing follows the same contract.
-    const all = (await select().all<StoredFood>()).results.map(decode);
+    const all = (await repository.all()).map(wireFood);
     if (!term) {
       return all;
     }
@@ -121,28 +94,9 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
       )
     );
   }
-  function aliases(key: Parameter, values: string[], byRequest = false) {
-    return jsonChunks(
-      values.map((alias) => ({ alias, key: caseKey(alias) }))
-    ).flatMap((chunk) => [
-      statement(
-        db,
-        `INSERT INTO food_aliases (food_id, alias, alias_key)
-       SELECT f.id, json_extract(v.value, '$.alias'), json_extract(v.value, '$.key')
-       FROM json_each(?) v CROSS JOIN foods f WHERE f.${
-         byRequest ? "request_id" : "id"
-       } = ? ORDER BY CAST(v.key AS INTEGER)`,
-        chunk.json,
-        key
-      ),
-      nutritionRows(db, chunk.count),
-    ]);
-  }
   async function seen(uuid: string) {
-    const found = (
-      await select("WHERE f.request_id = ?", uuid).all<StoredFood>()
-    ).results;
-    return found[0] ? decode(found[0]) : undefined;
+    const row = await repository.byRequest(uuid);
+    return row ? wireFood(row) : undefined;
   }
   async function saveFood(
     b: SaveFoodInput
@@ -163,34 +117,23 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
         b.energy_check === "override",
         b.source_note ?? null
       );
-      const result = await batch<StoredFood>(db, [
-        beginNutritionWrite(db),
-        statement(
-          db,
-          `INSERT INTO foods (name, name_key, brand, kcal_100g, protein_100g, carbs_100g, fat_100g, fiber_100g, grams_per_unit, source, source_note, request_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          b.name,
-          caseKey(b.name),
-          b.brand ?? null,
-          decimal(b.kcal_100g, 6, 1),
-          decimal(b.protein_100g, 5, 1),
-          decimal(b.carbs_100g, 5, 1),
-          decimal(b.fat_100g, 5, 1),
-          decimal(b.fiber_100g ?? null, 5, 1),
-          decimal(b.grams_per_unit ?? null, 6, 1),
-          b.source,
-          b.source_note ?? null,
-          uuid,
-          instant(clock().toISOString())
+      validateNumbers(b);
+      const selected = await repository.save({
+        ...b,
+        brand: b.brand ?? null,
+        fiber_100g: b.fiber_100g ?? null,
+        grams_per_unit: b.grams_per_unit ?? null,
+        source_note: b.source_note ?? null,
+        aliases: b.aliases ?? [],
+        request_id: uuid,
+        created_at: instant(clock().toISOString()),
+      });
+      return {
+        row: wireFood(
+          requireRow(selected, "The food could not be read after saving.")
         ),
-        nutritionRows(db, 1),
-        ...aliases(uuid, b.aliases ?? [], true),
-        select("WHERE f.request_id = ?", uuid),
-        finishNutritionWrite(db),
-      ]);
-      // SAFETY: the batch ends with the food SELECT and then finishNutritionWrite.
-      const selected = result.at(-2) as Result<StoredFood>;
-      return { row: readResult(selected), created: true };
+        created: true,
+      };
     } catch (error) {
       const recovered = await seen(uuid);
       if (recovered) {
@@ -205,11 +148,7 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
   ): Promise<CorrectedFood> {
     const id = await resolver.resolveFoodId(ref);
     const before = requireRow(
-      await rows<StoredFood & { macro_revision: number }>(
-        db,
-        `SELECT ${columns}, f.macro_revision FROM foods f WHERE f.id = ?`,
-        id
-      ),
+      await repository.byId(id),
       `No food with id ${id}.`
     );
     const keys = fields.filter((k) => b[k] !== undefined);
@@ -236,52 +175,27 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
       b.energy_check === "override",
       merged.source_note
     );
-    const changed = keys.filter(isMacro);
-    const changeSQL = changed.map((k) => `${k} IS NOT ?`).join(" OR ") || "0";
-    const result = await batch(db, [
-      beginNutritionWrite(db),
-      statement(
-        db,
-        `UPDATE foods SET ${keys.map((k) => `${k} = ?`).join(", ")}${
-          b.name === undefined ? "" : ", name_key = ?"
-        },
-       macro_revision = macro_revision + CASE WHEN ${changeSQL} THEN 1 ELSE 0 END
-       WHERE id = ? AND macro_revision = ? RETURNING macro_revision`,
-        ...keys.map((key) => encoded(b, key)),
-        ...(b.name === undefined ? [] : [caseKey(b.name)]),
-        ...changed.map((key) => encoded(b, key)),
-        id,
-        before.macro_revision
-      ),
-      nutritionRows(db, 1),
-      select("WHERE f.id = ?", id),
-      statement(
-        db,
-        `SELECT count(*) AS count, min(day) AS "from", max(day) AS "to" FROM intake_entries WHERE food_id = ? AND EXISTS (SELECT 1 FROM foods WHERE id = ? AND macro_revision <> ?)`,
-        id,
-        id,
-        before.macro_revision
-      ),
-      finishNutritionWrite(db),
-    ]).catch((error) => {
-      if (
-        error instanceof ApiError &&
-        error.status === 409 &&
-        error.message.includes("record changed")
-      ) {
-        throw new ApiError(
-          409,
-          "That food changed while this correction was being checked. Read GET /foods/:ref again, then resend the correction against its current values."
-        );
-      }
-      throw error;
-    });
-    const macrosChanged =
-      result[1].results[0].macro_revision !== before.macro_revision;
-    // SAFETY: statement 4 selects count/min(day)/max(day), with the corrected_entries aliases.
-    const affected = result[4].results[0] as CorrectedFood["corrected_entries"];
-    // SAFETY: statement 3 uses select(), which returns the same StoredFood columns as foodById.
-    const food = readResult(result[3] as Result<StoredFood>);
+    validateNumbers(b);
+    const result = await repository
+      .correct(id, before.macro_revision, b)
+      .catch((error) => {
+        const translated = databaseError(error);
+        if (
+          translated instanceof ApiError &&
+          translated.status === 409 &&
+          translated.message.includes("record changed")
+        ) {
+          throw new ApiError(
+            409,
+            "That food changed while this correction was being checked. Read GET /foods/:ref again, then resend the correction against its current values."
+          );
+        }
+        throw translated;
+      });
+    const { macrosChanged, affected } = result;
+    const food = wireFood(
+      requireRow(result.foods, "The food could not be read after saving.")
+    );
     return {
       food,
       corrected_entries: affected,
@@ -294,14 +208,7 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
   }
   async function deleteFood(ref: string): Promise<string> {
     const id = await resolver.resolveFoodId(ref);
-    const [{ entries, items }] = await rows<{ entries: number; items: number }>(
-      db,
-      `SELECT
-      (SELECT count(*) FROM intake_entries WHERE food_id = ?) AS entries,
-      (SELECT count(*) FROM meal_items WHERE food_id = ?) AS items`,
-      id,
-      id
-    );
+    const { entries, items } = await repository.usage(id);
     if (entries || items) {
       throw new ApiError(
         409,
@@ -313,11 +220,9 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
       );
     }
     return requireRow(
-      await rows<{ name: string }>(
-        db,
-        "DELETE FROM foods WHERE id = ? RETURNING name",
-        id
-      ),
+      await repository.remove(id).catch((error) => {
+        throw databaseError(error);
+      }),
       `No food with id ${id}.`
     ).name;
   }
@@ -330,3 +235,5 @@ export function foodStore(db: Database, clock: Clock = systemClock) {
     deleteFood,
   };
 }
+
+export type FoodService = ReturnType<typeof foodStore>;

@@ -1,23 +1,27 @@
+import type {
+  BodyweightMeasurement,
+  BodyweightRepository,
+} from "../../db/repositories/bodyweight.ts";
+import { requireNotFutureInstant } from "../shared/dates.ts";
+import { ApiError, databaseError } from "../shared/errors.ts";
 import {
-  batch,
   decimal,
   instant,
-  romeDate,
-  rows,
-  statement,
   systemClock,
-} from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
-import { requireNotFutureInstant } from "../shared/dates.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
+  wireInstant,
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
 import type { BodyweightRow, RecordedBodyweight } from "./bodyweight.types.ts";
 import { trendSeries } from "./trend.ts";
 
-const measurementColumns =
-  "value_kg / 100.0 AS value_kg, substr(measured_at, 1, 23) || 'Z' AS measured_at, source";
-const columns = `id, ${measurementColumns}`;
+function wireMeasurement(row: BodyweightMeasurement): BodyweightRow {
+  return { ...row, measured_at: wireInstant(row.measured_at) };
+}
 
-export function bodyweightStore(db: Database, clock: Clock = systemClock) {
+export function bodyweightStore(
+  repository: BodyweightRepository,
+  clock: Clock = systemClock
+) {
   async function recordBodyweight(input: {
     valueKg: number;
     measuredAt: string;
@@ -32,69 +36,52 @@ export function bodyweightStore(db: Database, clock: Clock = systemClock) {
     }
     const measuredAt = instant(input.measuredAt);
     requireNotFutureInstant(input.measuredAt, "measured_at", clock().getTime());
-    const value = decimal(valueKg, 5, 2);
-    // The read shares the insertion's transaction. A concurrent delete cannot
-    // turn an ordinary duplicate into a missing readback between statements.
-    const result = await batch<BodyweightRow & { stored_value?: number }>(db, [
-      statement(
-        db,
-        `INSERT INTO bodyweight (value_kg, measured_at, measured_date, source)
-        VALUES (?, ?, ?, ?) ON CONFLICT (measured_at, source) DO NOTHING RETURNING ${columns}`,
-        value,
-        measuredAt,
-        romeDate(measuredAt),
-        source
-      ),
-      statement(
-        db,
-        `SELECT ${columns}, value_kg AS stored_value FROM bodyweight
-        WHERE measured_at = ? AND source = ?`,
-        measuredAt,
-        source
-      ),
-    ]);
-    const inserted = result[0].results;
-    if (inserted.length) {
-      return { row: inserted[0], created: true };
+    decimal(valueKg, 5, 2);
+    try {
+      const result = await repository.save({ valueKg, measuredAt, source });
+      if (result.kind === "missing") {
+        throw new ApiError(
+          404,
+          "The bodyweight measurement could not be read after saving."
+        );
+      }
+      const row = wireMeasurement(result.row);
+      if (result.kind === "conflict") {
+        throw new ApiError(
+          409,
+          `You sent ${valueKg} kg for ${input.measuredAt} (source "${source}"), but ${row.value_kg} kg is already recorded for that instant. A measurement is a fact and should not change — if the recorded value is the mistake, DELETE /bodyweight/${row.id} and re-enter.`
+        );
+      }
+      return { row, created: result.kind === "created" };
+    } catch (error) {
+      // Synchronization counts known refusals here; unknown failures must abort.
+      throw databaseError(error);
     }
-    const { stored_value, ...existing } = requireRow(
-      result[1].results,
-      "The bodyweight measurement could not be read after saving."
-    );
-    if (stored_value === value) {
-      return { row: existing, created: false };
-    }
-    throw new ApiError(
-      409,
-      `You sent ${valueKg} kg for ${input.measuredAt} (source "${source}"), but ${existing.value_kg} kg is already recorded for that instant. A measurement is a fact and should not change — if the recorded value is the mistake, DELETE /bodyweight/${existing.id} and re-enter.`
-    );
   }
 
   async function listBodyweight(): Promise<BodyweightRow[]> {
-    return await rows<BodyweightRow>(
-      db,
-      `SELECT ${columns} FROM bodyweight ORDER BY bodyweight.measured_at, id`
-    );
+    return (await repository.list()).map(wireMeasurement);
   }
+
   async function loadTrend() {
-    return trendSeries(
-      await rows<{ day: string; value_kg: number }>(
-        db,
-        "SELECT day, value_kg FROM daily_bodyweight ORDER BY day"
-      )
-    );
+    return trendSeries(await repository.dailyMeasurements());
   }
+
   async function removeBodyweight(
     id: number
   ): Promise<Omit<BodyweightRow, "id">> {
-    return requireRow(
-      await rows<Omit<BodyweightRow, "id">>(
-        db,
-        `DELETE FROM bodyweight WHERE id = ? RETURNING ${measurementColumns}`,
-        id
-      ),
-      `No bodyweight measurement with id ${id}.`
-    );
+    const row = await repository.remove(id);
+    if (!row) {
+      throw new ApiError(404, `No bodyweight measurement with id ${id}.`);
+    }
+    return {
+      value_kg: row.value_kg,
+      measured_at: wireInstant(row.measured_at),
+      source: row.source,
+    };
   }
+
   return { recordBodyweight, listBodyweight, loadTrend, removeBodyweight };
 }
+
+export type BodyweightService = ReturnType<typeof bodyweightStore>;

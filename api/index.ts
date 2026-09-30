@@ -1,12 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
 import { createMcpRoutes } from "./access/mcp.routes.ts";
-import { tokenStore } from "./access/tokens.ts";
 import { authorizeWebRead } from "./access/web.ts";
 import { bodyfat } from "./body/bodyfat.routes.ts";
 import { bodyweight } from "./body/bodyweight.routes.ts";
 import { createWithingsRoutes } from "./body/withings.routes.ts";
-import { withingsStore } from "./body/withings.ts";
 import type { Bindings, Invocation } from "./environment.ts";
 import {
   days,
@@ -18,11 +16,9 @@ import {
   nutritionTargets,
   nutritionWeekly,
 } from "./nutrition/index.ts";
-import { createServices } from "./services.ts";
+import { createServices, createWithingsService } from "./services.ts";
 import { boundedBody } from "./shared/body.ts";
 import { buildMetadata } from "./shared/build.ts";
-import { rows, systemClock } from "./shared/d1.ts";
-import type { Clock } from "./shared/d1.ts";
 import {
   ApiError,
   errorResponse,
@@ -31,6 +27,8 @@ import {
 } from "./shared/errors.ts";
 import type { Diagnostic } from "./shared/errors.ts";
 import type { AppEnv } from "./shared/services.ts";
+import { systemClock } from "./shared/values.ts";
+import type { Clock } from "./shared/values.ts";
 import { issues } from "./surfaces/index.ts";
 import {
   blocks,
@@ -55,8 +53,8 @@ export function createApplication(
   clock: Clock = systemClock
 ) {
   const services = createServices(env.DB, clock);
-  const tokens = tokenStore(env.DB, clock);
-  const withings = withingsStore(
+  const { tokens } = services;
+  const withings = createWithingsService(
     env.DB,
     {
       clientId: env.WITHINGS_CLIENT_ID,
@@ -112,7 +110,7 @@ export function createApplication(
   // Readiness is read-only. The Cron Trigger, not an external health poll, owns
   // scheduled Withings catch-up. D1 has no interactive query cancellation API.
   app.get("/health", async (c) => {
-    const query = rows(env.DB, "SELECT 1");
+    const query = services.checkReadiness();
     invocation.waitUntil(
       // oxlint-disable-next-line promise/prefer-await-to-then -- Register the read immediately with waitUntil; the response still races the one-second deadline.
       query.catch(() => {

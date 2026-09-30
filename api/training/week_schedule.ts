@@ -1,18 +1,18 @@
+import type { ScheduleRepository } from "../../db/repositories/training/schedule.ts";
 import {
   date,
   instant,
   romeDate,
-  rows,
   systemClock,
   wireInstant,
-} from "../shared/d1.ts";
-import type { Clock, Database } from "../shared/d1.ts";
-import type {
-  WeekScheduleRow,
-  WriteWeekScheduleInput,
-} from "./week_schedule.types.ts";
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
+import type { WriteWeekScheduleInput } from "./week_schedule.types.ts";
 
-export function scheduleStore(db: Database, clock: Clock = systemClock) {
+export function scheduleStore(
+  repository: ScheduleRepository,
+  clock: Clock = systemClock
+) {
   async function writeWeekSchedule(b: WriteWeekScheduleInput) {
     const now = instant(clock().toISOString());
     const today = romeDate(now);
@@ -24,15 +24,7 @@ export function scheduleStore(db: Database, clock: Clock = systemClock) {
       b.week_start === null || b.week_start === undefined
         ? monday
         : date(b.week_start);
-    const [stored] = await rows<WeekScheduleRow>(
-      db,
-      `INSERT INTO week_schedules (week_start, schedule, written_at) VALUES (?, ?, ?)
-       ON CONFLICT(week_start) DO UPDATE SET schedule = excluded.schedule, written_at = excluded.written_at
-       RETURNING week_start, date(week_start, '+6 days') AS week_end, schedule, written_at`,
-      weekStart,
-      b.schedule,
-      now
-    );
+    const [stored] = await repository.save(weekStart, b.schedule, now);
     let note: string | null = null;
     if ((b.week_start === null || b.week_start === undefined) && dow >= 6) {
       day.setUTCDate(day.getUTCDate() + 7);

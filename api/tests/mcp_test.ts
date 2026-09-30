@@ -263,7 +263,7 @@ test("what a client is told before it signs in", async (t) => {
 test("signed connector calls enforce identity and mint usable API tokens", async () => {
   const { BASE } = await import("./helpers.ts");
   const { database } = await import("./d1.ts");
-  const { tokenStore } = await import("../access/tokens.ts");
+  const { createServices } = await import("../services.ts");
   const { createMcpRoutes } = await import("../access/mcp.routes.ts");
   const { forgetJwks } = await import("../access/jwt.ts");
   const issuer = "https://auth.example.test";
@@ -281,7 +281,7 @@ test("signed connector calls enforce identity and mint usable API tokens", async
       allowedSubject: config.ALLOWED_SUBJECT,
       publicOrigin: config.PUBLIC_ORIGIN,
     },
-    tokenStore(database)
+    createServices(database).tokens
   );
   const { fetch } = globalThis;
   const pair = await crypto.subtle.generateKey(

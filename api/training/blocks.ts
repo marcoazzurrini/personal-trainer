@@ -1,20 +1,14 @@
-import { date, requestId, rows } from "../shared/d1.ts";
-import type { Database } from "../shared/d1.ts";
+import type { BlocksRepository } from "../../db/repositories/training/blocks.ts";
 import { requireRow } from "../shared/errors.ts";
+import { date, requestId } from "../shared/values.ts";
 import type { BlockRow, OpenBlockInput } from "./blocks.types.ts";
 
-const columns = "id, name, goal, started_on, ended_on";
-
-export function blockStore(db: Database) {
+export function blockStore(repository: BlocksRepository) {
   async function listBlocks(): Promise<BlockRow[]> {
-    return await rows(db, `SELECT ${columns} FROM blocks ORDER BY started_on`);
+    return await repository.list();
   }
   async function replay(uuid: string) {
-    return await rows<BlockRow>(
-      db,
-      `SELECT ${columns} FROM blocks WHERE request_id = ?`,
-      uuid
-    );
+    return await repository.byRequestId(uuid);
   }
   async function openBlock(b: OpenBlockInput) {
     const uuid = requestId(b.request_id);
@@ -22,16 +16,16 @@ export function blockStore(db: Database) {
     if (seen) {
       return { row: seen, created: false };
     }
-    const [written] = await rows<BlockRow>(
-      db,
-      `INSERT INTO blocks (name, goal, started_on, ended_on, request_id)
-       VALUES (?, ?, ?, ?, ?) ON CONFLICT(request_id) DO NOTHING RETURNING ${columns}`,
-      b.name,
-      b.goal,
-      date(b.started_on),
-      b.ended_on === null || b.ended_on === undefined ? null : date(b.ended_on),
-      uuid
-    );
+    const [written] = await repository.insert({
+      name: b.name,
+      goal: b.goal,
+      started_on: date(b.started_on),
+      ended_on:
+        b.ended_on === null || b.ended_on === undefined
+          ? null
+          : date(b.ended_on),
+      request_id: uuid,
+    });
     return {
       row:
         written ??
@@ -44,3 +38,5 @@ export function blockStore(db: Database) {
   }
   return { listBlocks, openBlock };
 }
+
+export type BlockStore = ReturnType<typeof blockStore>;

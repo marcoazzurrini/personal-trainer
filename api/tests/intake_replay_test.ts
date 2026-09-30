@@ -1,6 +1,6 @@
 import { test } from "node:test";
 
-import { intakeStore } from "../nutrition/intake.ts";
+import { createServices } from "../services.ts";
 import { assertEquals } from "./assertions.ts";
 import d1, { database } from "./d1.ts";
 import { api, resetNutrition, uuid } from "./helpers.ts";
@@ -40,7 +40,7 @@ test("logIntake replays the stored meal day across Rome midnight", async () => {
   // An injected clock controls calendar decisions; storage remains real D1.
   const db = d1();
   let now = new Date("2026-01-01T22:59:59Z");
-  const { logIntake } = intakeStore(database, () => now);
+  const { logIntake } = createServices(database, () => now).intake;
   try {
     const request_id = uuid();
     const first = await logIntake({ meal: "Midnight meal", request_id });

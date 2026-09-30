@@ -1,6 +1,6 @@
-import { withingsStore } from "./body/withings.ts";
 import type { Bindings, Invocation } from "./environment.ts";
 import { handleRequest } from "./index.ts";
+import { createWithingsService } from "./services.ts";
 
 export default {
   fetch(request: Request, env: Bindings, ctx: Invocation): Promise<Response> {
@@ -12,7 +12,7 @@ export default {
     env: Bindings,
     ctx: Invocation
   ): void {
-    const withings = withingsStore(env.DB, {
+    const withings = createWithingsService(env.DB, {
       clientId: env.WITHINGS_CLIENT_ID,
       clientSecret: env.WITHINGS_CLIENT_SECRET,
       apiBase: env.WITHINGS_API_BASE,

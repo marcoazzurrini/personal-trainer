@@ -1,60 +1,39 @@
-// Session persistence uses atomic D1 batches with optimistic version checks.
+import type {
+  Header,
+  SetSnapshot,
+  SessionSnapshot,
+  WriteFields,
+} from "../../db/contracts/training.ts";
+import type { SessionsRepository } from "../../db/repositories/training/sessions.ts";
+import { ApiError, requireRow } from "../shared/errors.ts";
 import {
-  batch,
   date,
   decimal,
   instant,
-  jsonChunks,
   requestId,
-  rows,
-  statement,
   systemClock,
   wireInstant,
-} from "../shared/d1.ts";
-import type { Clock, Database, Result } from "../shared/d1.ts";
-import { ApiError, requireRow } from "../shared/errors.ts";
-import { trainingResolver } from "./resolve.ts";
-import type { SetResolver } from "./resolve.ts";
+} from "../shared/values.ts";
+import type { Clock } from "../shared/values.ts";
+import type { trainingResolver, SetResolver } from "./resolve.ts";
 import { assertEffort, assertSetMeasures } from "./rules.ts";
-import {
-  affectedRows,
-  finishWrite,
-  retrySessionWrite,
-  sessionVersion,
-} from "./session_write.ts";
+import { retrySessionWrite } from "./session_write.ts";
 import type {
   AppendedSetRow,
   CorrectSessionInput,
   SessionDetailRow,
   SessionHeaderRow,
-  SessionSetRow,
   SetEntry,
   WriteSessionInput,
 } from "./sessions.types.ts";
-import { ACTUAL_FIELDS, prepareSetCorrection } from "./set_correction.ts";
+import { prepareSetCorrection } from "./set_correction.ts";
 import type { CorrectSetInput } from "./set_correction.ts";
 import type { SetRow } from "./sets.types.ts";
 
-type Header = SessionHeaderRow & { write_version: number };
-type SetSnapshot = SessionSetRow & {
-  session_id: number;
-  stimulus_type: string;
-  request_id: string | null;
-};
 interface Snapshot {
   header: Header;
   sets: SetSnapshot[];
 }
-
-const headerColumns =
-  "id, date, rationale, notes, overall_feel, started_at, completed_at, write_version";
-const setColumns = `t.id, t.session_id, e.name AS exercise, t.exercise_id, e.measure, e.stimulus_type,
-  t.mesocycle_id, t.position, t.kind,
-  t.target_weight_kg / 100.0 AS target_weight_kg, t.target_reps,
-  t.target_distance_m / 10.0 AS target_distance_m, t.target_duration_s / 100.0 AS target_duration_s,
-  t.weight_kg / 100.0 AS weight_kg, t.reps,
-  t.distance_m / 10.0 AS distance_m, t.duration_s / 100.0 AS duration_s,
-  t.effort, t.performed_at, t.notes, t.request_id`;
 const sessionFields = [
   "notes",
   "overall_feel",
@@ -62,75 +41,37 @@ const sessionFields = [
   "started_at",
   "completed_at",
 ] as const;
-const scales = {
-  weight_kg: [6, 2],
-  target_weight_kg: [6, 2],
-  distance_m: [7, 1],
-  target_distance_m: [7, 1],
-  duration_s: [8, 2],
-  target_duration_s: [8, 2],
-} as const;
-
-function scaledField(field: string): field is keyof typeof scales {
-  return Object.hasOwn(scales, field);
-}
-const insertSetFields = [
-  "exercise_id",
-  "mesocycle_id",
-  "kind",
-  "target_weight_kg",
-  "target_reps",
-  "target_distance_m",
-  "target_duration_s",
-  "weight_kg",
-  "reps",
-  "distance_m",
-  "duration_s",
-  "effort",
-  "performed_at",
-  "notes",
-] as const;
-
-type WriteFields = Partial<
-  Pick<SessionSetRow, (typeof insertSetFields)[number]> &
-    Pick<SessionHeaderRow, (typeof sessionFields)[number]> & {
-      expected_measure: string;
-      expected_stimulus_type: string;
+/** Validate API values without turning decimal measurements into stored integers. */
+function validatedFields(fields: WriteFields): WriteFields {
+  const measures = [
+    ["weight_kg", 6, 2],
+    ["target_weight_kg", 6, 2],
+    ["distance_m", 7, 1],
+    ["target_distance_m", 7, 1],
+    ["duration_s", 8, 2],
+    ["target_duration_s", 8, 2],
+  ] as const;
+  for (const [field, precision, scale] of measures) {
+    const value = fields[field];
+    if (value !== undefined) {
+      decimal(value, precision, scale);
     }
->;
-
-function stored(fields: WriteFields): WriteFields {
-  return Object.fromEntries(
-    Object.entries(fields).map(([field, value]) => {
-      if (value === null) {
-        return [field, null];
-      }
-      if (scaledField(field)) {
-        const [precision, scale] = scales[field];
-        // SAFETY: scaled keys in WriteFields hold numbers or null; null returned above and callers omit undefined fields.
-        return [field, decimal(value as number, precision, scale)];
-      }
-      if (
-        field === "performed_at" ||
-        field === "started_at" ||
-        field === "completed_at"
-      ) {
-        // SAFETY: timestamp keys in WriteFields hold strings or null; null returned above and callers omit undefined fields.
-        return [field, instant(value as string)];
-      }
-      return [field, value];
-    })
-  );
+  }
+  const normalized = { ...fields };
+  for (const field of ["performed_at", "started_at", "completed_at"] as const) {
+    const value = fields[field];
+    if (value !== undefined && value !== null) {
+      normalized[field] = instant(value);
+    }
+  }
+  return normalized;
 }
 
-type SessionRead = Header | SetSnapshot;
-
-function snapshot(result: Result<SessionRead>[], id: number): Snapshot {
-  // SAFETY: readStatements and the write readbacks put the session header SELECT first.
-  const headers = result[0].results as Header[];
-  // SAFETY: the second readback SELECT uses setColumns and joins exercises.
-  const sets = result[1].results as SetSnapshot[];
-  return { header: requireRow(headers, `No session with id ${id}.`), sets };
+function snapshot(current: SessionSnapshot, id: number): Snapshot {
+  return {
+    header: requireRow(current.headers, `No session with id ${id}.`),
+    sets: current.sets,
+  };
 }
 function detail(current: Snapshot): SessionDetailRow {
   const { write_version: _version, ...header } = current.header;
@@ -166,22 +107,13 @@ function appended(set: SetSnapshot): AppendedSetRow {
   } = set;
   return { ...publicSet, performed_at: wireInstant(publicSet.performed_at) };
 }
-function readStatements(db: Database, id: number) {
-  return [
-    statement(db, `SELECT ${headerColumns} FROM sessions WHERE id = ?`, id),
-    statement(
-      db,
-      `SELECT ${setColumns} FROM sets t JOIN exercises e ON e.id = t.exercise_id
-      WHERE t.session_id = ? ORDER BY t.position`,
-      id
-    ),
-  ];
-}
-
-export function sessionStore(db: Database, clock: Clock = systemClock) {
-  const resolver = trainingResolver(db);
+export function sessionStore(
+  repository: SessionsRepository,
+  resolver: ReturnType<typeof trainingResolver>,
+  clock: Clock = systemClock
+) {
   async function read(id: number): Promise<Snapshot> {
-    return snapshot(await db.batch<SessionRead>(readStatements(db, id)), id);
+    return snapshot(await repository.read(id), id);
   }
   async function sessionDetail(id: number): Promise<SessionDetailRow> {
     return detail(await read(id));
@@ -193,15 +125,7 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
     const id = mesocycle
       ? (await resolver.resolveMesocycle(mesocycle)).id
       : null;
-    const found = await rows<SessionHeaderRow>(
-      db,
-      `SELECT id, date, rationale, notes, overall_feel, started_at, completed_at
-      FROM sessions s WHERE (? IS NULL OR EXISTS (SELECT 1 FROM sets t WHERE t.session_id = s.id AND t.mesocycle_id = ?))
-      ORDER BY date DESC, id DESC LIMIT ?`,
-      id,
-      id,
-      limit
-    );
+    const found = await repository.list(limit, id);
     return found.map((row) => ({
       ...row,
       started_at: wireInstant(row.started_at),
@@ -271,7 +195,7 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
         );
         forExercise.set(s.mesocycle, mesocycleId);
       }
-      return stored({
+      return validatedFields({
         exercise_id: exercise.id,
         // Recheck the identity used for validation inside the write batch.
         // A registry edit must not race the first set logged for an exercise.
@@ -298,11 +222,7 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
     b: WriteSessionInput
   ): Promise<{ session: SessionDetailRow; created: boolean }> {
     const uuid = requestId(b.request_id);
-    const [seen] = await rows<{ id: number }>(
-      db,
-      "SELECT id FROM sessions WHERE request_id = ?",
-      uuid
-    );
+    const [seen] = await repository.findRequest(uuid);
     if (seen) {
       return { session: await sessionDetail(seen.id), created: false };
     }
@@ -313,51 +233,14 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
     }
     // Parent lookup uses the unique request id, not last_insert_rowid(), which
     // is fragile in multi-statement batches containing trigger writes.
-    const result = await batch<SessionRead>(db, [
-      statement(db, "INSERT INTO api_write_assertions (id) VALUES (1)"),
-      statement(
-        db,
-        "INSERT INTO sessions (date, rationale, request_id) VALUES (?, ?, ?)",
-        date(b.date),
-        b.rationale,
-        uuid
-      ),
-      affectedRows(db, 1),
-      ...jsonChunks(sets).flatMap((chunk) => [
-        statement(
-          db,
-          `INSERT INTO sets (session_id, position, ${insertSetFields.join(
-            ", "
-          )})
-          SELECT s.id, CAST(v.key AS INTEGER) + ?, ${insertSetFields
-            .map((field) => `json_extract(v.value, '$.${field}')`)
-            .join(", ")}
-          FROM json_each(?) v CROSS JOIN sessions s
-          JOIN exercises e ON e.id = json_extract(v.value, '$.exercise_id')
-            AND e.measure = json_extract(v.value, '$.expected_measure')
-            AND e.stimulus_type = json_extract(v.value, '$.expected_stimulus_type')
-          WHERE s.request_id = ?`,
-          chunk.offset + 1,
-          chunk.json,
-          uuid
-        ),
-        affectedRows(db, chunk.count),
-      ]),
-      statement(
-        db,
-        `SELECT ${headerColumns} FROM sessions WHERE request_id = ?`,
-        uuid
-      ),
-      statement(
-        db,
-        `SELECT ${setColumns} FROM sets t JOIN exercises e ON e.id = t.exercise_id
-        JOIN sessions s ON s.id = t.session_id WHERE s.request_id = ? ORDER BY t.position`,
-        uuid
-      ),
-      finishWrite(db),
-    ]);
+    const result = await repository.create({
+      date: date(b.date),
+      rationale: b.rationale,
+      request_id: uuid,
+      sets,
+    });
     return {
-      session: detail(snapshot(result.slice(-3, -1), 0)),
+      session: detail(snapshot(result, 0)),
       created: true,
     };
   }
@@ -395,42 +278,15 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
         );
       }
       set.performed_at ??= instant(clock().toISOString());
-      const fields = insertSetFields.filter(
-        (field) => !field.startsWith("target_")
+      const result = await repository.append(
+        id,
+        current.header.write_version,
+        uuid,
+        set
       );
-      const result = await db.batch<SetSnapshot>([
-        sessionVersion(db, id, current.header.write_version),
-        statement(
-          db,
-          `INSERT INTO sets (session_id, position, request_id, ${fields.join(
-            ", "
-          )})
-          SELECT ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM sets WHERE session_id = ?), ?,
-            ${fields
-              .map((field) => `json_extract(v.fields, '$.${field}')`)
-              .join(", ")}
-          FROM (SELECT ? AS fields) v
-          JOIN exercises e ON e.id = json_extract(v.fields, '$.exercise_id')
-            AND e.measure = json_extract(v.fields, '$.expected_measure')
-            AND e.stimulus_type = json_extract(v.fields, '$.expected_stimulus_type')`,
-          id,
-          id,
-          uuid,
-          JSON.stringify(set)
-        ),
-        affectedRows(db, 1),
-        statement(
-          db,
-          `SELECT ${setColumns} FROM sets t JOIN exercises e ON e.id = t.exercise_id
-          WHERE t.session_id = ? AND t.request_id = ?`,
-          id,
-          uuid
-        ),
-        finishWrite(db),
-      ]);
       return {
         set: appended(
-          requireRow(result[3].results, "The appended set could not be read.")
+          requireRow(result, "The appended set could not be read.")
         ),
         created: true,
       };
@@ -443,7 +299,7 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
   ): Promise<SessionDetailRow> {
     return await retrySessionWrite(id, async () => {
       const current = await read(id);
-      const facts = stored(
+      const facts = validatedFields(
         Object.fromEntries(
           sessionFields
             .filter((field) => b[field] !== undefined)
@@ -480,43 +336,16 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
         }
         return {
           id: entry.id,
-          fields: stored(prepareSetCorrection(was, entry, stamp)),
+          fields: validatedFields(prepareSetCorrection(was, entry, stamp)),
         };
       });
-      const result = await db.batch<SessionRead>([
-        sessionVersion(db, id, current.header.write_version),
-        ...jsonChunks(changes).flatMap((chunk) => [
-          statement(
-            db,
-            `UPDATE sets AS t SET ${ACTUAL_FIELDS.map(
-              (field) =>
-                `${field} = CASE
-            WHEN json_type(v.value, '$.fields.${field}') IS NOT NULL THEN json_extract(v.value, '$.fields.${field}') ELSE t.${field} END`
-            ).join(", ")}
-            FROM json_each(?) v WHERE t.id = json_extract(v.value, '$.id') AND t.session_id = ?`,
-            chunk.json,
-            id
-          ),
-          affectedRows(db, chunk.count),
-        ]),
-        statement(
-          db,
-          `UPDATE sessions SET ${sessionFields
-            .map(
-              (field) =>
-                `${field} = CASE
-          WHEN json_type(v.fields, '$.${field}') IS NOT NULL THEN json_extract(v.fields, '$.${field}') ELSE sessions.${field} END`
-            )
-            .join(", ")}
-          FROM (SELECT ? AS fields) v WHERE sessions.id = ?`,
-          JSON.stringify(facts),
-          id
-        ),
-        affectedRows(db, 1),
-        ...readStatements(db, id),
-        finishWrite(db),
-      ]);
-      return detail(snapshot(result.slice(-3, -1), id));
+      const result = await repository.correct(
+        id,
+        current.header.write_version,
+        facts,
+        changes
+      );
+      return detail(snapshot(result, id));
     });
   }
 
@@ -525,11 +354,7 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
     input: CorrectSetInput
   ): Promise<SetRow> {
     const owner = requireRow(
-      await rows<{ session_id: number }>(
-        db,
-        "SELECT session_id FROM sets WHERE id = ?",
-        setId
-      ),
+      await repository.owner(setId),
       `No set with id ${setId}.`
     );
     try {
@@ -580,14 +405,7 @@ export function sessionStore(db: Database, clock: Clock = systemClock) {
           `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`
         );
       }
-      await db.batch([
-        sessionVersion(db, id, current.header.write_version),
-        statement(db, "DELETE FROM sets WHERE session_id = ?", id),
-        affectedRows(db, total),
-        statement(db, "DELETE FROM sessions WHERE id = ?", id),
-        affectedRows(db, 1),
-        finishWrite(db),
-      ]);
+      await repository.discard(id, current.header.write_version, total);
       return { id, date: current.header.date, sets: total };
     });
   }

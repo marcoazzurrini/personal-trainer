@@ -1,12 +1,16 @@
-import { caseKey, jsonChunks, rows, statement } from "../shared/d1.ts";
-import type { Clock, Database, Parameter } from "../shared/d1.ts";
-import { ApiError } from "../shared/errors.ts";
-import type { Namespace } from "../shared/resolve.ts";
+import type { ResolveRepository } from "../../db/repositories/nutrition/resolve.ts";
+import { databaseError, ApiError } from "../shared/errors.ts";
+import { caseKey } from "../shared/values.ts";
 
-const FOODS: Namespace = {
-  table: "foods",
-  aliasTable: "food_aliases",
-  foreignKey: "food_id",
+interface ResolutionMessages {
+  what: "food" | "meal";
+  route: string;
+  noSuchId: (id: number) => string;
+  unknownName: (name: string) => string;
+  missingRef: string;
+}
+
+const FOODS: ResolutionMessages = {
   noSuchId: (ref) =>
     `No food with id ${ref}. GET /foods?q=<search> lists them.`,
   unknownName: (name) =>
@@ -16,10 +20,7 @@ const FOODS: Namespace = {
   route: "/foods",
 };
 
-const MEALS: Namespace = {
-  table: "meals",
-  aliasTable: "meal_aliases",
-  foreignKey: "meal_id",
+const MEALS: ResolutionMessages = {
   noSuchId: (ref) => `No meal with id ${ref}. GET /meals lists them.`,
   unknownName: (name) =>
     `Unknown meal "${name}". GET /meals lists what exists — use the id, canonical name, or an alias. A meal that has become a routine is saved with POST /meals. A one-off variation on a saved meal is not a new meal — log the meal and log the difference as a separate entry.`,
@@ -28,63 +29,32 @@ const MEALS: Namespace = {
   route: "/meals",
 };
 
-// These statements belong to the same atomic batch as the guarded write.
-export const beginNutritionWrite = (db: Database) =>
-  statement(db, "INSERT INTO nutrition_write_assertions (id) VALUES (1)");
-export const finishNutritionWrite = (db: Database) =>
-  statement(db, "DELETE FROM nutrition_write_assertions WHERE id = 1");
-export const nutritionRows = (db: Database, count: number) =>
-  statement(
-    db,
-    "UPDATE nutrition_write_assertions SET valid = (changes() = ?) WHERE id = 1",
-    count
-  );
-export const nutritionCheck = (
-  db: Database,
-  predicate: string,
-  ...values: Parameter[]
-) =>
-  statement(
-    db,
-    `UPDATE nutrition_write_assertions SET valid = (${predicate}) WHERE id = 1`,
-    ...values
-  );
-
-export function nutritionResolver(db: Database, _clock?: Clock) {
+export function nutritionResolver(repository: ResolveRepository) {
   async function resolveMany(
-    ns: Namespace,
+    ns: ResolutionMessages,
     refs: readonly unknown[]
   ): Promise<number[]> {
     const result = new Map<number, number>();
-    for (const chunk of jsonChunks(
-      refs.map((ref, index) => ({
-        index,
-        // eslint-disable-next-line anti-slop/no-runtime-typeof -- Reference parser accepts integer ids and must reject other JSON values without coercion.
-        id: typeof ref === "number" && Number.isInteger(ref) ? ref : null,
-        // eslint-disable-next-line anti-slop/no-runtime-typeof -- Only string references may be trimmed and normalized as names.
-        name: typeof ref === "string" ? caseKey(ref.trim()) : null,
-        fallback:
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Numeric strings fall back to ids only after the name and alias lookup.
-          typeof ref === "string" && /^\d+$/u.test(ref.trim())
-            ? Number(ref.trim())
-            : null,
-      }))
-    )) {
-      const found = await rows<{ position: number; id: number | null }>(
-        db,
-        `
-        SELECT json_extract(v.value, '$.index') AS position, coalesce(
-          (SELECT id FROM ${ns.table} WHERE id = json_extract(v.value, '$.id')),
-          (SELECT id FROM ${ns.table} WHERE name_key = json_extract(v.value, '$.name') AND json_extract(v.value, '$.name') <> ''),
-          (SELECT ${ns.foreignKey} FROM ${ns.aliasTable} WHERE alias_key = json_extract(v.value, '$.name') AND json_extract(v.value, '$.name') <> ''),
-          (SELECT id FROM ${ns.table} WHERE id = json_extract(v.value, '$.fallback'))
-        ) AS id FROM json_each(?) v`,
-        chunk.json
-      );
-      for (const row of found) {
-        if (row.id !== null) {
-          result.set(row.position, row.id);
-        }
+    const lookups = refs.map((ref, index) => ({
+      index,
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- Reference parser accepts integer ids and must reject other JSON values without coercion.
+      id: typeof ref === "number" && Number.isInteger(ref) ? ref : null,
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- Only string references may be trimmed and normalized as names.
+      name: typeof ref === "string" ? caseKey(ref.trim()) : null,
+      fallback:
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Numeric strings fall back to ids only after the name and alias lookup.
+        typeof ref === "string" && /^\d+$/u.test(ref.trim())
+          ? Number(ref.trim())
+          : null,
+    }));
+    const found = await repository
+      .resolve(ns.what === "food" ? "food" : "meal", lookups)
+      .catch((error) => {
+        throw databaseError(error);
+      });
+    for (const row of found) {
+      if (row.id !== null) {
+        result.set(row.position, row.id);
       }
     }
     return refs.map((ref, index) => {
@@ -106,20 +76,17 @@ export function nutritionResolver(db: Database, _clock?: Clock) {
       throw new ApiError(422, ns.missingRef);
     });
   }
-  async function aliasesFree(ns: Namespace, aliases: readonly string[]) {
-    const taken: { alias: string; id: number; name: string }[] = [];
-    for (const chunk of jsonChunks([
-      ...new Set(aliases.map((a) => caseKey(a.trim()))),
-    ])) {
-      taken.push(
-        ...(await rows<{ alias: string; id: number; name: string }>(
-          db,
-          `SELECT a.alias, e.id, e.name FROM ${ns.aliasTable} a JOIN ${ns.table} e ON e.id = a.${ns.foreignKey}
-         WHERE a.alias_key IN (SELECT value FROM json_each(?)) ORDER BY a.alias`,
-          chunk.json
-        ))
-      );
-    }
+  async function aliasesFree(
+    ns: ResolutionMessages,
+    aliases: readonly string[]
+  ) {
+    const taken = await repository
+      .takenAliases(ns.what === "food" ? "food" : "meal", [
+        ...new Set(aliases.map((a) => caseKey(a.trim()))),
+      ])
+      .catch((error) => {
+        throw databaseError(error);
+      });
     if (!taken.length) {
       return;
     }
@@ -160,3 +127,5 @@ export function nutritionResolver(db: Database, _clock?: Clock) {
       aliasesFree(MEALS, aliases),
   };
 }
+
+export type NutritionResolver = ReturnType<typeof nutritionResolver>;

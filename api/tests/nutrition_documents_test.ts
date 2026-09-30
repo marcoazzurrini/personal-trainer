@@ -43,8 +43,6 @@ test("nutrition documents agree with food identity, corrections and target stora
   assertStringIncludes(ref, "No protein-only persisted target");
   const operation = await readFile("api/nutrition/targets.ts", "utf-8");
   const refusal = operation.indexOf("if (expenditure.tdee_kcal === null)");
-  const write = operation
-    .toLowerCase()
-    .indexOf("insert into nutrition_targets");
+  const write = operation.indexOf("await repository.save(");
   assert(refusal !== -1 && write !== -1 && refusal < write);
 });

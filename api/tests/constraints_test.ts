@@ -19,9 +19,9 @@ test("every named constraint exists in the database", async () => {
     const rows =
       await db`select name, sql from sqlite_schema where sql is not null`;
     const schema = rows.map((r) => `${r.name} ${r.sql}`).join("\n");
-    // SQLite reports UNIQUE failures by column; the D1 adapter maps those
-    // physical constraints to the same public names as the original API.
-    const adapter = await readFile("api/shared/d1.ts", "utf-8");
+    // SQLite reports UNIQUE failures by column; the API error boundary maps
+    // those physical constraints to the same public names as the original API.
+    const adapter = await readFile("api/shared/errors.ts", "utf-8");
     for (const name of Object.keys(constraintMessages)) {
       assert(
         schema.includes(name) || adapter.includes(`"${name}"`),
