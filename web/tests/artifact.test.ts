@@ -94,6 +94,10 @@ it("keeps the Vite compiler on Node when Bun runs the builder", async () => {
     join(directory, "scripts/source-revision.ts")
   );
   await writeFile(
+    join(web, "node_modules/vite/package.json"),
+    JSON.stringify({ name: "vite" })
+  );
+  await writeFile(
     join(web, "node_modules/vite/bin/vite.js"),
     `if (process.versions.bun) throw new Error("Vite must run on Node");
 const fs = require("node:fs");

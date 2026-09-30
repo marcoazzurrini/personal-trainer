@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import nodePath from "node:path";
 
 import { sourceRevision } from "../../scripts/source-revision.ts";
@@ -72,8 +73,15 @@ export async function buildDashboard(): Promise<DashboardBuild> {
   } else {
     env.BUILD_REVISION = revision;
   }
+  // Resolve workspace dependencies whether Bun nests or hoists them.
+  const vite = resolve(
+    nodePath.dirname(
+      createRequire(import.meta.url).resolve("vite/package.json")
+    ),
+    "bin/vite.js"
+  );
   // Bun owns this script; Vite and Nitro keep their supported Node runtime.
-  execFileSync("node", ["node_modules/vite/bin/vite.js", "build"], {
+  execFileSync("node", [vite, "build"], {
     cwd: root,
     env,
     stdio: "inherit",

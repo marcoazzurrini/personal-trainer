@@ -8,6 +8,30 @@ CI runs the release gate in
 Dated implementation results below are historical evidence, not a description
 of the current hosting platform or proof that a later revision passed.
 
+## Workspace CLI resolution (30 September 2026)
+
+The first release attempt for `a7d1de8` passed API, D1 and root checks but stopped
+at the dashboard build. Bun hoisted Vite outside `web/node_modules`, while the
+builder assumed that nested directory existed. The deployment job was skipped;
+both public Workers still identified the previous release.
+
+The dashboard builder and Worker test fixture now resolve their installed CLI
+packages through Node module resolution. A small Node development launcher keeps
+explicit `.env` loading separate from the production builder. Regression tests
+exercise nested and hoisted Vite layouts, require the compiler to run on Node,
+verify artifact stamping and reject dotenv loading during builds.
+
+Local verification passed: root and dashboard types, Ultracite, **56 Vitest
+tests**, **14 browser tests**, **3 built-Worker tests**, **21 tooling tests**,
+the production dashboard build and `git diff --check`. An isolated working-source
+copy also passed a frozen workspace installation with lifecycle scripts enabled,
+a clean dashboard build, types, all 56 Vitest tests and the three workerd tests.
+The copy used a temporary Git checkout and clean child environment, not local
+secret files or existing `node_modules`. Temporary source and output were removed.
+
+This follow-up changes tooling, not the API, SQL migrations or database records.
+Deployment success requires a later completed release and public verification.
+
 ## Drizzle persistence boundary (30 September 2026)
 
 The database module now owns the Drizzle D1 client, schema mappings, repositories,

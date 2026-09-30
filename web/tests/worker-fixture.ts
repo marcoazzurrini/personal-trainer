@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -23,6 +24,12 @@ export async function workerFixture(vars: Record<string, string> = {}) {
   await writeFile(configPath, JSON.stringify(config));
   await writeFile(path.join(directory, ".dev.vars"), "");
   await writeFile(path.join(directory, ".env"), "");
+  const wrangler = path.resolve(
+    path.dirname(
+      createRequire(import.meta.url).resolve("wrangler/package.json")
+    ),
+    "bin/wrangler.js"
+  );
   const environment = {
     PATH: process.env.PATH,
     HOME: directory,
@@ -45,20 +52,11 @@ export async function workerFixture(vars: Record<string, string> = {}) {
       );
     },
     spawn(args: string[]) {
-      return spawn(
-        "node",
-        [
-          path.resolve("node_modules/wrangler/bin/wrangler.js"),
-          ...args,
-          "--config",
-          configPath,
-        ],
-        {
-          cwd: directory,
-          env: environment,
-          stdio: ["ignore", "pipe", "pipe"],
-        }
-      );
+      return spawn("node", [wrangler, ...args, "--config", configPath], {
+        cwd: directory,
+        env: environment,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
     },
     async dispose() {
       await rm(directory, { recursive: true, force: true });
