@@ -69,8 +69,9 @@ to remain readable.
 
 ## Local scripts and generated output
 
-The root `scripts/` directory holds four TypeScript files: the API builder,
-API deployment command, shared Git-revision helper and secret scanner. The API
+The root `scripts/` directory holds five TypeScript files: the API builder,
+API deployment command, database backup, shared Git-revision helper and secret
+scanner. The API
 test runner and catalogue fixtures live in `api/tests/`; script tests live in
 `scripts/tests/`. Tests stay with the code they cover, not in a root `tests/`
 directory. Web tooling stays with the web package; D1 tests live in
@@ -132,6 +133,20 @@ into a different, explicitly identified database. A successful download or SQL
 parse is not a restore drill. Verify foreign keys, record counts, identity
 allocation, representative API reads and the derived views before trusting the
 recovery path.
+
+`bun run backup` writes that portable export off the Cloudflare account. It
+requires `TRAINER_BACKUP_DIR`, an absolute directory outside the repository,
+and uses the operator's Wrangler login. Each export is restored into an
+in-memory SQLite database before it is kept: the file must load, pass the
+integrity and foreign-key checks, answer every view and hold rows in the core
+training, nutrition and bodyweight tables. A refused export is deleted. A kept
+export is owner-only, with a SHA-256 file beside it. This proves the file is a
+restorable record; it does not run the API against the copy.
+
+On Marco's Mac a launchd agent runs the backup weekly from the main checkout and
+raises a notification when it fails. The agent lives in the user's
+LaunchAgents, not in this repository; a missed run while the Mac is off happens
+at the next wake. The backups are only as safe as that Mac's own backup.
 
 A portable export contains sensitive records and provider credentials. Keep
 backup storage private, use an explicit retention policy and confirm that

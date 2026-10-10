@@ -16,6 +16,7 @@
     "check:style": "ultracite check",
     "fix": "ultracite fix",
     "secrets": "bun --no-env-file scripts/secrets.ts",
+    "backup": "bun --no-env-file scripts/backup.ts",
     "db:generate": "bun --no-env-file node_modules/drizzle-kit/bin.cjs generate --config db/drizzle.config.ts",
     "db:check": "bun --no-env-file node_modules/drizzle-kit/bin.cjs check --config db/drizzle.config.ts",
     "db:migrate:local": "wrangler d1 migrations apply personal-trainer --local",

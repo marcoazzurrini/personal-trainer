@@ -8,6 +8,19 @@ CI runs the release gate in
 Dated implementation results below are historical evidence, not a description
 of the current hosting platform or proof that a later revision passed.
 
+## Off-account backup (10 October 2026)
+
+`bun run backup` exports the production D1 record to a private directory outside
+the repository and restores it into in-memory SQLite before keeping it (#64).
+Tooling tests cover destination refusals and the restore checks: dangling
+foreign keys, empty core tables, broken views and unloadable SQL.
+
+The first real run exported 684 KB and passed every check. It also caught a
+wrong assumption: production's `users` table is empty by design, so the core
+tables are training, nutrition and bodyweight. The SHA-256 file verified.
+No production data was written; the export reads the database. #64's alerting,
+failed-migration and timed API-restore items were not built.
+
 ## Workspace CLI resolution (30 September 2026)
 
 The first release attempt for `a7d1de8` passed API, D1 and root checks but stopped
