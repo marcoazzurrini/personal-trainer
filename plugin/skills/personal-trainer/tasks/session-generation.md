@@ -93,8 +93,11 @@ session before anything else:
 - Working sets came back `hard` → the scheme is on track. Apply it: under double
   progression, one more rep at the same weight, or the smallest jump and back to the
   bottom of the range if the top was reached on every set.
-- Working sets came back `failure` repeatedly → back off. Either the weight is too heavy
-  or fatigue has accumulated; both are answered by asking for less today, not more.
+- Working sets came back `failure` → read the numbers before the chip. Reps or load still
+  rising at failure is progress: apply the scheme as for `hard`, and keep failure where the
+  method document allows it, such as a two-set curl. Repeated failure with reps and load
+  flat or falling is the signal to back off. Either the weight is too heavy or fatigue has
+  accumulated; both are answered by asking for less today, not more.
 
 In doubt, repeat last session's numbers rather than guessing upward. A repeated session is
 a small loss; a session that cannot be completed as asked corrupts both the effort record

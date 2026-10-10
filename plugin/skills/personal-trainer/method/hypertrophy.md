@@ -16,7 +16,7 @@ deviating.
 | Variable                    | Default                                                       |
 | --------------------------- | ------------------------------------------------------------- |
 | Weekly sets per muscle      | 8–12 for a priority muscle, lower for secondary (fractional)  |
-| Effort per working set      | `hard` (1–3 RIR); `failure` occasionally, never as the norm   |
+| Effort per working set      | `hard` (1–3 RIR) on compounds; `failure` fine on small lifts  |
 | Rep ranges                  | Compounds 5–10 · machines/cables 8–15 · isolation 10–20       |
 | Rest                        | 2–3 min compounds, 1–2 min isolation; don't measure it        |
 | Sets per exercise/session   | 3–5                                                           |
@@ -76,9 +76,16 @@ The three effort chips:
 
 - `easy` — 4+ reps left. Too light to buy much. A programming error, not a fact about the person.
 - `hard` — roughly 1–3 reps left. Where the large majority of hypertrophy sets belong.
-- `failure` — nothing left, or the last rep broke down. Effective but costly: it degrades
-  every set that follows.
-  Occasionally fine; every set of every session is a fatigue problem that surfaces as a stall.
+- `failure` — nothing left, or the last rep broke down. No worse for growth than `hard`,
+  perhaps marginally better. Its price is fatigue: recovery a day or two slower, the
+  session's later sets degraded, and slightly smaller strength gains. It does not stall
+  growth, so never cite it as the reason numbers will stop rising.
+
+That price scales with the exercise, so the place for failure does too. It is cheap, and
+fine as the norm, on isolation and small-muscle work, on an exercise's last set, and on an
+exercise with only one or two working sets. Keep `hard` the default for multi-set
+compounds, heavy free-weight lifts done alone, and anything followed by more quality work
+the same session or within 48 hours; there, do not plan failure on consecutive sets.
 
 Trust the reports unevenly: people judge proximity to failure well when close to it, badly
 when far. `hard` and `failure` are reasonably reliable; `easy` is reliable in the direction
@@ -209,6 +216,12 @@ Kept short so the claims can be re-checked when the evidence moves:
 - Per-session ceiling around 11 fractional sets — Remmert et al., SportRxiv, 2025 (preprint).
 - Proximity to failure, and its asymmetry between size and strength — Robinson et al.,
   *Sports Medicine*, 2024 (exploratory meta-regression; estimated RIR).
+- Failure versus stopping short: similar hypertrophy, at most a trivial edge to failure —
+  Refalo et al., *Sports Medicine*, 2022 and Grgic et al., *J Sport Health Sci*, 2021
+  (meta-analyses); Refalo et al., *J Sports Sci*, 2024 (trained lifters, failure versus
+  1–2 RIR). A small strength advantage to stopping short — Davies et al., *Sports
+  Medicine*, 2016 (meta-analysis). Slower recovery after failure sets — Morán-Navarro et
+  al., *Eur J Appl Physiol*, 2017.
 - Ramped versus constant weekly sets in trained lifters — Enes et al., *MSSE*, 2024: clear
   extra strength from ramping, hypertrophy differences non-significant with a possible
   small trend; the 2025 female follow-up (*J Sports Sci*) found greater VL-CSA with
