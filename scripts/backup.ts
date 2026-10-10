@@ -124,7 +124,9 @@ export async function backup(destination: string, now = new Date()) {
       ],
       {
         cwd: root,
-        stdio: "inherit",
+        // Wrangler prints a presigned download link for the whole export on
+        // stdout. Keep it out of terminals and logs; errors still reach stderr.
+        stdio: ["ignore", "ignore", "inherit"],
         env: { ...process.env, WRANGLER_SEND_METRICS: "false" },
       }
     );
