@@ -33,58 +33,10 @@ let proxyAppUrl: string;
 const publicOrigin = "https://dashboard.example.test";
 let providerUrl: string;
 let sign: (subject?: string, expired?: boolean) => Promise<string>;
-let reads = 0;
 let refreshes = 0;
-let failure = false;
-let empty = false;
-let missingTrend = false;
 let output = "";
 const functions: { id: string; name: string }[] = [];
 const fixtures: Awaited<ReturnType<typeof workerFixture>>[] = [];
-const weight = {
-  bodyweight: [
-    {
-      id: 1,
-      value_kg: 80.2,
-      measured_at: "2026-09-01T06:30:00Z",
-      source: "synthetic",
-    },
-    {
-      id: 2,
-      value_kg: 80.8,
-      measured_at: "2026-09-02T06:30:00Z",
-      source: "synthetic",
-    },
-    {
-      id: 3,
-      value_kg: 79.9,
-      measured_at: "2026-09-04T06:30:00Z",
-      source: "synthetic",
-    },
-  ],
-  trend: [
-    { day: "2026-09-01", weight_kg: 80.2, trend_kg: 80.2, interpolated: false },
-    {
-      day: "2026-09-02",
-      weight_kg: 80.8,
-      trend_kg: 80.26,
-      interpolated: false,
-    },
-    {
-      day: "2026-09-03",
-      weight_kg: 80.35,
-      trend_kg: 80.269,
-      interpolated: true,
-    },
-    {
-      day: "2026-09-04",
-      weight_kg: 79.9,
-      trend_kg: 80.2321,
-      interpolated: false,
-    },
-  ],
-};
-
 async function listen(server: Server): Promise<string> {
   const listening = once(server, "listening");
   server.listen(0, "127.0.0.1");
@@ -96,12 +48,10 @@ async function listen(server: Server): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-function dashboardFunction() {
-  const entry = functions.find(
-    (candidate) => candidate.name === "loadDashboard"
-  );
+function sessionFunction() {
+  const entry = functions.find((candidate) => candidate.name === "loadSession");
   if (!entry) {
-    throw new Error("The compiled loadDashboard function is missing.");
+    throw new Error("The compiled loadSession function is missing.");
   }
   return entry;
 }
@@ -136,17 +86,19 @@ async function startApp(origin?: string) {
   const reservation = createServer();
   const url = await listen(reservation);
   await promisify(reservation.close.bind(reservation))();
-  const fixture = await workerFixture({
-    WORKOS_CLIENT_ID: "client_test",
-    WORKOS_API_KEY: "sk_test_synthetic",
-    WORKOS_API_HOSTNAME: "127.0.0.1",
-    WORKOS_API_PORT: new URL(providerUrl).port,
-    WORKOS_API_HTTPS: "false",
-    WORKOS_REDIRECT_URI: `${origin ?? url}/auth/callback`,
-    WORKOS_COOKIE_PASSWORD: password,
-    ALLOWED_SUBJECT: user.id,
-    TRAINER_API_ORIGIN: providerUrl,
-  });
+  const fixture = await workerFixture(
+    {
+      WORKOS_CLIENT_ID: "client_test",
+      WORKOS_API_KEY: "sk_test_synthetic",
+      WORKOS_API_HOSTNAME: "127.0.0.1",
+      WORKOS_API_PORT: new URL(providerUrl).port,
+      WORKOS_API_HTTPS: "false",
+      WORKOS_REDIRECT_URI: `${origin ?? url}/auth/callback`,
+      WORKOS_COOKIE_PASSWORD: password,
+      ALLOWED_SUBJECT: user.id,
+    },
+    { coach: true }
+  );
   fixtures.push(fixture);
   const child = fixture.serve(new URL(url).port);
   child.stdout?.on("data", (chunk) => {
@@ -209,24 +161,6 @@ test.beforeAll(async () => {
         })
       );
     }
-    if (request.url === "/api/bodyweight") {
-      reads += 1;
-      if (!request.headers.authorization?.startsWith("Bearer ")) {
-        response.statusCode = 401;
-        return response.end("{}");
-      }
-      if (failure) {
-        response.statusCode = 503;
-        return response.end('{"error":"private upstream detail"}');
-      }
-      let record = weight;
-      if (empty) {
-        record = { bodyweight: [], trend: [] };
-      } else if (missingTrend) {
-        record = { ...weight, trend: [] };
-      }
-      return response.end(JSON.stringify(record));
-    }
     response.statusCode = 404;
     response.end("{}");
   });
@@ -266,7 +200,7 @@ test.beforeAll(async () => {
       functions.push({ id: match[1], name: match[2] });
     }
   }
-  expect(functions.some((fn) => fn.name === "loadDashboard")).toBe(true);
+  expect(functions.some((fn) => fn.name === "loadSession")).toBe(true);
 });
 
 test.afterAll(async () => {
@@ -282,18 +216,11 @@ test.afterAll(async () => {
   }
 });
 
-test.beforeEach(() => {
-  failure = false;
-  empty = false;
-  missingTrend = false;
-});
-
-test("public health reports uncached build metadata without a session or API read", async ({
+test("public health reports uncached build metadata without a session", async ({
   request,
 }) => {
   // The suite runs against a build made with the same BUILD_REVISION, if any.
   const revision = process.env.BUILD_REVISION ?? null;
-  const before = reads;
   for (const url of [appUrl, proxyAppUrl]) {
     const response = await request.get(`${url}/api/health`);
     expect(response.status()).toBe(200);
@@ -303,14 +230,12 @@ test("public health reports uncached build metadata without a session or API rea
     const refused = await request.post(`${url}/api/health`);
     expect(refused.status()).toBe(405);
   }
-  expect(reads).toBe(before);
 });
 
 test("installation metadata and PT icons are public without reading personal data", async ({
   page,
   request,
 }) => {
-  const before = reads;
   await page.goto(appUrl);
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
     "href",
@@ -329,13 +254,13 @@ test("installation metadata and PT icons are public without reading personal dat
   const manifest = await response.json();
   expect(manifest).toMatchObject({
     id: "/",
-    name: "Personal trainer",
+    name: "Trainer",
     short_name: "PT",
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#f6f5f0",
-    theme_color: "#f6f5f0",
+    background_color: "#09090b",
+    theme_color: "#09090b",
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
@@ -362,10 +287,9 @@ test("installation metadata and PT icons are public without reading personal dat
     }, path);
     expect(dimensions).toEqual([size, size]);
   }
-  expect(reads).toBe(before);
 });
 
-test("client assets contain no server-only configuration or API implementation", async () => {
+test("client assets contain no server-only configuration or coach access", async () => {
   for (const file of await readdir(".output/public/assets")) {
     if (!file.endsWith(".js")) {
       continue;
@@ -378,9 +302,11 @@ test("client assets contain no server-only configuration or API implementation",
       "publicRequest",
       "readBuildRevision",
       "build-revision.txt",
-      "TRAINER_API_ORIGIN",
       "ALLOWED_SUBJECT",
-      "readDashboard",
+      "coachResponse",
+      "trainer-coach.internal",
+      "COACH_AGENT_TOKEN",
+      "ANTHROPIC_API_KEY",
       "DATABASE_URL",
     ]) {
       expect(source, `${file} contains ${forbidden}`).not.toContain(forbidden);
@@ -388,17 +314,15 @@ test("client assets contain no server-only configuration or API implementation",
   }
 });
 
-test("anonymous reads return no personal data and cross-site writes fail", async ({
+test("anonymous visitors reach neither the coach nor personal data, and cross-site writes fail", async ({
   page,
   request,
 }) => {
-  const before = reads;
   const response = await page.goto(appUrl);
   expect(response?.headers()["cache-control"]).toContain("no-store");
   await expect(
     page.getByRole("link", { name: "Sign in", exact: true })
   ).toBeVisible();
-  expect(reads).toBe(before);
   const refused = await request.post(`${appUrl}/auth/sign-out`, {
     headers: {
       origin: "https://other.example.test",
@@ -406,7 +330,7 @@ test("anonymous reads return no personal data and cross-site writes fail", async
     },
   });
   expect(refused.status()).toBe(403);
-  const read = dashboardFunction();
+  const read = sessionFunction();
   const deniedRead = await request.get(`${appUrl}/_serverFn/${read.id}`, {
     headers: {
       origin: "https://other.example.test",
@@ -418,13 +342,19 @@ test("anonymous reads return no personal data and cross-site writes fail", async
     headers: { "sec-fetch-site": "same-origin", "x-tsr-serverFn": "true" },
   });
   expect(await directRead.text()).toContain("signed-out");
-  expect(reads).toBe(before);
+  const coach = await request.get(`${appUrl}/api/coach/chat`);
+  expect(coach.status()).toBe(401);
+  expect(coach.headers()["cache-control"]).toBe("private, no-store");
+  const sent = await request.post(`${appUrl}/api/coach/chat`, {
+    headers: { origin: appUrl },
+    data: { kind: "user", body: "ciao" },
+  });
+  expect(sent.status()).toBe(401);
 });
 
-test("the owner sees real chart data at phone width, without credentials in HTML or RPC responses", async ({
+test("the owner chats with the coach at phone width, without credentials in HTML or RPC responses", async ({
   page,
   context,
-  request,
 }) => {
   const token = await session(context);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -432,33 +362,36 @@ test("the owner sees real chart data at phone width, without credentials in HTML
   page.on("pageerror", (error) => errors.push(error.message));
   const response = await page.goto(appUrl);
   if (!response) {
-    throw new Error("Dashboard navigation did not return a response.");
+    throw new Error("App navigation did not return a response.");
   }
   const html = await response.text();
   expect(html).not.toContain(token);
   expect(html).not.toContain("synthetic-refresh-token");
+  const composer = page.getByRole("textbox", { name: "Message your coach" });
+  await expect(composer).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Weight history" })
+    page.getByRole("button", { name: "I want to train", exact: true })
   ).toBeVisible();
-  await expect(page.locator("svg").first()).toBeVisible();
-  // Configured scale instances retain padding; a factory would infer tight
-  // bounds and clip the highest and lowest measurement against the frame.
-  await expect(page.locator("svg").first()).toContainText("81.0");
-  await page.getByRole("button", { name: "30 days", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "30 days", exact: true })
-  ).toHaveAttribute("aria-pressed", "true");
-  await page.getByText("Measurements in this window", { exact: false }).click();
-  await expect(page.getByRole("table")).toContainText("79.9");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= globalThis.innerWidth
     )
   ).toBe(true);
+  // Without a model key the coach admits the message and then fails the
+  // reply; the thread must say so rather than wait forever.
+  await composer.fill("Ciao, voglio allenarmi");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText("Ciao, voglio allenarmi")).toBeVisible();
+  await expect(
+    page.getByText("The coach could not finish this reply", { exact: false })
+  ).toBeVisible({ timeout: 20_000 });
+  // The conversation is durable: a reload shows the same thread.
+  await page.reload();
+  await expect(page.getByText("Ciao, voglio allenarmi")).toBeVisible();
   // The inventory must include SDK token helpers, and every one must be closed.
   expect(functions.some((fn) => fn.name === "getAuth")).toBe(true);
   for (const fn of functions.filter(
-    (candidate) => candidate.name !== "loadDashboard"
+    (candidate) => candidate.name !== "loadSession"
   )) {
     for (const method of ["GET", "POST"]) {
       const denied = await context.request.fetch(
@@ -476,7 +409,7 @@ test("the owner sees real chart data at phone width, without credentials in HTML
       expect(await denied.text()).not.toContain(token);
     }
   }
-  const read = dashboardFunction();
+  const read = sessionFunction();
   const rpc = await context.request.get(`${appUrl}/_serverFn/${read.id}`, {
     headers: { "sec-fetch-site": "same-origin", "x-tsr-serverFn": "true" },
   });
@@ -485,9 +418,15 @@ test("the owner sees real chart data at phone width, without credentials in HTML
   const payload = await rpc.text();
   expect(payload).toContain("ready");
   expect(payload).not.toContain(token);
-  const beforeRefresh = reads;
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect.poll(() => reads).toBeGreaterThan(beforeRefresh);
+  // The coach's surface is the one conversation and nothing else.
+  for (const path of [
+    "/api/coach/other",
+    "/api/coach/chat/extra",
+    "/api/coach/chat/attachments/../abort",
+  ]) {
+    const outside = await context.request.get(`${appUrl}${path}`);
+    expect(outside.status(), path).toBe(404);
+  }
   expect(errors).toEqual([]);
   expect(
     await page.evaluate(async () => ({
@@ -497,11 +436,9 @@ test("the owner sees real chart data at phone width, without credentials in HTML
       databases: await indexedDB.databases(),
     }))
   ).toEqual({ workers: 0, caches: [], localStorage: 0, databases: [] });
-  await page.screenshot({ path: "/tmp/trainer-dashboard.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/trainer-chat.png", fullPage: true });
   expect(output).not.toContain(token);
   expect(output).not.toContain("synthetic-refresh-token");
-  // No cookie was shared with the request fixture's independent browser context.
-  expect(await (await request.get(appUrl)).text()).not.toContain("79.9");
 });
 
 test("sign-in creates a PKCE verifier and an invalid callback fails closed", async ({
@@ -522,7 +459,7 @@ test("sign-in creates a PKCE verifier and an invalid callback fails closed", asy
   expect(await failed.text()).toContain("Sign-in failed");
 });
 
-test("a completed authorization-code callback creates a session and opens the chart", async ({
+test("a completed authorization-code callback creates a session and opens the chat", async ({
   context,
   page,
 }) => {
@@ -552,7 +489,7 @@ test("a completed authorization-code callback creates a session and opens the ch
   expect(cookie?.sameSite).toBe("Lax");
   await page.goto(appUrl);
   await expect(
-    page.getByRole("heading", { name: "Weight history" })
+    page.getByRole("textbox", { name: "Message your coach" })
   ).toBeVisible();
 });
 
@@ -616,7 +553,7 @@ test("a proxied sign-in returns to the configured HTTPS address despite forged h
       headers: { ...headers, cookie: cookie.split(";")[0] },
     });
     expect(dashboard.status()).toBe(200);
-    expect(await dashboard.text()).toContain("Weight history");
+    expect(await dashboard.text()).toContain("Sign out");
     const logout = await request.post(`${proxyAppUrl}/auth/sign-out`, {
       headers: {
         ...headers,
@@ -636,8 +573,7 @@ test("a proxied sign-in returns to the configured HTTPS address despite forged h
 test("proxied CSRF checks accept only the public origin, including Origin and Referer fallbacks", async ({
   request,
 }) => {
-  const read = dashboardFunction();
-  const before = reads;
+  const read = sessionFunction();
   const token = await sign();
   const cookie = `wos-session=${encodeURIComponent(
     await sessionEncryption.sealData(
@@ -684,26 +620,34 @@ test("proxied CSRF checks accept only the public origin, including Origin and Re
       expect(rpc.headers()["cache-control"]).toContain("no-store");
       expect(payload).toContain("ready");
     }
+    // A message to the coach is a write: only the public origin may send it.
+    if (!allowed) {
+      const message = await request.post(`${proxyAppUrl}/api/coach/chat`, {
+        headers: sent,
+        data: { kind: "user", body: "cross-site" },
+      });
+      expect(message.status()).toBe(403);
+    }
     const logout = await request.post(`${proxyAppUrl}/auth/sign-out`, {
       headers: sent,
       maxRedirects: 0,
     });
     expect(logout.status()).toBe(allowed ? 303 : 403);
   }
-  expect(reads).toBe(before + cases.filter(({ allowed }) => allowed).length);
 });
 
-test("another valid account cannot make an API read", async ({
+test("another valid account cannot open the app or reach the coach", async ({
   page,
   context,
 }) => {
   await session(context, "user_other");
-  const before = reads;
   await page.goto(appUrl);
   await expect(page.getByRole("alert")).toContainText(
     "This account cannot open"
   );
-  expect(reads).toBe(before);
+  const coach = await context.request.get(`${appUrl}/api/coach/chat`);
+  expect(coach.status()).toBe(403);
+  expect(await coach.text()).not.toContain("Ciao");
 });
 
 test("expired sessions refresh through the SDK and replace the HttpOnly cookie", async ({
@@ -714,7 +658,7 @@ test("expired sessions refresh through the SDK and replace the HttpOnly cookie",
   const before = refreshes;
   await page.goto(appUrl);
   await expect(
-    page.getByRole("heading", { name: "Weight history" })
+    page.getByRole("textbox", { name: "Message your coach" })
   ).toBeVisible();
   expect(refreshes).toBeGreaterThan(before);
   const cookie = (await context.cookies()).find(
@@ -722,44 +666,6 @@ test("expired sessions refresh through the SDK and replace the HttpOnly cookie",
   );
   expect(cookie?.httpOnly).toBe(true);
   expect(cookie?.sameSite).toBe("Lax");
-});
-
-test("empty records and API failures are distinct, visible states", async ({
-  page,
-  context,
-}) => {
-  await session(context);
-  empty = true;
-  await page.goto(appUrl);
-  await expect(
-    page.getByRole("heading", { name: "No weight measurements yet." })
-  ).toBeVisible();
-  failure = true;
-  await page.reload();
-  await expect(page.getByRole("alert")).toContainText(
-    "Could not load your record"
-  );
-  await expect(page.getByRole("alert")).not.toContainText(
-    "private upstream detail"
-  );
-});
-
-test("missing API trends never become an unlabelled raw-only chart", async ({
-  page,
-  context,
-}) => {
-  await session(context);
-  missingTrend = true;
-  await page.goto(appUrl);
-  await expect(
-    page.getByRole("heading", {
-      name: "No trend is available for this window.",
-    })
-  ).toBeVisible();
-  await expect(page.locator("svg")).toHaveCount(0);
-  await expect(
-    page.getByText("Measurements in this window", { exact: false })
-  ).toBeVisible();
 });
 
 test("sign-out clears the local session before redirecting to WorkOS", async ({
@@ -779,6 +685,7 @@ test("sign-out clears the local session before redirecting to WorkOS", async ({
       (cookie) => cookie.name === "wos-session" && cookie.value
     )
   ).toBe(false);
-  const html = await (await context.request.get(appUrl)).text();
-  expect(html).not.toContain("79.9");
+  expect((await context.request.get(`${appUrl}/api/coach/chat`)).status()).toBe(
+    401
+  );
 });

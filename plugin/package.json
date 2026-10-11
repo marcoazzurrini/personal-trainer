@@ -1,0 +1,5 @@
+{
+  "name": "@trainer/plugin",
+  "private": true,
+  "description": "The coach's documents as a workspace package, so the in-app coach imports the same skill the Claude plugin ships."
+}

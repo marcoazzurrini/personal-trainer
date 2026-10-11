@@ -12,6 +12,9 @@
     "run_worker_first": ["/api/*", "/auth/*", "/_serverFn/*"],
     "not_found_handling": "none"
   },
+  // The coach Worker has no public address; this binding is the app's only
+  // way to it, used after the sign-in check in src/coach-proxy.server.ts.
+  "services": [{ "binding": "COACH", "service": "trainer-coach" }],
   "vars": {
     "WORKOS_COOKIE_MAX_AGE": "604800",
     "WORKOS_COOKIE_SAMESITE": "lax"

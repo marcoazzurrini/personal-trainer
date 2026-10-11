@@ -6,7 +6,7 @@ import {
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { authkitMiddleware } from "@workos/authkit-tanstack-react-start";
 
-import { loadDashboard } from "./dashboard";
+import { loadSession } from "./session";
 
 const privateResponses = createMiddleware().server(
   async ({ next, handlerType, request }) => {
@@ -20,7 +20,7 @@ const privateResponses = createMiddleware().server(
     if (
       handlerType === "serverFn" &&
       new URL(request.url).pathname !==
-        new URL(loadDashboard.url, request.url).pathname
+        new URL(loadSession.url, request.url).pathname
     ) {
       return new Response(
         "This server function is not exposed by the dashboard.",

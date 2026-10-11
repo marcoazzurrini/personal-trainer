@@ -24,10 +24,14 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Your record · Personal trainer" },
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
+      },
+      { title: "Trainer" },
       { name: "robots", content: "noindex, nofollow" },
-      { name: "theme-color", content: "#f6f5f0" },
+      { name: "theme-color", content: "#09090b" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black" },
     ],
     links: [
       { rel: "stylesheet", href: styles },
@@ -43,19 +47,27 @@ export const Route = createRootRoute({
   component: Outlet,
   shellComponent: Shell,
   errorComponent: () => (
-    <main className="page">
-      <h1>Dashboard unavailable</h1>
-      <p>
-        Try again in a moment. If this persists, check the web server
-        configuration.
-      </p>
-      <a href="/">Reload dashboard</a>
+    <main className="app">
+      <section className="notice">
+        <h1>The app is unavailable.</h1>
+        <p className="muted">
+          Try again in a moment. If this persists, check the web server
+          configuration.
+        </p>
+        <a className="button" href="/">
+          Reload
+        </a>
+      </section>
     </main>
   ),
   notFoundComponent: () => (
-    <main className="page">
-      <h1>Page not found</h1>
-      <a href="/">Open dashboard</a>
+    <main className="app">
+      <section className="notice">
+        <h1>Page not found</h1>
+        <a className="button" href="/">
+          Open the app
+        </a>
+      </section>
     </main>
   ),
 });

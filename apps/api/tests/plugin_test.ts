@@ -86,6 +86,15 @@ test("the skill's frontmatter is intact", async (t) => {
       "name: personal-trainer"
     );
   });
+  await t.test("its description is a quoted YAML string", () => {
+    // The in-app coach packages this skill with a strict YAML parser, and the
+    // description's own "Italian: allenamento" would otherwise end the value.
+    const description = lines.find((l) => l.startsWith("description:"));
+    assert(
+      description?.startsWith('description: "') && description.endsWith('"'),
+      "the description is not double-quoted"
+    );
+  });
   await t.test("the token comes from the connector, not the file", async () => {
     assert(!text.includes("{{"), "a template placeholder survived");
     assertStringIncludes(text, "get_api_token");
