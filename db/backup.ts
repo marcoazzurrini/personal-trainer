@@ -11,7 +11,7 @@ import {
 import nodePath from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { z } from "@hono/zod-openapi";
+import { z } from "zod";
 
 // A portable copy of the production record, kept off the Cloudflare account.
 // D1 Time Travel only reaches back a limited window and lives in the same

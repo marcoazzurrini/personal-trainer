@@ -16,7 +16,7 @@
     "check:style": "ultracite check",
     "fix": "ultracite fix",
     "secrets": "bun --no-env-file scripts/secrets.ts",
-    "backup": "bun --no-env-file scripts/backup.ts",
+    "backup": "bun --no-env-file db/backup.ts",
     "db:generate": "bun --no-env-file node_modules/drizzle-kit/bin.cjs generate --config db/drizzle.config.ts",
     "db:check": "bun --no-env-file node_modules/drizzle-kit/bin.cjs check --config db/drizzle.config.ts",
     "db:migrate:local": "wrangler d1 migrations apply personal-trainer --local",
@@ -29,7 +29,8 @@
   "dependencies": {
     "@hono/zod-openapi": "1.6.3",
     "drizzle-orm": "0.45.3",
-    "hono": "4.13.7"
+    "hono": "4.13.7",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@babel/parser": "7.29.9",

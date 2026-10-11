@@ -26,7 +26,6 @@ const workflow = await read(".github/workflows/ci.yml");
 
 test("operational scripts stay small and first-party tooling stays TypeScript", async () => {
   assert.deepEqual((await readdir(new URL("scripts/", root))).toSorted(), [
-    "backup.ts",
     "build-worker.ts",
     "deploy-worker.ts",
     "secrets.ts",
