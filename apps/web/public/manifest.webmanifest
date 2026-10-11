@@ -1,13 +1,13 @@
 {
   "id": "/",
-  "name": "Personal trainer",
+  "name": "Trainer",
   "short_name": "PT",
   "lang": "en",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f6f5f0",
-  "theme_color": "#f6f5f0",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
   "icons": [
     {
       "src": "/icons/icon-192.png",

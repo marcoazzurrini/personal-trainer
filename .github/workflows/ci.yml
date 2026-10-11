@@ -30,6 +30,9 @@ jobs:
       - run: bun run check
       - run: bun run boundaries
       - run: bun run --cwd apps/api build
+      - run: bun run --cwd apps/coach check
+      - run: bun run --cwd apps/coach test
+      - run: bun run --cwd apps/coach build
 
   test:
     runs-on: ubuntu-latest
@@ -72,6 +75,8 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      # The browser suite runs the built coach Worker beside the app.
+      - run: bun run --cwd apps/coach build
       - run: bun run --cwd apps/web build
       - run: bun run --cwd apps/web check
       - run: bun run --cwd apps/web test
@@ -106,7 +111,9 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      # A dashboard that fails to build must stop the release before production changes.
+      # A Worker that fails to build must stop the release before production changes.
+      - name: Build the coach
+        run: bun run --cwd apps/coach build
       - name: Build the dashboard
         env:
           BUILD_REVISION: ${{ github.sha }}
@@ -127,6 +134,10 @@ jobs:
           done
           echo "::error::The API never reported $GITHUB_SHA. The Worker or a migration may already be live; inspect before retrying."
           exit 1
+      # The coach has no public address to poll. It deploys before the
+      # dashboard, whose service binding must find it.
+      - name: Deploy the coach
+        run: bun run --cwd apps/coach deploy --message "Commit $GITHUB_SHA"
       - name: Deploy the dashboard
         run: bun run --cwd apps/web deploy --message "Commit $GITHUB_SHA"
       - name: Wait for the dashboard to serve this commit

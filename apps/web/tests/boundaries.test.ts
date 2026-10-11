@@ -17,12 +17,18 @@ async function files(directory: string): Promise<string[]> {
   ).flat();
 }
 
-it("the web source can reach neither API implementation nor a database driver", async () => {
+it("the web source can reach neither the API, the coach's code nor a database driver", async () => {
   const root = resolve("src");
   const allowed = [
+    "@assistant-ui/react",
+    "@assistant-ui/react-markdown",
+    "@flue/react",
     "@tanstack/",
     "@workos/authkit-tanstack-react-start",
+    // Only for the coach's service binding, read in coach-binding.server.ts.
+    "cloudflare:workers",
     "react",
+    "remark-gfm",
     "zod",
   ];
   for (const file of await files(root)) {

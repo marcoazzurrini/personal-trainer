@@ -45,15 +45,15 @@ export const WeightChart = ({
     const padding = Math.max((maxY - minY) * 0.15, 0.5);
     return defineChart({
       marks: [
-        dot(raw, { x: "x", y: "y", r: 3, fill: "#778881", fillOpacity: 0.4 }),
+        dot(raw, { x: "x", y: "y", r: 2.5, fill: "#71717a", fillOpacity: 0.7 }),
         ...trendSegments(trend).map((segment) =>
           lineY(
             segment.map((row) => ({ x: Date.parse(row.day), y: row.trend_kg })),
             {
               x: "x",
               y: "y",
-              stroke: "#246449",
-              strokeWidth: 2.5,
+              stroke: "#fafafa",
+              strokeWidth: 2,
               points: segment.length === 1,
             }
           )
@@ -62,8 +62,8 @@ export const WeightChart = ({
           x: "x",
           y: "y",
           r: 3,
-          fill: "#ffffff",
-          stroke: "#246449",
+          fill: "#09090b",
+          stroke: "#fafafa",
           strokeWidth: 1.5,
         }),
       ],
@@ -86,8 +86,8 @@ export const WeightChart = ({
   return (
     <Chart
       definition={definition}
-      height={340}
-      ariaLabel="Bodyweight in kilograms: measured weigh-ins and the API-calculated trend. Dates use Europe/Rome. The measurement table follows."
+      height={200}
+      ariaLabel="Bodyweight in kilograms: measured weigh-ins and the API-calculated trend. Dates use Europe/Rome."
     />
   );
 };

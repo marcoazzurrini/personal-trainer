@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { Effect } from "effect";
 import type { Clock, Context } from "effect";
 
+import { isCoachAgentToken } from "./access/agent.ts";
 import { createMcpRoutes, mcpConfig } from "./access/mcp.routes.ts";
 import { authorizeWebRead, webAuthConfig } from "./access/web.ts";
 import { bodyfat } from "./body/bodyfat.routes.ts";
@@ -139,7 +140,7 @@ export function createApplication(env: Bindings) {
     type: "http",
     scheme: "bearer",
     description:
-      "A minted coach token. GET /bodyweight also accepts a configured WorkOS web-session access token; web tokens cannot access other operations.",
+      "A minted coach token, or the in-app coach's configured secret. GET /bodyweight also accepts a configured WorkOS web-session access token; web tokens cannot access other operations.",
   });
 
   app.doc("/openapi.json", {
@@ -188,8 +189,9 @@ export function createApplication(env: Bindings) {
   // where to sign in. The auth matrix names it beside the Withings webhook.
   app.route("/mcp", mcp);
 
-  // Coach tokens are opaque base64url strings; web access tokens are JWTs.
-  // Their formats select disjoint policies, with no fallback between them.
+  // Coach tokens and the in-app coach's secret are opaque strings; web access
+  // tokens are JWTs. Their formats select disjoint policies, with no fallback
+  // between them.
   // Only the API decides which reads a web session can authorize.
   app.use(async (c, next) => {
     c.header("Cache-Control", "private, no-store");
@@ -216,6 +218,13 @@ export function createApplication(env: Bindings) {
             c.req.path,
             webAuthConfig
           );
+          return true;
+        }
+        if (
+          yield* Effect.promise(() =>
+            isCoachAgentToken(bearer, env.COACH_AGENT_TOKEN)
+          )
+        ) {
           return true;
         }
         return (yield* tokens.verifyToken(bearer)) !== null;

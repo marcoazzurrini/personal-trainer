@@ -19,7 +19,6 @@ const environment = {
   WORKOS_COOKIE_PASSWORD:
     "synthetic-worker-cookie-secret-not-a-real-credential",
   ALLOWED_SUBJECT: "user_test",
-  TRAINER_API_ORIGIN: "https://api.example.test",
   BUILD_REVISION: "b".repeat(40),
 };
 

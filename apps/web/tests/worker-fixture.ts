@@ -6,9 +6,30 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+// The built coach Worker, without its API binding and without a model key:
+// tests reach the coach through the app, and every reply fails before any
+// model or record is touched.
+async function coachConfig(directory: string): Promise<string> {
+  const built = path.resolve("../coach/dist/trainer_coach");
+  const config = JSON.parse(
+    await readFile(path.join(built, "wrangler.json"), "utf-8")
+  );
+  delete config.$schema;
+  delete config.configPath;
+  delete config.userConfigPath;
+  delete config.services;
+  config.main = path.join(built, config.main);
+  const configPath = path.join(directory, "coach.wrangler.json");
+  await writeFile(configPath, JSON.stringify(config));
+  return configPath;
+}
+
 // Run the real generated deployment in workerd. An isolated config directory,
 // HOME and explicit environment prevent tests from loading developer secrets.
-export async function workerFixture(vars: Record<string, string> = {}) {
+export async function workerFixture(
+  vars: Record<string, string> = {},
+  { coach = false }: { coach?: boolean } = {}
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "trainer-worker-"));
   const config = JSON.parse(
     await readFile(".output/server/wrangler.json", "utf-8")
@@ -22,6 +43,7 @@ export async function workerFixture(vars: Record<string, string> = {}) {
   config.vars = { ...config.vars, ...vars };
   const configPath = path.join(directory, "wrangler.json");
   await writeFile(configPath, JSON.stringify(config));
+  const coachPath = coach ? await coachConfig(directory) : undefined;
   await writeFile(path.join(directory, ".dev.vars"), "");
   await writeFile(path.join(directory, ".env"), "");
   const wrangler = path.resolve(
@@ -43,7 +65,12 @@ export async function workerFixture(vars: Record<string, string> = {}) {
     serve(port: string) {
       return spawn(
         "node",
-        [path.resolve("tests/serve-worker.ts"), configPath, port],
+        [
+          path.resolve("tests/serve-worker.ts"),
+          configPath,
+          port,
+          ...(coachPath ? [coachPath] : []),
+        ],
         {
           cwd: directory,
           env: environment,

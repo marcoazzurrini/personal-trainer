@@ -1,17 +1,18 @@
 # Personal trainer
 
-Marco's strength and nutrition coach, with a private dashboard onto the same record. Only Marco and Claude work in this repository.
+Marco's strength and nutrition coach, reachable from Claude through a connector and from his own app, both onto the same record. Only Marco and Claude work in this repository.
 
 ## The shape that holds
 
-Four parts, with separate responsibilities:
+Five parts, with separate responsibilities:
 
-- **The skill is the coach.** `plugin/` holds the role, the method and every procedure as documents read from disk. They are the product, and a change to how the coach behaves is a change to a document.
+- **The skill is the coach.** `plugin/` holds the role, the method and every procedure as documents read from disk. They are the product, and a change to how the coach behaves is a change to a document. Claude and the in-app coach read the same documents.
 - **The connector signs in and does nothing else.** One tool, one token. The API is never ported to MCP tools; the coach calls it with curl.
+- **The in-app coach runs the skill, nothing more.** A Worker with no public address runs a model over the same documents. It reaches the API through one generic tool, the curl of the documents, carrying its own secret that the model never sees. What differs from Claude is where it runs, never how it coaches.
 - **The API is the record.** It stores facts and computes arithmetic, and decides nothing about training or eating. Nothing reaches the database but the API.
-- **The web app is a view.** It shows the record through the API, not through a second database path. Authentication does not grant it the coach's write access.
+- **The web app is the coach's front door.** It signs Marco in and passes his messages to the in-app coach, and draws what the coach returns. It never reaches the API or the database itself, so every write goes through the coach.
 
-The API serves a model as well as the web app, so a refusal message is part of the contract: it says what a correct call looks like. A quiet success is the one unforgivable failure. Never invent data.
+The API serves models as well as people, so a refusal message is part of the contract: it says what a correct call looks like. A quiet success is the one unforgivable failure. Never invent data.
 
 ## Source of truth
 

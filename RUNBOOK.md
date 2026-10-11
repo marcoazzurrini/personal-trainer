@@ -4,7 +4,8 @@ What it takes to run the trainer that no file in this repository can state. Comm
 
 ## Outside the repository
 
-- **Cloudflare** holds the API Worker, the dashboard Worker and the `personal-trainer` D1 database. Runtime credentials are Worker secrets. Never put them in Wrangler configuration, source, logs or CI output.
+- **Cloudflare** holds the API Worker, the coach Worker, the dashboard Worker and the `personal-trainer` D1 database. Runtime credentials are Worker secrets. Never put them in Wrangler configuration, source, logs or CI output.
+- **The coach's secrets.** `trainer-coach` holds `ANTHROPIC_API_KEY`, its model key, and `COACH_AGENT_TOKEN`, a random string of at least 32 characters with no dot. The API Worker holds the same `COACH_AGENT_TOKEN`. To rotate it, put the new value on both Workers; between the two puts the coach is refused, so do it when nobody is chatting. The coach's conversation lives in its Durable Object, not in D1, so the weekly backup does not contain it.
 - **GitHub branch protection** on `main` requires a pull request whose `checks`, `test`, `d1` and `web` jobs pass on a branch that is up to date. It applies to admins too and blocks force pushes. Merging is what deploys.
 - **GitHub secrets** hold `CLOUDFLARE_API_TOKEN`, a narrowly scoped deployment token, and `CLOUDFLARE_ACCOUNT_ID`. Interactive Wrangler login is for the operator's own session, not a credential to copy into CI.
 - **WorkOS and Withings** are registered against the public hostnames: the connector's resource indicator, the dashboard's callback URLs and the Withings notification subscription. Register a new address with its provider before changing an origin. A redirect does not repair an OAuth audience mismatch.
@@ -13,7 +14,7 @@ What it takes to run the trainer that no file in this repository can state. Comm
 
 ## Releasing
 
-CI deploys `main` once every check has passed. Do not run a manual deployment while a release is in progress.
+CI deploys `main` once every check has passed: the API, then the coach, then the dashboard, whose service binding must find the coach. Do not run a manual deployment while a release is in progress. The coach has no public address to probe; after a release, check it by sending a message in the app.
 
 A failed release can mean the new Worker or a migration is already live. Inspect the deployment history, the public health endpoints and the database before retrying. A red job is not proof that nothing changed.
 

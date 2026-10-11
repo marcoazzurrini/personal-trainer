@@ -5,11 +5,14 @@ import { createTestHarness } from "wrangler";
 
 // Wrangler dev rewrites same-host Location headers to its local HTTP origin.
 // A transparent test listener preserves the actual Worker's HTTPS redirects.
+// A second configuration, when given, is the coach Worker the first reaches
+// through its service binding.
+const configs = [process.argv[2], process.argv[4]].filter(Boolean);
 const harness = createTestHarness({
-  workers: [{ configPath: process.argv[2] }],
+  workers: configs.map((configPath) => ({ configPath })),
 });
 await harness.listen();
-const worker = harness.getWorker();
+const worker = harness.getWorker("trainer-web");
 const server = createServer(async (request, response) => {
   try {
     const headers: [string, string][] = [];

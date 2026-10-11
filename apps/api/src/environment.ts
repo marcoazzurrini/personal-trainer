@@ -12,6 +12,7 @@ export interface Bindings extends IssueBindings {
   WEB_AUTH_ISSUER?: string;
   WEB_AUTH_CLIENT_ID?: string;
   WEB_AUTH_JWKS_URL?: string;
+  COACH_AGENT_TOKEN?: string;
   WITHINGS_CLIENT_ID?: string;
   WITHINGS_CLIENT_SECRET?: string;
   WITHINGS_API_BASE?: string;
