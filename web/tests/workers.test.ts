@@ -188,21 +188,15 @@ test(
           assert.equal(health.status, 200);
           const metadata = z
             .object({
-              status: z.string(),
-              revision: z.string().nullable(),
-              build: z.string(),
+              status: z.literal("ok"),
+              revision: z
+                .string()
+                .regex(/^[a-f0-9]{40}$/u)
+                .nullable(),
             })
+            .strict()
             .parse(await health.json());
-          assert.equal(metadata.status, "ok");
-          const expected = z
-            .object({
-              revision: z.string().nullable(),
-              digest: z.string(),
-            })
-            .parse(JSON.parse(await readFile(".output/build.json", "utf-8")));
-          assert.equal(metadata.revision, expected.revision);
-          assert.equal(metadata.build, expected.digest);
-          assert.match(metadata.build, /^[a-f0-9]{64}$/u);
+          // The revision is compiled in; a runtime variable cannot replace it.
           assert.notEqual(metadata.revision, environment.BUILD_REVISION);
           const head = await request("/api/health", "HEAD");
           assert.equal(head.status, 200);

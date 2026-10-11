@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=.env scripts/dev.ts",
-    "build": "bun scripts/build.ts",
+    "build": "vite build",
     "icons": "bun scripts/generate-icons.ts",
     "start": "wrangler dev --local --config .output/server/wrangler.json --env-file .env --port 3000",
     "deploy": "wrangler deploy --config .output/server/wrangler.json",

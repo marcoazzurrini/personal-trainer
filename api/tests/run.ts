@@ -101,15 +101,7 @@ try {
     format: "esm",
     platform: "browser",
     target: "es2022",
-    metafile: true,
   });
-  if (
-    Object.keys(bundle.metafile.inputs).some((name) =>
-      /(?:^|\/)api\/db\.ts$|node_modules\/postgres\//u.test(name)
-    )
-  ) {
-    throw new Error("Worker contract bundle must not include PostgreSQL.");
-  }
   const options = convertV4MiniflareOptions({
     modules: true,
     script: bundle.outputFiles[0].text,

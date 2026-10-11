@@ -50,9 +50,9 @@ bun run playwright install chromium
 bun run test:browser
 ```
 
-Build first on a fresh checkout to generate the ignored route tree. For a revision-aware release rehearsal, use a clean checkout and export `BUILD_REVISION` to its full lowercase 40-character commit before **both** building and running tests. Without an explicit value, a clean checkout identifies its Git commit; a dirty checkout honestly reports `revision: null`. An explicit value must match the exact clean checkout or the build refuses to label the artifact. Revision metadata is compiled into server code, not read from a filesystem or runtime variable. `GET /api/health` and `HEAD /api/health` do not create a session, read records, or contact WorkOS. Invalid origin configuration returns 503; other methods return 405.
+Build first on a fresh checkout to generate the ignored route tree. `BUILD_REVISION`, if set, must be a full lowercase 40-character commit; CI sets it to the released commit. The revision is compiled into server code, so a runtime variable cannot change what `GET /api/health` reports. A local build without it reports `revision: null`. `GET /api/health` and `HEAD /api/health` do not create a session, read records, or contact WorkOS. Invalid origin configuration returns 503; other methods return 405.
 
-The scripts in `scripts/` are TypeScript and are covered by `bun run check`. Bun runs `scripts/build.ts`, which keeps Vite and Nitro on Node and stamps the completed output. `scripts/generate-icons.ts` remains an explicit operation, not a build step.
+`scripts/dev.ts` loads `.env` before starting Vite under Node. `scripts/generate-icons.ts` is an explicit operation, not a build step.
 
 `test:workers` runs `tests/workers.test.ts` with Bun, separately from Vitest. It checks the generated configuration, assets, secret exclusion, Wrangler's deployment dry run, health, anonymous sign-in, private response headers and missing/invalid configuration in workerd. Tests use temporary configuration directories, an isolated HOME and synthetic runtime values; they do not load local credential files or deploy anything. Container-specific filesystem ownership, image layers and Docker shutdown checks no longer apply.
 
@@ -78,7 +78,7 @@ All application environment values are server-only strings, not `VITE_*` variabl
 
 - **Runtime secrets:** `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`. Store them with Wrangler secrets, never in `vars`, build variables, Git or browser code. The cookie password must have at least 32 characters; generate a random value.
 - **Runtime non-secret variables:** `WORKOS_CLIENT_ID`, `WORKOS_REDIRECT_URI`, `ALLOWED_SUBJECT`, `TRAINER_API_ORIGIN`, `WORKOS_COOKIE_MAX_AGE` (seconds as a string), and `WORKOS_COOKIE_SAMESITE` (`lax`). Only cookie policy defaults are committed as `vars`. The other production values are stored as Worker secrets alongside the credentials, so a normal deployment preserves them. Do not add duplicate `vars` with the same names.
-- **Build metadata:** `BUILD_REVISION`, the tested full Git commit. It is not a runtime secret or Cloudflare binding.
+- **Build metadata:** `BUILD_REVISION`, the released full Git commit, read at build time. It is not a runtime secret or Cloudflare binding.
 - **Deployment credentials:** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` belong to the deployment environment, not the Worker. Scope the token to the intended account and required Workers deployment permissions; domain setup may require separate zone permissions.
 - **Platform binding:** Nitro supplies `ASSETS`. There are no D1, KV, Hyperdrive, database, queue or service bindings in this dashboard.
 
@@ -98,11 +98,11 @@ Production setup and the coordinated traffic switch are complete. These steps ap
    ```
 
 4. Register the selected HTTPS origin's `/auth/callback`, `/auth/sign-in`, and `/` sign-out redirect in WorkOS. Verify the API's independent web-session token contract and matching allowed subject.
-5. In an approved release job, check out the tested commit, export `BUILD_REVISION` to that commit, and run `bun install --frozen-lockfile` from the repository root. Build and run all checks above, then run `bun run --cwd web deploy`. `bun run --cwd web deploy:check` is a dry run only. The deploy command intentionally uploads the already-tested generated output; it does not silently rebuild another revision.
+5. In an approved release job, check out the tested commit, export `BUILD_REVISION` to that commit, and run `bun install --frozen-lockfile` from the repository root. Build and run all checks above, then run `bun run --cwd web deploy`. `bun run --cwd web deploy:check` is a dry run only. The deploy command uploads the already-built output; it does not rebuild.
 6. Verify `/api/health` reports the exact tested commit, then explicitly verify real sign-in, authenticated API read, refresh, sign-out and iPhone behavior. A health response or local synthetic session does not prove hosted identity.
 
 A Worker rollback does not restore API records or rotated secrets.
 
 ## Repository release integration
 
-`.github/workflows/ci.yml` checks the API, database and dashboard, then runs one serialized Cloudflare release from the tested commit. It builds the dashboard before changing production, migrates and verifies the API, deploys the dashboard, and verifies its separate immutable health identity. See [the runbook](../RUNBOOK.md) for what lives outside the repository and for recovery.
+`.github/workflows/ci.yml` checks the API, database and dashboard, then runs one serialized Cloudflare release from the tested commit. It builds the dashboard before changing production, migrates the database, deploys the API and waits until its health reports the commit, then does the same for the dashboard. See [the runbook](../RUNBOOK.md) for what lives outside the repository and for recovery.

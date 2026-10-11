@@ -291,23 +291,15 @@ test.beforeEach(() => {
 test("public health reports uncached build metadata without a session or API read", async ({
   request,
 }) => {
-  const build = JSON.parse(await readFile(".output/build.json", "utf-8"));
-  expect(build.digest).toMatch(/^[a-f0-9]{64}$/u);
-  const expectedRevision = process.env.BUILD_REVISION ?? process.env.GITHUB_SHA;
-  if (expectedRevision) {
-    expect(build.revision).toBe(expectedRevision);
-  }
+  // The suite runs against a build made with the same BUILD_REVISION, if any.
+  const revision = process.env.BUILD_REVISION ?? null;
   const before = reads;
   for (const url of [appUrl, proxyAppUrl]) {
     const response = await request.get(`${url}/api/health`);
     expect(response.status()).toBe(200);
     expect(response.headers()["cache-control"]).toBe("private, no-store");
     expect(response.headers()["set-cookie"]).toBeUndefined();
-    expect(await response.json()).toEqual({
-      status: "ok",
-      revision: build.revision,
-      build: build.digest,
-    });
+    expect(await response.json()).toEqual({ status: "ok", revision });
     const refused = await request.post(`${url}/api/health`);
     expect(refused.status()).toBe(405);
   }

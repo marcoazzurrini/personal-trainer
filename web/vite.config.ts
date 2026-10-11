@@ -13,9 +13,6 @@ export default defineConfig(async ({ command }) => ({
   envDir: false as const,
   define: {
     "import.meta.env.TRAINER_BUILD_REVISION": JSON.stringify(revision ?? null),
-    "import.meta.env.TRAINER_BUILD_DIGEST": JSON.stringify(
-      command === "build" ? "__TRAINER_WEB_BUILD_DIGEST_PLACEHOLDER__" : null
-    ),
   },
   plugins: [
     tanstackStart(),

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  healthResponse,
-  readBuildDigest,
-  readBuildRevision,
-} from "../src/health.server.ts";
+import { healthResponse, readBuildRevision } from "../src/health.server.ts";
 
 describe("dashboard build revision", () => {
   it("reads a compiled revision, not a runtime override", () => {
@@ -31,34 +27,6 @@ describe("dashboard build revision", () => {
   );
 });
 
-describe("dashboard build digest", () => {
-  it("reads the compiled artifact digest, not a runtime override", () => {
-    expect(readBuildDigest("c".repeat(64))).toBe("c".repeat(64));
-    expect(readBuildDigest(null)).toBeNull();
-  });
-  it.each([
-    "",
-    "a".repeat(40),
-    "A".repeat(64),
-    "__TRAINER_WEB_BUILD_DIGEST_PLACEHOLDER__",
-    1,
-  ])("rejects unstamped or malformed digest %j", (value) =>
-    expect(() => readBuildDigest(value)).toThrow("invalid")
-  );
-  it("exposes the immutable digest on the readiness endpoint", async () => {
-    const response = healthResponse(
-      new Request("https://dashboard.example.test/api/health"),
-      () => null,
-      () => "c".repeat(64)
-    );
-    expect(await response.json()).toEqual({
-      status: "ok",
-      revision: null,
-      build: "c".repeat(64),
-    });
-  });
-});
-
 describe("dashboard health", () => {
   it("returns only uncached build metadata", async () => {
     const response = healthResponse(
@@ -71,7 +39,6 @@ describe("dashboard health", () => {
     expect(await response.json()).toEqual({
       status: "ok",
       revision: "a".repeat(40),
-      build: null,
     });
   });
 

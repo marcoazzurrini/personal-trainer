@@ -2,36 +2,22 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import type { SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 import { existsSync } from "node:fs";
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 import test from "node:test";
 
 import antiSlop from "ultracite/oxlint/anti-slop";
 
-import lintConfig from "../../oxlint.config.ts";
+import lintConfig from "../oxlint.config.ts";
 
 const { join } = nodePath;
-const root = new URL("../../", import.meta.url);
+const root = new URL("../", import.meta.url);
 const read = (path: string) => readFile(new URL(path, root), "utf-8");
 const manifest = JSON.parse(await read("package.json"));
 const workflow = await read(".github/workflows/ci.yml");
 
-test("operational scripts stay small and first-party tooling stays TypeScript", async () => {
-  assert.deepEqual((await readdir(new URL("scripts/", root))).toSorted(), [
-    "build-worker.ts",
-    "deploy-worker.ts",
-    "source-revision.ts",
-    "tests",
-  ]);
-  assert.equal(existsSync(new URL("tests/", root)), false);
+test("first-party tooling stays TypeScript", async () => {
   const files = spawnSync(
     "git",
     ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
@@ -50,7 +36,7 @@ test("operational scripts stay small and first-party tooling stays TypeScript", 
   );
   assert.equal(
     manifest.scripts["test:tooling"],
-    "bun --no-env-file test ./scripts/tests/ --timeout 60000"
+    "bun --no-env-file test ./tests/ --timeout 60000"
   );
   for (const file of [
     "api/tests/run.ts",

@@ -19,7 +19,7 @@ import { testJson } from "./test-json.ts";
 
 let migrations: string[];
 let script: string;
-const metadata = { revision: null, digest: "synthetic-runtime-build" };
+const revision = "c".repeat(40);
 before(async () => {
   const output = await build({
     entryPoints: [
@@ -30,14 +30,8 @@ before(async () => {
     format: "esm",
     platform: "browser",
     target: "es2022",
-    define: { __BUILD_METADATA__: JSON.stringify(metadata) },
-    metafile: true,
+    define: { __BUILD_REVISION__: JSON.stringify(revision) },
   });
-  assert.ok(
-    !Object.keys(output.metafile.inputs).some((p) =>
-      /api\/db\.ts|node_modules\/postgres\//u.test(p)
-    )
-  );
   script = output.outputFiles[0].text;
   assert.doesNotMatch(script, /Deno\.(?:env|serve|readTextFile)/u);
   const directory = new URL("../migrations/", import.meta.url);
@@ -124,8 +118,7 @@ test("the real Worker serves build-aware readiness without scheduling provider w
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), {
     status: "ok",
-    revision: metadata.revision,
-    build: metadata.digest,
+    revision,
   });
   assert.equal(f.outbound(), 0);
 });

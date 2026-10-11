@@ -1,14 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "personal-trainer-api",
-  "main": "dist/worker.js",
+  "main": "api/worker.ts",
   "compatibility_date": "2026-08-03",
   "workers_dev": false,
   "preview_urls": false,
   "routes": [
     { "pattern": "trainer.marcoazzurrini.com", "custom_domain": true },
   ],
-  "build": { "command": "bun run build" },
   "d1_databases": [
     {
       "binding": "DB",

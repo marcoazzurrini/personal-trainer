@@ -1,13 +1,7 @@
-// Replaced by the bundler, never by a caller-controlled runtime binding.
-// A dirty local build has no commit revision; its content digest still identifies
-// the exact deployed artifact. CI records both the tested commit and the digest.
-declare const __BUILD_METADATA__: {
-  revision: string | null;
-  digest: string;
-};
+// Compiled in by `wrangler deploy --define` in CI, never read from a runtime
+// binding that could change without the code. Local and test builds have none.
+declare const __BUILD_REVISION__: string;
 
-export const buildMetadata =
+export const buildRevision: string | null =
   // oxlint-disable-next-line anti-slop/no-runtime-typeof, unicorn/no-typeof-undefined -- The bundler declaration has no runtime binding in unstamped builds; only typeof can read an absent global safely.
-  typeof __BUILD_METADATA__ === "undefined"
-    ? { revision: null, digest: "local-development" }
-    : __BUILD_METADATA__;
+  typeof __BUILD_REVISION__ === "undefined" ? null : __BUILD_REVISION__;

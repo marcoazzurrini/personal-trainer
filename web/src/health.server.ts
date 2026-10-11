@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 const buildRevision = z.string().regex(/^[a-f0-9]{40}$/u);
-const buildDigest = z.string().regex(/^[a-f0-9]{64}$/u);
 
 export function readBuildRevision(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Compiled metadata is untrusted input validated by buildRevision below.
@@ -17,24 +16,9 @@ export function readBuildRevision(
   return parsed.data;
 }
 
-export function readBuildDigest(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Compiled metadata is untrusted input validated by buildDigest below.
-  value: unknown = import.meta.env.TRAINER_BUILD_DIGEST
-): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const parsed = buildDigest.safeParse(value);
-  if (!parsed.success) {
-    throw new Error("The dashboard build digest is invalid.");
-  }
-  return parsed.data;
-}
-
 export function healthResponse(
   request: Request,
-  loadRevision: () => string | null = readBuildRevision,
-  loadDigest: () => string | null = readBuildDigest
+  loadRevision: () => string | null = readBuildRevision
 ): Response {
   const headers = {
     "Content-Type": "application/json; charset=utf-8",
@@ -47,11 +31,7 @@ export function healthResponse(
     });
   }
   try {
-    const body = JSON.stringify({
-      status: "ok",
-      revision: loadRevision(),
-      build: loadDigest(),
-    });
+    const body = JSON.stringify({ status: "ok", revision: loadRevision() });
     return new Response(request.method === "HEAD" ? null : body, { headers });
   } catch {
     return new Response(

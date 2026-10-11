@@ -29,7 +29,7 @@ export default defineConfig({
     {
       files: [
         "api/tests/**/*_test.ts",
-        "scripts/tests/**/*.test.ts",
+        "tests/*.test.ts",
         "db/tests/*.test.ts",
         "db/tests/*.test.worker.ts",
         "web/tests/**",

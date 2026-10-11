@@ -6,7 +6,7 @@ import nodePath from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const root = fileURLToPath(new URL("../../", import.meta.url));
+const root = fileURLToPath(new URL("../", import.meta.url));
 const manifest = JSON.parse(
   await readFile(nodePath.join(root, "package.json"), "utf-8")
 );

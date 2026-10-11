@@ -8,8 +8,7 @@
   "scripts": {
     "prepare": "lefthook install",
     "dev": "bun run db:migrate:local && wrangler dev --local",
-    "build": "bun scripts/build-worker.ts",
-    "deploy": "bun scripts/deploy-worker.ts",
+    "deploy": "wrangler deploy",
     "fmt": "oxfmt",
     "lint": "oxlint --deny-warnings",
     "check": "tsc --noEmit",
@@ -23,7 +22,7 @@
     "test": "bun run test:api && bun run test:d1 && bun run test:tooling",
     "test:api": "bun --no-env-file api/tests/run.ts",
     "test:d1": "WRANGLER_SEND_METRICS=false bun --no-env-file test ./db/tests/ --timeout 120000",
-    "test:tooling": "bun --no-env-file test ./scripts/tests/ --timeout 60000"
+    "test:tooling": "bun --no-env-file test ./tests/ --timeout 60000"
   },
   "dependencies": {
     "@hono/zod-openapi": "1.6.3",

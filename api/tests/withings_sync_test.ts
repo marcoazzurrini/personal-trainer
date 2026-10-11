@@ -2,7 +2,7 @@ import { test } from "node:test";
 
 import type { Bindings, Invocation } from "../environment.ts";
 import { createWithingsService } from "../services.ts";
-import { buildMetadata } from "../shared/build.ts";
+import { buildRevision } from "../shared/build.ts";
 import { instant } from "../shared/values.ts";
 import worker from "../worker.ts";
 import {
@@ -339,8 +339,7 @@ test("the sync between Withings and the bodyweight table", async (t) => {
             assertEquals(response.status, 200);
             assertEquals(await response.json(), {
               status: "ok",
-              revision: buildMetadata.revision,
-              build: buildMetadata.digest,
+              revision: buildRevision,
             });
             assertEquals(response.headers.get("cache-control"), "no-store");
             assert(performance.now() - at < 1000);

@@ -18,7 +18,7 @@ import {
 } from "./nutrition/index.ts";
 import { createServices, createWithingsService } from "./services.ts";
 import { boundedBody } from "./shared/body.ts";
-import { buildMetadata } from "./shared/build.ts";
+import { buildRevision } from "./shared/build.ts";
 import {
   ApiError,
   errorResponse,
@@ -137,11 +137,7 @@ export function createApplication(
       clearTimeout(timer);
     }
     c.header("Cache-Control", "no-store");
-    return c.json({
-      status: "ok",
-      revision: buildMetadata.revision,
-      build: buildMetadata.digest,
-    });
+    return c.json({ status: "ok", revision: buildRevision });
   });
 
   // Withings cannot send our bearer token, so its two routes are registered here,
