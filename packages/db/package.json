@@ -1,0 +1,26 @@
+{
+  "name": "@trainer/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./testing/*": "./testing/*",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "backup": "bun --no-env-file backup.ts",
+    "generate": "drizzle-kit generate --config drizzle.config.ts",
+    "check": "drizzle-kit check --config drizzle.config.ts",
+    "test": "WRANGLER_SEND_METRICS=false bun --no-env-file test ./tests/ --timeout 120000"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.3",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260930.2",
+    "drizzle-kit": "0.31.11",
+    "miniflare": "5.20260911.1-alpha",
+    "wrangler": "4.131.2"
+  }
+}

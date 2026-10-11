@@ -11,6 +11,12 @@
     "resolveJsonModule": true,
     "types": ["bun", "node"]
   },
-  "include": ["api/**/*.ts", "scripts/**/*.ts", "db/**/*.ts"],
-  "exclude": ["node_modules", ".delta", "dist", ".wrangler", "web"]
+  "include": ["apps/api/**/*.ts", "packages/db/**/*.ts"],
+  "exclude": [
+    "**/node_modules",
+    ".delta",
+    "**/dist",
+    "**/.wrangler",
+    "apps/web"
+  ]
 }

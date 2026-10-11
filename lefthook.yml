@@ -1,12 +1,12 @@
 pre-commit:
   parallel: true
   jobs:
+    # Needs Gitleaks on the PATH: brew install gitleaks. CI scans the whole tree.
     - name: secrets
-      run: bun run secrets
+      run: gitleaks git --pre-commit --staged --redact --no-banner
     - name: format
       glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,yml,yaml,css,md}"
       exclude:
-        - docs/**
         # Skill frontmatter is an executable contract. Keep it out of formatters.
         - plugin/**
       run: bun run fmt {staged_files}
@@ -14,9 +14,12 @@ pre-commit:
     - name: lint
       glob: "*.{ts,tsx,js,jsx,mjs,cjs}"
       run: bun run lint {staged_files}
+    - name: boundaries
+      glob: "*.{ts,tsx}"
+      run: bun run boundaries
     - name: typecheck
       glob: "*.{ts,tsx}"
       run: bun run check
     - name: web-types
-      glob: "web/**/*.{ts,tsx}"
-      run: bun run --cwd web check
+      glob: "apps/web/**/*.{ts,tsx}"
+      run: bun run --cwd apps/web check

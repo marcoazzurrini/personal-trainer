@@ -16,14 +16,20 @@ jobs:
           node-version: 24.20.0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: package.json
+      # The commit hook scans staged changes. This scans the whole checkout,
+      # before dependencies are installed into it.
+      - name: Scan the checkout for secrets
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" dir . --redact --no-banner
       - run: bun install --frozen-lockfile
-      # Docker is still used by the secret scanner, not by the application.
-      - run: bun run secrets
       - run: bun run check:style
       - run: bun run check
-      - run: bun run test:tooling
-      - run: bun run build
+      - run: bun run boundaries
+      - run: bun run --cwd apps/api build
 
   test:
     runs-on: ubuntu-latest
@@ -34,11 +40,11 @@ jobs:
           node-version: 24.20.0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: package.json
       - run: bun install --frozen-lockfile
       # Bun clients use a clean environment, no .env loading and local fixtures.
       # The application itself still executes in workerd with ephemeral D1.
-      - run: bun run test:api
+      - run: bun run --cwd apps/api test
 
   d1:
     runs-on: ubuntu-latest
@@ -49,10 +55,11 @@ jobs:
           node-version: 24.20.0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun run db:check
-      - run: bun run test:d1
+      - run: bun run --cwd packages/db check
+      - run: bun run --cwd packages/db test
+      - run: bun run --cwd apps/api test:d1
 
   web:
     runs-on: ubuntu-latest
@@ -63,17 +70,17 @@ jobs:
           node-version: 24.20.0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun run --cwd web build
-      - run: bun run --cwd web check
-      - run: bun run --cwd web test
-      - run: bun run --cwd web playwright install --with-deps chromium
-      - run: bun run --cwd web test:browser
-      - run: bun run --cwd web test:workers
+      - run: bun run --cwd apps/web build
+      - run: bun run --cwd apps/web check
+      - run: bun run --cwd apps/web test
+      - run: bun run --cwd apps/web playwright install --with-deps chromium
+      - run: bun run --cwd apps/web test:browser
+      - run: bun run --cwd apps/web test:workers
 
-  # Keep migrations, API readiness, dashboard deployment and public verification
-  # inside one serialized release. PRs never deploy; missing secrets fail closed.
+  # One serialized release from the tested commit. PRs never deploy, and a
+  # release that is already running is never cancelled halfway.
   deploy:
     needs: [checks, test, d1, web]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -88,8 +95,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       WRANGLER_SEND_METRICS: "false"
-      DEPLOY_HEALTH_URL: https://trainer.marcoazzurrini.com/api/health
-      DASHBOARD_HEALTH_URL: https://app.trainer.marcoazzurrini.com/api/health
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,47 +104,39 @@ jobs:
           node-version: 24.20.0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - name: Validate both release configurations
-        run: |
-          bun --no-env-file run - <<'JS'
-          import { sourceRevision } from './scripts/build-worker.ts';
-          for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'GITHUB_SHA']) {
-            if (!process.env[key]?.trim()) throw new Error(`Deployment requires ${key}.`);
-          }
-          sourceRevision(process.env.GITHUB_SHA);
-          for (const key of ['DEPLOY_HEALTH_URL', 'DASHBOARD_HEALTH_URL']) {
-            const url = new URL(process.env[key]);
-            if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search || url.pathname !== '/api/health') {
-              throw new Error(`${key} must be a public HTTPS /api/health URL without credentials, query or fragment.`);
-            }
-          }
-          JS
-      - name: Build the dashboard before changing production
+      # A dashboard that fails to build must stop the release before production changes.
+      - name: Build the dashboard
         env:
           BUILD_REVISION: ${{ github.sha }}
-        run: bun run --cwd web build
-      - name: Validate dashboard build identity
+        run: bun run --cwd apps/web build
+      # Migrations land first, so each one must also work with the API still running.
+      - name: Apply database migrations
+        run: bun run --cwd apps/api db:migrate:remote
+      - name: Deploy the API
+        run: bun run --cwd apps/api deploy --message "Commit $GITHUB_SHA" --define "__BUILD_REVISION__:\"$GITHUB_SHA\""
+      - name: Wait for the API to serve this commit
+        env:
+          HEALTH_URL: https://trainer.marcoazzurrini.com/api/health
         run: |
-          bun --no-env-file run - <<'JS'
-          import { readFile } from 'node:fs/promises';
-          const metadata = JSON.parse(await readFile('web/.output/build.json', 'utf8'));
-          if (metadata.revision !== process.env.GITHUB_SHA || !/^[a-f0-9]{64}$/.test(metadata.digest)) {
-            throw new Error('Dashboard build must identify the exact tested revision and artifact.');
-          }
-          JS
-      # This command applies D1 migrations, deploys the API and verifies its
-      # exact immutable build at the public readiness endpoint before returning.
-      - name: Migrate, deploy and verify the API build
-        run: bun run deploy
-      - name: Deploy the dashboard build
-        run: bun run --cwd web deploy
-      - name: Verify the public dashboard build
+          for attempt in $(seq 60); do
+            curl -sS --max-time 10 "$HEALTH_URL?release_probe=$RANDOM$attempt" \
+              | jq -e --arg sha "$GITHUB_SHA" '.revision == $sha' > /dev/null && exit 0
+            sleep 5
+          done
+          echo "::error::The API never reported $GITHUB_SHA. The Worker or a migration may already be live; inspect before retrying."
+          exit 1
+      - name: Deploy the dashboard
+        run: bun run --cwd apps/web deploy --message "Commit $GITHUB_SHA"
+      - name: Wait for the dashboard to serve this commit
+        env:
+          HEALTH_URL: https://app.trainer.marcoazzurrini.com/api/health
         run: |
-          bun --no-env-file run - <<'JS'
-          import { readFile } from 'node:fs/promises';
-          import { verifyRelease } from './scripts/deploy-worker.ts';
-          const metadata = JSON.parse(await readFile('web/.output/build.json', 'utf8'));
-          await verifyRelease(process.env.DASHBOARD_HEALTH_URL, metadata);
-          JS
+          for attempt in $(seq 60); do
+            curl -sS --max-time 10 "$HEALTH_URL?release_probe=$RANDOM$attempt" \
+              | jq -e --arg sha "$GITHUB_SHA" '.revision == $sha' > /dev/null && exit 0
+            sleep 5
+          done
+          echo "::error::The dashboard never reported $GITHUB_SHA. It may already be live; inspect before retrying."
+          exit 1

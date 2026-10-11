@@ -1,0 +1,464 @@
+import { OpenAPIHono } from "@hono/zod-openapi";
+
+import { createMcpRoutes } from "./access/mcp.routes.ts";
+import { authorizeWebRead } from "./access/web.ts";
+import { bodyfat } from "./body/bodyfat.routes.ts";
+import { bodyweight } from "./body/bodyweight.routes.ts";
+import { createWithingsRoutes } from "./body/withings.routes.ts";
+import type { Bindings, Invocation } from "./environment.ts";
+import {
+  days,
+  foods,
+  intake,
+  meals,
+  nutritionEvents,
+  nutritionState,
+  nutritionTargets,
+  nutritionWeekly,
+} from "./nutrition/index.ts";
+import { createServices, createWithingsService } from "./services.ts";
+import { boundedBody } from "./shared/body.ts";
+import { buildRevision } from "./shared/build.ts";
+import {
+  ApiError,
+  errorResponse,
+  internalError,
+  validationHook,
+} from "./shared/errors.ts";
+import type { Diagnostic } from "./shared/errors.ts";
+import type { AppEnv } from "./shared/services.ts";
+import { systemClock } from "./shared/values.ts";
+import type { Clock } from "./shared/values.ts";
+import { issues } from "./surfaces/index.ts";
+import {
+  blocks,
+  exercises,
+  mesocycles,
+  muscles,
+  sessions,
+  sets,
+  trainingState,
+  userContext,
+  weeklyExerciseSets,
+  weeklyVolume,
+  weekSchedule,
+} from "./training/index.ts";
+
+// Topic routers and their schemas are shared. The composition root binds each
+// invocation's capabilities explicitly, so no environment's database or secrets
+// survive into another environment's request.
+export function createApplication(
+  env: Bindings,
+  invocation: Invocation,
+  clock: Clock = systemClock
+) {
+  const services = createServices(env.DB, clock);
+  const { tokens } = services;
+  const withings = createWithingsService(
+    env.DB,
+    {
+      clientId: env.WITHINGS_CLIENT_ID,
+      clientSecret: env.WITHINGS_CLIENT_SECRET,
+      apiBase: env.WITHINGS_API_BASE,
+    },
+    clock
+  );
+  const { withingsWebhook, withingsAdmin } = createWithingsRoutes(
+    withings,
+    (work) => invocation.waitUntil(work)
+  );
+  const mcp = createMcpRoutes(
+    {
+      issuer: env.AUTH_ISSUER,
+      jwksUrl: env.AUTH_JWKS_URL,
+      allowedSubject: env.ALLOWED_SUBJECT,
+      publicOrigin: env.PUBLIC_ORIGIN,
+    },
+    { issueToken: tokens.issueToken }
+  );
+
+  // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
+  // mounted below stays an ordinary Hono router and keeps working untouched.
+  // What it adds is a second output from the same source — routes declared with
+  // app.openapi() validate against a schema *and* describe themselves, so the
+  // document at /openapi.json is generated from the code that runs rather than
+  // maintained beside it.
+  //
+  // defaultHook is the single place a schema refusal becomes the { "error": … }
+  // envelope. Passing it here rather than per route is what stops one endpoint
+  // from answering in a shape the others do not.
+  const app = new OpenAPIHono<
+    AppEnv & {
+      Bindings: Bindings & { diagnostic: Diagnostic };
+    }
+  >({
+    defaultHook: validationHook,
+  }).basePath("/api");
+
+  app.use(async (c, next) => {
+    const { diagnostic } = c.env;
+    c.set("diagnostic", diagnostic);
+    c.set("services", services);
+    // oxlint-disable-next-line node/callback-return -- Hono next is awaited middleware continuation; route diagnostics must run after it.
+    await next();
+    // routePath is the registered template, never the caller's raw URL. An
+    // unmatched request ends at middleware (*), not at a sensitive path value.
+    const route = c.req.routePath;
+    diagnostic.route = !route || route.endsWith("*") ? "unmatched" : route;
+  });
+
+  // Readiness is read-only. The Cron Trigger, not an external health poll, owns
+  // scheduled Withings catch-up. D1 has no interactive query cancellation API.
+  app.get("/health", async (c) => {
+    const query = services.checkReadiness();
+    invocation.waitUntil(
+      // oxlint-disable-next-line promise/prefer-await-to-then -- Register the read immediately with waitUntil; the response still races the one-second deadline.
+      query.catch(() => {
+        // The race below owns the response error; waitUntil only retains the database read.
+      })
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        query,
+        // oxlint-disable-next-line promise/avoid-new -- Adapt the timer to a rejection without changing the database readiness deadline.
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(
+              new ApiError(
+                503,
+                "Database readiness check timed out. Try the health read again later."
+              )
+            );
+          }, 1000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    c.header("Cache-Control", "no-store");
+    return c.json({ status: "ok", revision: buildRevision });
+  });
+
+  // Withings cannot send our bearer token, so its two routes are registered here,
+  // ahead of the middleware. They answer without calling next(), which is what
+  // keeps them public — the same mechanism /health relies on. Everything else
+  // under /withings is mounted below the middleware and stays behind the token.
+  app.route("/withings", withingsWebhook);
+
+  // The document, generated from the schemas the handlers actually validate
+  // against. Nothing here is hand-written, and nothing is committed: a route
+  // that changes shape changes this response in the same commit, which is the
+  // whole reason for preferring it to a second copy of the truth in Markdown.
+  //
+  // It describes shape only. Why a food's source may not be dressed up as a
+  // lookup, what an estimate obliges the coach to disclose — that judgment stays
+  // in the coaching documents the plugin carries, which this does not replace
+  // and cannot express.
+  //
+  // Public, and deliberately so — the third exemption after /health and the
+  // webhook, and the only one that is a convenience rather than a necessity. A
+  // browser cannot put a bearer token on a page load, so a reference page behind
+  // the middleware is a reference page nobody opens. What leaks is the shape of
+  // the surface: endpoint names, field names, which of them are required.
+  // Nothing that was ever secret, no data, and no way in — every route it
+  // describes still answers 401 without the token, which is the property
+  // auth_matrix_test.ts holds down.
+  //
+  // The routes are registered above the middleware but the document is built
+  // per request, so it still describes every route mounted below.
+  // The bearer every route below the middleware requires. Declared so the
+  // reference page can offer a box to paste it into: a document that describes
+  // calls nobody can make from it is half a document.
+  app.openAPIRegistry.registerComponent("securitySchemes", "bearer", {
+    type: "http",
+    scheme: "bearer",
+    description:
+      "A minted coach token. GET /bodyweight also accepts a configured WorkOS web-session access token; web tokens cannot access other operations.",
+  });
+
+  app.doc("/openapi.json", {
+    openapi: "3.0.0",
+    info: {
+      title: "Coach API",
+      version: "1",
+      description:
+        "Marco's training and nutrition record. The coaching documents ship in the plugin's skill; this describes request and response shape only.",
+    },
+    security: [{ bearer: [] }],
+    // Relative, so the page works against whichever origin served it — the
+    // hosted API and the local one without a build step between them. Paths
+    // carry the /api the router mounts on, so the server is the origin itself.
+    servers: [{ url: "/" }],
+  });
+
+  // Scalar from a CDN script rather than its Hono middleware, which is npm-only
+  // and pulls a dependency chain this runtime resolves badly. The middleware
+  // only ever emitted this page anyway. Pin and SHA-384 cover the exact standalone
+  // bytes from the npm tarball, compared with jsDelivr; update both after review.
+  app.get("/reference", (c) =>
+    c.html(`<!doctype html>
+<html>
+  <head>
+    <title>Coach API</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.67.0/dist/browser/standalone.js"
+      integrity="sha384-6c7Vmx+i0yi8gBbltn0x1cavD+zsMGw2xmXXVyacPJLIGBxwaVimW5TW0WiW17Ir"
+      crossorigin="anonymous"></script>
+    <script>
+      Scalar.createApiReference('#app', { url: 'openapi.json' })
+    </script>
+  </body>
+</html>`)
+  );
+
+  // The connector: the one endpoint the plugin talks MCP to, whose one tool
+  // mints the coach's token. Above the middleware because it carries its own
+  // credential, the sign-in token, checked inside on every call; its discovery
+  // document is the one route that answers with none, so a client can learn
+  // where to sign in. The auth matrix names it beside the Withings webhook.
+  app.route("/mcp", mcp);
+
+  // Coach tokens are opaque base64url strings; web access tokens are JWTs.
+  // Their formats select disjoint policies, with no fallback between them.
+  // Only the API decides which reads a web session can authorize.
+  app.use(async (c, next) => {
+    c.header("Cache-Control", "private, no-store");
+    const refusal = {
+      error:
+        "Missing, invalid or expired bearer token. Call the connector's get_api_token tool and send its token as Authorization: Bearer <token>. Dashboard users: sign in again.",
+    };
+    const sent = c.req.header("authorization") ?? "";
+    const bearer = sent.startsWith("Bearer ")
+      ? sent.slice("Bearer ".length)
+      : "";
+    if (bearer === "") {
+      return c.json(refusal, 401);
+    }
+    if (bearer.includes(".")) {
+      await authorizeWebRead(bearer, c.req.method, c.req.path, {
+        issuer: env.WEB_AUTH_ISSUER,
+        clientId: env.WEB_AUTH_CLIENT_ID,
+        jwksUrl: env.WEB_AUTH_JWKS_URL,
+        allowedSubject: env.ALLOWED_SUBJECT,
+      });
+    } else if ((await tokens.verifyToken(bearer)) === null) {
+      return c.json(refusal, 401);
+    }
+    // oxlint-disable-next-line node/callback-return -- Hono next returns a promise, not a Node-style callback.
+    await next();
+  });
+
+  // readJson used to guarantee two things that the schema validator does not:
+  // that a body is a JSON object at all, and that it is read whatever the
+  // Content-Type says. The validator skips silently when the header is not
+  // application/json — the request reaches the handler with every field
+  // undefined, which is the same silent-success failure assertKnownFields
+  // existed to prevent, arriving by a different door.
+  //
+  // So the guarantee is restored here, once, ahead of every schema. It sits
+  // below the token middleware on purpose: the health ping and the Withings
+  // webhook are registered above it and keep their own handling — the webhook
+  // in particular is form-encoded and must stay untouched.
+  //
+  // A body-less POST passes: /withings/sync is reached from a terminal with no
+  // body at all, and that is deliberate.
+  app.use(async (c, next) => {
+    const { method } = c.req;
+    if (method === "POST" || method === "PATCH" || method === "PUT") {
+      const raw = await c.req.text();
+      if (raw.trim() !== "") {
+        let parsed: unknown;
+        try {
+          parsed = await c.req.json();
+        } catch {
+          parsed = undefined;
+        }
+        if (
+          parsed === null ||
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reject primitive JSON at the HTTP boundary before any route validation.
+          typeof parsed !== "object" ||
+          Array.isArray(parsed)
+        ) {
+          return c.json(
+            {
+              error:
+                "The request body must be a JSON object. Send Content-Type: application/json.",
+            },
+            422
+          );
+        }
+      }
+    }
+    // oxlint-disable-next-line node/callback-return -- Hono next returns a promise, not a Node-style callback.
+    await next();
+  });
+
+  app.route("/exercises", exercises);
+  app.route("/muscles", muscles);
+  app.route("/user-context", userContext);
+  app.route("/bodyweight", bodyweight);
+  app.route("/bodyfat", bodyfat);
+  app.route("/blocks", blocks);
+  app.route("/mesocycles", mesocycles);
+  app.route("/sessions", sessions);
+  app.route("/sets", sets);
+  app.route("/training-state", trainingState);
+  app.route("/week-schedule", weekSchedule);
+  app.route("/weekly-volume", weeklyVolume);
+  app.route("/weekly-exercise-sets", weeklyExerciseSets);
+  app.route("/foods", foods);
+  app.route("/meals", meals);
+  app.route("/intake", intake);
+  app.route("/days", days);
+  app.route("/nutrition-state", nutritionState);
+  app.route("/nutrition-targets", nutritionTargets);
+  app.route("/nutrition-events", nutritionEvents);
+  app.route("/nutrition/weekly", nutritionWeekly);
+  app.route("/issues", issues);
+  // The manual sync trigger, on the same prefix as the webhook above but on this
+  // side of the middleware.
+  app.route("/withings", withingsAdmin);
+
+  app.notFound((c) => {
+    // Backstop for the normalization below: unreachable while the wrapper runs,
+    // but a route this function cannot serve must still explain itself if a
+    // refactor ever drops the wrapper. Errors are prompts, including this one.
+    const doubled =
+      c.req.path.startsWith("/api/api/") || c.req.path === "/api/api";
+    const hint = doubled
+      ? " The base URL already ends in /api — write paths without it, as the docs do."
+      : "";
+    return c.json(
+      { error: `No route for ${c.req.method} ${c.req.path}.${hint}` },
+      404
+    );
+  });
+
+  app.onError(errorResponse);
+  return app;
+}
+
+// The docs write paths relative to BASE, which already ends in /api — the
+// router's mount prefix. A caller that read an /api-prefixed path somewhere and
+// concatenated it onto BASE arrives at /api/api/…, which no route matches.
+// That mistake is one string-concatenation away for every client, so it is
+// forgiven here instead of 404ing: collapse any run of leading /api segments
+// down to the one the router mounts on.
+//
+// The second forgiveness is the Content-Type header. c.req.json() read a body
+// whatever the header claimed, and the schema validator does not: it skips on
+// anything but application/json, handing the route a body it never checked.
+// A caller that sent well-formed JSON and a careless header was answered for
+// years and is answered still — the header is corrected rather than the call
+// refused. A body that is not a JSON object is left exactly as it arrived,
+// which is what keeps the form-encoded Withings webhook working.
+const JSON_BODY_METHODS = new Set(["POST", "PATCH", "PUT"]);
+
+async function normalized(req: Request): Promise<Request> {
+  if (!JSON_BODY_METHODS.has(req.method)) {
+    return req;
+  }
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    return req;
+  }
+
+  const raw = await req.clone().text();
+  if (raw.trim() === "") {
+    return req;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return req;
+  }
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Only JSON objects qualify for Content-Type repair; leave other payloads untouched.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return req;
+  }
+
+  const headers = new Headers(req.headers);
+  headers.set("content-type", "application/json");
+  return new Request(req.url, { method: req.method, headers, body: raw });
+}
+
+// Local tests and deployed Workers execute this same request boundary.
+export async function handleRequest(
+  req: Request,
+  env: Bindings,
+  invocation: Invocation,
+  clock: Clock = systemClock
+): Promise<Response> {
+  const started = performance.now();
+  const diagnostic: Diagnostic = {
+    id: crypto.randomUUID(),
+    route: "unmatched",
+  };
+  const method = [
+    "GET",
+    "HEAD",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+  ].includes(req.method)
+    ? req.method
+    : "OTHER";
+  let response: Response;
+  let request = req;
+  try {
+    try {
+      request = await boundedBody(request);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError(
+        400,
+        "Request body could not be read. Send a complete request body."
+      );
+    }
+    const url = new URL(request.url);
+    const collapsed = url.pathname.replace(/^(?:\/api)+(?=\/|$)/u, "/api");
+    if (collapsed !== url.pathname) {
+      url.pathname = collapsed;
+      request = new Request(url, request);
+    }
+    response = await createApplication(env, invocation, clock).fetch(
+      await normalized(request),
+      { ...env, diagnostic }
+    );
+  } catch (error) {
+    response = Response.json(
+      {
+        error:
+          error instanceof ApiError
+            ? error.message
+            : internalError(diagnostic, method),
+      },
+      { status: error instanceof ApiError ? error.status : 500 }
+    );
+  }
+  response.headers.set("X-Request-ID", diagnostic.id);
+  const failure: Pick<Diagnostic, "error"> = {};
+  if (diagnostic.error) {
+    failure.error = diagnostic.error;
+  }
+  console.log(
+    JSON.stringify({
+      diagnostic_id: diagnostic.id,
+      method,
+      route: diagnostic.route,
+      status: response.status,
+      duration_ms: Math.round(performance.now() - started),
+      ...failure,
+    })
+  );
+  return response;
+}

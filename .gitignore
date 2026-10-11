@@ -17,17 +17,17 @@
 # Generated caches, dependencies and Worker build output
 /.cache/
 node_modules/
-/dist/
+dist/
 .wrangler/
 .dev.vars*
 
 # Web build output and dependencies
-web/dist/
-web/.output/
-web/.tanstack/
-web/src/routeTree.gen.ts
-web/test-results/
-web/playwright-report/
+apps/web/dist/
+apps/web/.output/
+apps/web/.tanstack/
+apps/web/src/routeTree.gen.ts
+apps/web/test-results/
+apps/web/playwright-report/
 
 # Logs
 *.log

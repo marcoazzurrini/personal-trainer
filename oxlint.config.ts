@@ -28,11 +28,12 @@ export default defineConfig({
   overrides: [
     {
       files: [
-        "api/tests/**/*_test.ts",
-        "scripts/tests/**/*.test.ts",
-        "db/tests/*.test.ts",
-        "db/tests/*.test.worker.ts",
-        "web/tests/**",
+        "apps/api/tests/**/*_test.ts",
+        "apps/api/tests/*.test.ts",
+        "packages/db/tests/*.test.ts",
+        "apps/api/tests/d1/*.test.ts",
+        "apps/api/tests/d1/*.test.worker.ts",
+        "apps/web/tests/**",
       ],
       rules: {
         // Tests check primitive representations and keep fixture helpers local.
@@ -41,7 +42,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["web/tests/**"],
+      files: ["apps/web/tests/**"],
       rules: {
         // Preserve the existing Vitest seams that isolate server-only SDK modules.
         "anti-slop/no-module-mocking": "off",
@@ -57,6 +58,6 @@ export default defineConfig({
     "**/.tanstack/**",
     "**/test-results/**",
     "**/playwright-report/**",
-    "web/src/routeTree.gen.ts",
+    "apps/web/src/routeTree.gen.ts",
   ],
 });

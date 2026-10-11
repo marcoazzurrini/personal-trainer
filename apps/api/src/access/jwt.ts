@@ -1,0 +1,506 @@
+// Checking a sign-in token: is it ours, is it still good, and who is it for.
+//
+// The connector receives one of these on every call — the access token the
+// authorization server issued to Claude after Marco signed in. Such a server
+// publishes the public half of its signing keys, and says where in its
+// metadata, so the check is local: read the metadata once, read the keys
+// once, verify the signature with WebCrypto, read the claims. No round trip
+// to the server per call, and no library — the whole of RS256 and ES256 is
+// one importKey and one verify each.
+//
+// Nothing here names a provider. What a provider decides is held in two
+// values the caller passes in: the issuer, and the audience this endpoint
+// expects to find in the token.
+//
+// Import-free on purpose, like surfaces/github.ts: the unit tests sign tokens
+// with keys they generate and run this file without a database or API server.
+
+export class JwtError extends Error {
+  // Set when the token names a key the key set does not hold. The caller may
+  // refetch the keys once for that case — a rotated key is the ordinary
+  // reason — and every other refusal is final.
+  readonly unknownKid: boolean;
+
+  // eslint-disable-next-line unicorn/custom-error-definition -- Preserve the existing Error name; callers distinguish refusals with instanceof JwtError.
+  constructor(message: string, unknownKid = false) {
+    super(message);
+    this.unknownKid = unknownKid;
+  }
+}
+
+/** Compare credentials through native HMAC verification, not JavaScript equality. */
+export async function timingSafeEqual(
+  left: string,
+  right: string
+): Promise<boolean> {
+  const key = await crypto.subtle.generateKey(
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+  const encoder = new TextEncoder();
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(left));
+  return await crypto.subtle.verify(
+    "HMAC",
+    key,
+    signature,
+    encoder.encode(right)
+  );
+}
+
+export interface Jwks {
+  keys: (JsonWebKey & { kid?: string })[];
+}
+
+export interface Identity {
+  sub: string;
+  // Not every server puts an email in an access token, and this one is not
+  // relied on: identity is the subject. Kept when present, for the record.
+  email: string | null;
+  client_id: string | null;
+  exp: number;
+}
+
+// The two signature algorithms an authorization server publishes public keys
+// for. HMAC algorithms are refused by construction: a shared secret has no
+// public half to publish, and a token claiming one has no business here.
+export type Alg = "RS256" | "ES256";
+
+function isAlg(value: unknown): value is Alg {
+  return value === "RS256" || value === "ES256";
+}
+
+// Seconds either side of the clock a token may be, to absorb the drift
+// between the authorization server's clock and this one.
+const LEEWAY_SECONDS = 60;
+
+// Returns bytes over a plain ArrayBuffer: WebCrypto's verify() refuses a view
+// that might sit on a SharedArrayBuffer, which is what Uint8Array.from yields
+// in the type system.
+export function decodeBase64Url(text: string): Uint8Array<ArrayBuffer> {
+  const base64 = text.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  let binary: string;
+  try {
+    binary = atob(padded);
+  } catch {
+    throw new JwtError("The token is not base64url.");
+  }
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) {
+    // eslint-disable-next-line unicorn/prefer-code-point -- atob returns byte-valued code units, not Unicode text; preserve the exact decoded bytes.
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Decoded JWT and issuer JSON fields remain unknown until their individual boundary checks.
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeJson(segment: string, what: string): JsonObject {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(decodeBase64Url(segment)));
+  } catch {
+    throw new JwtError(`The token's ${what} is not JSON.`);
+  }
+  if (!isJsonObject(parsed)) {
+    throw new JwtError(`The token's ${what} is not an object.`);
+  }
+  return parsed;
+}
+
+// The key is imported for the algorithm the header claims, and refused if
+// its type does not fit that algorithm. That is the guard against algorithm
+// confusion: a header cannot talk an RSA key into acting as an EC key or the
+// reverse, because the wrong kind of key never reaches verify(). Only the
+// fields that define the key are handed to importKey — a published key set
+// carries alg, use and key_ops beside them, and WebCrypto is strict about
+// extras.
+async function importKey(jwk: JsonWebKey, alg: Alg): Promise<CryptoKey> {
+  if (alg === "RS256") {
+    if (jwk.kty !== "RSA" || !jwk.n || !jwk.e) {
+      throw new JwtError(
+        "The token says RS256 but the key it names is not an RSA key."
+      );
+    }
+    return await crypto.subtle.importKey(
+      "jwk",
+      { kty: "RSA", n: jwk.n, e: jwk.e },
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+  }
+  if (jwk.kty !== "EC" || jwk.crv !== "P-256" || !jwk.x || !jwk.y) {
+    throw new JwtError(
+      "The token says ES256 but the key it names is not a P-256 key."
+    );
+  }
+  return await crypto.subtle.importKey(
+    "jwk",
+    { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["verify"]
+  );
+}
+
+function pickKey(jwks: Jwks, kid: string | null): JsonWebKey {
+  if (kid !== null) {
+    const match = jwks.keys.find((key) => key.kid === kid);
+    if (match === undefined) {
+      throw new JwtError(
+        `The token is signed with key "${kid}", which the authorization server does not publish.`,
+        true
+      );
+    }
+    return match;
+  }
+  // No kid: only unambiguous when there is one key to choose from.
+  if (jwks.keys.length !== 1) {
+    throw new JwtError(
+      "The token names no signing key and the authorization server publishes more than one."
+    );
+  }
+  return jwks.keys[0];
+}
+
+// The header alone: the shape of the token and the algorithm it claims, read
+// before any key is fetched or touched. A token claiming "none" or an HMAC
+// algorithm is refused here, so no key material ever meets a signature it was
+// not made for; and a caller can learn which key the token names before it
+// goes looking for one.
+interface TokenHeader {
+  alg: Alg;
+  kid: string | null;
+  segments: [string, string, string];
+}
+
+export function readHeader(token: string): TokenHeader {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    throw new JwtError("The token is not three dot-separated segments.");
+  }
+  const header = decodeJson(parts[0], "header");
+  if (!isAlg(header.alg)) {
+    throw new JwtError(
+      `The token is signed with "${String(
+        header.alg
+      )}"; only RS256 or ES256 is accepted.`
+    );
+  }
+  return {
+    alg: header.alg,
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- A raw JWT header supplies an optional kid; only a string participates in key selection.
+    kid: typeof header.kid === "string" ? header.kid : null,
+    segments: [parts[0], parts[1], parts[2]],
+  };
+}
+
+// One spelling of a resource URL, so the token's audience and this
+// endpoint's own address compare as the same place however each was
+// written: the scheme and host lowercased (the URL parser does that), a
+// trailing slash dropped, a fragment dropped. Anything that is not a URL is
+// returned as it came, and then only equals itself.
+export function canonicalResource(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  return `${parsed.origin}${parsed.pathname.replace(
+    /\/+$/u,
+    ""
+  )}${parsed.search}`;
+}
+
+interface VerifiedClaims extends JsonObject {
+  sub: string;
+  exp: number;
+}
+
+// Shared cryptographic checks do not decide which application may use a token.
+// Each public verifier below applies its own, non-interchangeable claim policy.
+async function verifiedClaims(
+  token: string,
+  opts: { issuer: string; jwks: Jwks; now?: number }
+): Promise<VerifiedClaims> {
+  const { alg, kid, segments } = readHeader(token);
+  const [headerSegment, payloadSegment, signatureSegment] = segments;
+
+  const key = await importKey(pickKey(opts.jwks, kid), alg);
+  const signed = new TextEncoder().encode(`${headerSegment}.${payloadSegment}`);
+  const valid = await crypto.subtle.verify(
+    alg === "RS256"
+      ? { name: "RSASSA-PKCS1-v1_5" }
+      : { name: "ECDSA", hash: "SHA-256" },
+    key,
+    decodeBase64Url(signatureSegment),
+    signed
+  );
+  if (!valid) {
+    throw new JwtError("The token's signature does not verify.");
+  }
+
+  const claims = decodeJson(payloadSegment, "payload");
+  const now = opts.now ?? Math.floor(Date.now() / 1000);
+  if (claims.iss !== opts.issuer) {
+    throw new JwtError(
+      `The token was issued by "${String(
+        claims.iss
+      )}", not by this project's authorization server.`
+    );
+  }
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the signed payload's expiry before applying the existing clock leeway.
+  if (typeof claims.exp !== "number" || claims.exp + LEEWAY_SECONDS <= now) {
+    throw new JwtError("The token has expired. Sign in again.");
+  }
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- Only numeric nbf claims participate in the existing not-before check.
+  if (typeof claims.nbf === "number" && claims.nbf - LEEWAY_SECONDS > now) {
+    throw new JwtError("The token is not valid yet.");
+  }
+
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- A nonempty string subject is required at the signed-payload boundary.
+  if (typeof claims.sub !== "string" || claims.sub === "") {
+    throw new JwtError("The token names no subject.");
+  }
+  return { ...claims, sub: claims.sub, exp: claims.exp };
+}
+
+function identity(claims: VerifiedClaims): Identity {
+  return {
+    sub: claims.sub,
+    email:
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional email remains an untrusted claim; preserve its string-or-null representation.
+      typeof claims.email === "string" && claims.email !== ""
+        ? claims.email
+        : null,
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Optional client_id is exposed only when the signed payload contains a string.
+    client_id: typeof claims.client_id === "string" ? claims.client_id : null,
+    exp: claims.exp,
+  };
+}
+
+export async function verifyJwt(
+  token: string,
+  opts: { issuer: string; audience: string; jwks: Jwks; now?: number }
+): Promise<Identity> {
+  const claims = await verifiedClaims(token, opts);
+  // The audience: a token is minted for one resource, and this endpoint
+  // accepts only tokens minted for it. A token for another of the
+  // authorization server's resources is refused here, whoever signed it.
+  // Both values go in the sentence, because a mismatch is nearly always a
+  // registration typo and the two strings side by side are the diagnosis.
+  const audiences = (
+    Array.isArray(claims.aud) ? claims.aud : [claims.aud]
+  ).filter((entry): entry is string => typeof entry === "string");
+  const wanted = canonicalResource(opts.audience);
+  if (!audiences.some((entry) => canonicalResource(entry) === wanted)) {
+    throw new JwtError(
+      `The token is for "${
+        audiences.join(", ") || "no resource"
+      }", not for this endpoint (${opts.audience}).`
+    );
+  }
+
+  return identity(claims);
+}
+
+// WorkOS web-session tokens name an application with client_id and a session
+// with sid. Connect/MCP tokens name a resource with aud instead. Do not relax
+// the connector's audience check to accept a web token, or accept a Connect
+// token here merely because its subject belongs to Marco. A signed token stays
+// valid until it expires, even after its WorkOS session is revoked.
+export async function verifyWebSessionJwt(
+  token: string,
+  opts: { issuer: string; clientId: string; jwks: Jwks; now?: number }
+): Promise<Identity> {
+  const claims = await verifiedClaims(token, opts);
+  if (
+    claims.client_id !== opts.clientId ||
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Web-session authentication requires a nonempty string sid from the signed payload.
+    typeof claims.sid !== "string" ||
+    claims.sid === "" ||
+    claims.aud !== undefined ||
+    claims.act !== undefined
+  ) {
+    throw new JwtError(
+      "This endpoint requires a direct web session for this application, not a connector or impersonation token. Sign in to the dashboard again."
+    );
+  }
+  return identity(claims);
+}
+
+// --- What the authorization server publishes, read rarely -------------------
+
+// Two caches, one entry per URL each. The metadata names the key set; the
+// key set holds the keys. Both change rarely — a key rotation is announced
+// by a token naming a kid the key cache has not seen, which is the one event
+// that refetches the keys early. Otherwise each is read once an hour, and a
+// burst of tokens naming keys that do not exist refetches at most once a
+// minute, so an unauthenticated caller cannot turn this into a request per
+// call against the authorization server.
+const CACHE_TTL_MS = 60 * 60 * 1000;
+const REFETCH_INTERVAL_MS = 60 * 1000;
+// A read of the metadata or the keys that has not answered in this long is
+// treated as unreachable. Without a bound, a server that accepts the
+// connection and never answers — or a name that never resolves — would hold
+// the request open for as long as the runtime allows, and the caller would
+// wait with it instead of being told to try again.
+const FETCH_MS = 5000;
+interface Published<T> {
+  value?: T;
+  fetchedAt: number;
+  pending?: Promise<T>;
+  failedAt?: number;
+  failure?: unknown;
+}
+const jwksCache = new Map<string, Published<Jwks>>();
+const metadataCache = new Map<string, Published<string>>();
+
+// Both published documents share one in-flight read and failure cooldown.
+// Entries belong to these caches only; clearing them detaches pending reads
+// so a late completion cannot repopulate a reset cache.
+async function refreshPublished<T>(
+  entry: Published<T>,
+  now: number,
+  read: () => Promise<T>
+): Promise<T> {
+  if (entry.pending) {
+    return await entry.pending;
+  }
+  if (
+    entry.failedAt !== undefined &&
+    now - entry.failedAt < REFETCH_INTERVAL_MS
+  ) {
+    throw entry.failure;
+  }
+  /* oxlint-disable promise/prefer-await-to-then, promise/prefer-await-to-callbacks -- Preserve this shared refresh promise's settlement order, cache publication, failure recording and final cleanup. */
+  entry.pending = read()
+    .then((value) => {
+      entry.value = value;
+      entry.fetchedAt = now;
+      entry.failedAt = undefined;
+      entry.failure = undefined;
+      return value;
+    })
+    .catch((error) => {
+      entry.failedAt = now;
+      entry.failure = error;
+      throw error;
+    })
+    .finally(() => {
+      entry.pending = undefined;
+    });
+  /* oxlint-enable promise/prefer-await-to-then, promise/prefer-await-to-callbacks */
+  return await entry.pending;
+}
+
+// Where an issuer publishes its metadata (RFC 8414 §3.1): the well-known
+// segment goes between the host and the issuer's path, so an issuer with a
+// path — https://x.example/auth/v1 — is described at
+// https://x.example/.well-known/oauth-authorization-server/auth/v1, and one
+// without a path at the well-known URL alone.
+export function metadataUrl(issuer: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(issuer);
+  } catch {
+    throw new Error(`AUTH_ISSUER is not a URL: "${issuer}".`);
+  }
+  const path = parsed.pathname.replace(/\/+$/u, "");
+  return `${parsed.origin}/.well-known/oauth-authorization-server${path}`;
+}
+
+// The key set's address, learned from the issuer rather than assumed: every
+// authorization server puts its keys somewhere different, and the metadata
+// is where it says so. Throws a plain Error, never a JwtError: nothing here
+// is a refusal of the token, only a failure to reach the server that could
+// judge it, and the route answers those differently.
+export async function discoverJwksUrl(
+  issuer: string,
+  opts: { now?: number } = {}
+): Promise<string> {
+  const now = opts.now ?? Date.now();
+  const cached = metadataCache.get(issuer) ?? { fetchedAt: 0 };
+  metadataCache.set(issuer, cached);
+  if (cached.value !== undefined && now - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.value;
+  }
+  return await refreshPublished(cached, now, async () => {
+    const url = metadataUrl(issuer);
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(FETCH_MS),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `The authorization server's metadata could not be read: ${url} answered ${response.status}.`
+      );
+    }
+    const json: unknown = await response.json();
+    const body = isJsonObject(json) ? json : null;
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Issuer metadata is external JSON; only a string can declare its issuer.
+    const declared = typeof body?.issuer === "string" ? body.issuer : "";
+    if (declared.replace(/\/+$/u, "") !== issuer.replace(/\/+$/u, "")) {
+      throw new Error(
+        `The authorization server's metadata could not be read: ${url} names issuer "${declared}", not ${issuer}.`
+      );
+    }
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the external metadata's nonempty JWKS URL before returning it.
+    if (typeof body?.jwks_uri !== "string" || body.jwks_uri === "") {
+      throw new Error(
+        `The authorization server's metadata could not be read: ${url} did not name a jwks_uri.`
+      );
+    }
+    return body.jwks_uri;
+  });
+}
+
+export async function fetchJwks(
+  url: string,
+  opts: { unknownKid?: string; now?: number } = {}
+): Promise<Jwks> {
+  const now = opts.now ?? Date.now();
+  const cached = jwksCache.get(url) ?? { fetchedAt: 0 };
+  jwksCache.set(url, cached);
+  const fresh = now - cached.fetchedAt < CACHE_TTL_MS;
+  const holdsKid =
+    opts.unknownKid === undefined ||
+    cached.value?.keys.some((key) => key.kid === opts.unknownKid);
+  const recentlyFetched = now - cached.fetchedAt < REFETCH_INTERVAL_MS;
+  if (cached.value !== undefined && fresh && (holdsKid || recentlyFetched)) {
+    return cached.value;
+  }
+
+  return await refreshPublished(cached, now, async () => {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(FETCH_MS),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `The authorization server's keys could not be read: ${url} answered ${response.status}.`
+      );
+    }
+    const body: unknown = await response.json();
+    const keys = isJsonObject(body) ? body.keys : undefined;
+    if (!Array.isArray(keys)) {
+      throw new TypeError(
+        `The authorization server's keys could not be read: ${url} did not answer with a key set.`
+      );
+    }
+    const jwks: Jwks = { keys }; // The array is checked here; individual keys are checked at import.
+    return jwks;
+  });
+}
+
+// For the tests, which need cold caches between cases.
+export function forgetJwks(): void {
+  jwksCache.clear();
+  metadataCache.clear();
+}
