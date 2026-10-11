@@ -5,6 +5,7 @@ What it takes to run the trainer that no file in this repository can state. Comm
 ## Outside the repository
 
 - **Cloudflare** holds the API Worker, the dashboard Worker and the `personal-trainer` D1 database. Runtime credentials are Worker secrets. Never put them in Wrangler configuration, source, logs or CI output.
+- **GitHub branch protection** on `main` requires a pull request whose `checks`, `test`, `d1` and `web` jobs pass on a branch that is up to date. It applies to admins too and blocks force pushes. Merging is what deploys.
 - **GitHub secrets** hold `CLOUDFLARE_API_TOKEN`, a narrowly scoped deployment token, and `CLOUDFLARE_ACCOUNT_ID`. Interactive Wrangler login is for the operator's own session, not a credential to copy into CI.
 - **WorkOS and Withings** are registered against the public hostnames: the connector's resource indicator, the dashboard's callback URLs and the Withings notification subscription. Register a new address with its provider before changing an origin. A redirect does not repair an OAuth audience mismatch.
 - **The dashboard's cookie password** must survive any hosting change, or every existing session stops being readable.
