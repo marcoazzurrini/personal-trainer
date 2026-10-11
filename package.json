@@ -2,7 +2,7 @@
   "name": "personal-trainer",
   "private": true,
   "workspaces": [
-    "web"
+    "apps/web"
   ],
   "type": "module",
   "scripts": {

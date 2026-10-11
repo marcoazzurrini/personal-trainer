@@ -39,7 +39,7 @@ test("formatting excludes generated files and preserves the skill contract", asy
   for (const ignored of [
     ".delta/**",
     "**/node_modules/**",
-    "web/src/routeTree.gen.ts",
+    "apps/web/src/routeTree.gen.ts",
     "plugin/**",
   ]) {
     assert(
@@ -53,7 +53,7 @@ test("formatting excludes generated files and preserves the skill contract", asy
 });
 
 test("one Bun lock covers the root package and web workspace", async () => {
-  assertEquals(manifest.workspaces, ["web"]);
+  assertEquals(manifest.workspaces, ["apps/web"]);
   assert((await readFile("bun.lock", "utf-8")).includes('"lockfileVersion"'));
   for (const name of ["ajv", "fast-check", "ultracite", "oxlint", "oxfmt"]) {
     const installed = JSON.parse(

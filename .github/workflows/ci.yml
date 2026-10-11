@@ -73,12 +73,12 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - run: bun run --cwd web build
-      - run: bun run --cwd web check
-      - run: bun run --cwd web test
-      - run: bun run --cwd web playwright install --with-deps chromium
-      - run: bun run --cwd web test:browser
-      - run: bun run --cwd web test:workers
+      - run: bun run --cwd apps/web build
+      - run: bun run --cwd apps/web check
+      - run: bun run --cwd apps/web test
+      - run: bun run --cwd apps/web playwright install --with-deps chromium
+      - run: bun run --cwd apps/web test:browser
+      - run: bun run --cwd apps/web test:workers
 
   # One serialized release from the tested commit. PRs never deploy, and a
   # release that is already running is never cancelled halfway.
@@ -111,7 +111,7 @@ jobs:
       - name: Build the dashboard
         env:
           BUILD_REVISION: ${{ github.sha }}
-        run: bun run --cwd web build
+        run: bun run --cwd apps/web build
       # Migrations land first, so each one must also work with the API still running.
       - name: Apply database migrations
         run: bun run db:migrate:remote
@@ -129,7 +129,7 @@ jobs:
           echo "::error::The API never reported $GITHUB_SHA. The Worker or a migration may already be live; inspect before retrying."
           exit 1
       - name: Deploy the dashboard
-        run: bun run --cwd web deploy --message "Commit $GITHUB_SHA"
+        run: bun run --cwd apps/web deploy --message "Commit $GITHUB_SHA"
       - name: Wait for the dashboard to serve this commit
         env:
           HEALTH_URL: https://app.trainer.marcoazzurrini.com/api/health

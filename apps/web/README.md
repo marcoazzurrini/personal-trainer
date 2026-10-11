@@ -19,7 +19,7 @@ Desktop tests do not prove iOS installation or the real WorkOS flow. Verify inst
 
 ## Local development
 
-Use the Bun and Node versions declared in the root `package.json`. Install all workspaces once with `bun install --frozen-lockfile` from the repository root. Then, from `web/`:
+Use the Bun and Node versions declared in the root `package.json`. Install all workspaces once with `bun install --frozen-lockfile` from the repository root. Then, from `apps/web/`:
 
 ```sh
 cp .env.example .env
@@ -90,7 +90,7 @@ Production setup and the coordinated traffic switch are complete. These steps ap
 
 1. Select the Cloudflare account and Worker name. Add an actual custom-domain route to `wrangler.jsonc` using the `routes` array and `custom_domain: true`. Both `workers_dev` and preview URLs are disabled. Until a real domain is configured, deployment has no public application address.
 2. Add the runtime non-secret variables above. The API origin must be the separately prepared HTTPS API Worker, without `/api`. Do not point it at a retired VPS. Rebuild after source configuration changes.
-3. Provision the two secrets in the chosen Worker. From `web/`, after a build, use the following commands interactively. Do not put values in command-line arguments or source files:
+3. Provision the two secrets in the chosen Worker. From `apps/web/`, after a build, use the following commands interactively. Do not put values in command-line arguments or source files:
 
    ```sh
    bunx --no-install wrangler secret put WORKOS_API_KEY --config .output/server/wrangler.json
@@ -98,7 +98,7 @@ Production setup and the coordinated traffic switch are complete. These steps ap
    ```
 
 4. Register the selected HTTPS origin's `/auth/callback`, `/auth/sign-in`, and `/` sign-out redirect in WorkOS. Verify the API's independent web-session token contract and matching allowed subject.
-5. In an approved release job, check out the tested commit, export `BUILD_REVISION` to that commit, and run `bun install --frozen-lockfile` from the repository root. Build and run all checks above, then run `bun run --cwd web deploy`. `bun run --cwd web deploy:check` is a dry run only. The deploy command uploads the already-built output; it does not rebuild.
+5. In an approved release job, check out the tested commit, export `BUILD_REVISION` to that commit, and run `bun install --frozen-lockfile` from the repository root. Build and run all checks above, then run `bun run --cwd apps/web deploy`. `bun run --cwd apps/web deploy:check` is a dry run only. The deploy command uploads the already-built output; it does not rebuild.
 6. Verify `/api/health` reports the exact tested commit, then explicitly verify real sign-in, authenticated API read, refresh, sign-out and iPhone behavior. A health response or local synthetic session does not prove hosted identity.
 
 A Worker rollback does not restore API records or rotated secrets.

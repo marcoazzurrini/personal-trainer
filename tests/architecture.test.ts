@@ -44,12 +44,12 @@ function violations(files: Map<string, string>): string[] {
       const description = `${file} imports ${target}`;
       if (
         file.startsWith("db/") &&
-        /^(?:api\/|web\/|plugin\/|hono(?:\/|$)|@hono\/)/u.test(target)
+        /^(?:api\/|apps\/web\/|plugin\/|hono(?:\/|$)|@hono\/)/u.test(target)
       ) {
         errors.push(description);
       }
       if (
-        file.startsWith("web/") &&
+        file.startsWith("apps/web/") &&
         /^(?:db\/|drizzle-orm(?:\/|$))/u.test(target)
       ) {
         errors.push(description);
@@ -82,7 +82,7 @@ test("persistence belongs to db, never HTTP or dashboard modules", async () => {
   const files = new Map([
     ...(await sources("api")),
     ...(await sources("db")),
-    ...(await sources("web/src")),
+    ...(await sources("apps/web/src")),
   ]);
   assert.equal(violations(files).join("\n"), "");
   assert.ok(files.has("db/client.ts"));

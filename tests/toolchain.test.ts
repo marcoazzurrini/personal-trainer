@@ -68,12 +68,12 @@ test("local tests and every CI job use the pinned Bun version and frozen workspa
   );
   assert.doesNotMatch(workflow, /bun --cwd \S+ run/u);
   assert.match(await read("bun.lock"), /"lockfileVersion":/u);
-  assert.deepEqual(manifest.workspaces, ["web"]);
+  assert.deepEqual(manifest.workspaces, ["apps/web"]);
   for (const file of [
     "deno.json",
     "deno.lock",
     "package-lock.json",
-    "web/package-lock.json",
+    "apps/web/package-lock.json",
     "db/package.json",
     "scripts/test.ts",
   ]) {
@@ -82,7 +82,7 @@ test("local tests and every CI job use the pinned Bun version and frozen workspa
 });
 
 test("Bun replaces the client runner, not Vitest, Playwright or the Worker runtime", async () => {
-  const web = JSON.parse(await read("web/package.json"));
+  const web = JSON.parse(await read("apps/web/package.json"));
   assert.equal(web.scripts.test, "vitest run");
   assert.equal(web.scripts["test:browser"], "playwright test");
   assert.match(
@@ -98,7 +98,7 @@ test("Bun replaces the client runner, not Vitest, Playwright or the Worker runti
   assert.match(runner, /d1Persist: false/u);
   assert.match(runner, /outboundService\(/u);
   assert.match(runner, /--preload=\.\/api\/tests\/preload\.ts/u);
-  for (const file of ["bunfig.toml", "web/bunfig.toml"]) {
+  for (const file of ["bunfig.toml", "apps/web/bunfig.toml"]) {
     assert.match(await read(file), /^env = false$/mu);
   }
 });
@@ -111,7 +111,7 @@ test(
     try {
       for (const [index, file] of [
         "bunfig.toml",
-        "web/bunfig.toml",
+        "apps/web/bunfig.toml",
       ].entries()) {
         const cwd = join(directory, String(index));
         await mkdir(cwd);
@@ -189,10 +189,10 @@ test("the API documents one local dotenv file without retired hosting settings",
   for (const [path, expectedStatus] of [
     [".env", 0],
     [".env.production", 0],
-    ["web/.env", 0],
+    ["apps/web/.env", 0],
     [".dev.vars", 0],
     [".env.example", 1],
-    ["web/.env.example", 1],
+    ["apps/web/.env.example", 1],
   ] as const) {
     const result = spawnSync("git", ["check-ignore", "--no-index", path], {
       cwd: root,
@@ -276,7 +276,7 @@ test("formatting preserves the JSON subset accepted by Nitro's Wrangler reader",
   };
   const formatted = spawnSync(
     new URL("node_modules/.bin/oxfmt", root).pathname,
-    ["--stdin-filepath", "web/wrangler.jsonc"],
+    ["--stdin-filepath", "apps/web/wrangler.jsonc"],
     {
       cwd: root,
       input: JSON.stringify(fixture, null, 2),
@@ -300,6 +300,6 @@ test("Oxfmt, Oxlint and bundled Ultracite anti-slop guard the same workspace", a
   const hooks = await read("lefthook.yml");
   assert.match(hooks, /bun run fmt \{staged_files\}/u);
   assert.match(hooks, /bun run lint \{staged_files\}/u);
-  assert.match(hooks, /bun run --cwd web check/u);
+  assert.match(hooks, /bun run --cwd apps\/web check/u);
   assert.doesNotMatch(hooks, /deno|rc: \.lefthookrc/u);
 });

@@ -12,5 +12,5 @@
     "types": ["bun", "node"]
   },
   "include": ["api/**/*.ts", "tests/**/*.ts", "db/**/*.ts"],
-  "exclude": ["node_modules", ".delta", "dist", ".wrangler", "web"]
+  "exclude": ["node_modules", ".delta", "dist", ".wrangler", "apps/web"]
 }

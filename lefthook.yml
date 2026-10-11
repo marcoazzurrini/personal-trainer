@@ -18,5 +18,5 @@ pre-commit:
       glob: "*.{ts,tsx}"
       run: bun run check
     - name: web-types
-      glob: "web/**/*.{ts,tsx}"
-      run: bun run --cwd web check
+      glob: "apps/web/**/*.{ts,tsx}"
+      run: bun run --cwd apps/web check

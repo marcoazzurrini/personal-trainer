@@ -58,7 +58,7 @@ test("production and isolated tests use one D1 migration history without a DB pa
     assert.equal(existsSync(new URL(path, root)), false, path);
   }
   const manifest = JSON.parse(await read("package.json"));
-  assert.deepEqual(manifest.workspaces, ["web"]);
+  assert.deepEqual(manifest.workspaces, ["apps/web"]);
   assert.equal(manifest.scripts["test:postgres-import"], undefined);
   assert.equal(manifest.dependencies?.postgres, undefined);
   assert.equal(manifest.devDependencies?.postgres, undefined);
@@ -73,7 +73,7 @@ test("production and isolated tests use one D1 migration history without a DB pa
 test("root ignore rules protect nested database artifacts without hiding migrations", () => {
   for (const [path, expectedStatus] of [
     ["node_modules/example/index.js", 0],
-    ["web/node_modules/example/index.js", 0],
+    ["apps/web/node_modules/example/index.js", 0],
     ["db/tests/node_modules/example/index.js", 0],
     ["db/tests/.wrangler/state.sqlite", 0],
     ["db/tests/.dev.vars", 0],

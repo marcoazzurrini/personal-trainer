@@ -40,11 +40,11 @@ test("production changes only after every check, once, in a safe order", () => {
     return index;
   };
   const order = [
-    position(/run --cwd web build/u),
+    position(/run --cwd apps\/web build/u),
     position(/db:migrate:remote/u),
     position(/bun run deploy .*__BUILD_REVISION__/u),
     position(/Wait for the API/u),
-    position(/run --cwd web deploy/u),
+    position(/run --cwd apps\/web deploy/u),
     position(/Wait for the dashboard/u),
   ];
   assert.deepEqual(

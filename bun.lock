@@ -29,7 +29,7 @@
         "wrangler": "4.131.2",
       },
     },
-    "web": {
+    "apps/web": {
       "name": "trainer-web",
       "dependencies": {
         "@tanstack/charts": "0.17.0",
@@ -925,7 +925,7 @@
 
     "to-regex-range": ["to-regex-range@5.0.1", "", { "dependencies": { "is-number": "^7.0.0" } }, "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ=="],
 
-    "trainer-web": ["trainer-web@workspace:web"],
+    "trainer-web": ["trainer-web@workspace:apps/web"],
 
     "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
