@@ -12,7 +12,10 @@
 // challenge so clients can discover OAuth before connecting. After sign-in,
 // GET answers 405: this server offers no stream.
 //
-// Import-free, so the dispatch is tested in-process with a stub minter.
+// Free of the database and the API, so the dispatch is tested in-process with
+// a stub minter.
+
+import { Effect } from "effect";
 
 export const TOOL_NAME = "get_api_token";
 
@@ -38,8 +41,10 @@ const TOOL_DESCRIPTION =
 const INSTRUCTIONS =
   "This connector only signs the coach in. Everything else — logging, planning, every read and write of the record — goes through the coach API with curl, using the token get_api_token returns. The coaching documents are files in the skill, read from disk; the API serves none.";
 
-export interface McpDeps {
-  issue: (subject: string) => Promise<{ token: string; expires_at: string }>;
+export interface McpDeps<E = never> {
+  issue: (
+    subject: string
+  ) => Effect.Effect<{ token: string; expires_at: string }, E>;
   baseUrl: string;
   version: string;
 }
@@ -69,19 +74,23 @@ function failure(
   return { status, body: { jsonrpc: "2.0", id, error: { code, message } } };
 }
 
-export async function handleMcp(
+// Every answer but a minted token is decided without I/O, so only tools/call
+// waits on anything; the minter's failures are the caller's to answer.
+export function handleMcp<E>(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- This dispatcher is the parser boundary for the raw JSON-RPC request body.
   message: unknown,
   caller: { subject: string },
-  deps: McpDeps
-): Promise<McpOutcome> {
+  deps: McpDeps<E>
+): Effect.Effect<McpOutcome, E> {
   const m = isMessage(message) ? message : null;
   if (m === null || m.jsonrpc !== "2.0") {
-    return failure(
-      null,
-      -32_600,
-      'The body must be one JSON-RPC 2.0 message: an object with "jsonrpc": "2.0". Batches are not accepted.',
-      400
+    return Effect.succeed(
+      failure(
+        null,
+        -32_600,
+        'The body must be one JSON-RPC 2.0 message: an object with "jsonrpc": "2.0". Batches are not accepted.',
+        400
+      )
     );
   }
 
@@ -91,7 +100,7 @@ export async function handleMcp(
   // server accepts them with a 202 and no body, and the client sends
   // notifications/initialized before its first real request.
   if (!("id" in m) || "result" in m || "error" in m) {
-    return { status: 202 };
+    return Effect.succeed({ status: 202 });
   }
 
   const { id } = m;
@@ -104,58 +113,69 @@ export async function handleMcp(
       )
         ? asked
         : LATEST_PROTOCOL_VERSION;
-      return result(id, {
-        protocolVersion,
-        capabilities: { tools: {} },
-        serverInfo: { name: "personal-trainer", version: deps.version },
-        instructions: INSTRUCTIONS,
-      });
+      return Effect.succeed(
+        result(id, {
+          protocolVersion,
+          capabilities: { tools: {} },
+          serverInfo: { name: "personal-trainer", version: deps.version },
+          instructions: INSTRUCTIONS,
+        })
+      );
     }
     case "ping": {
-      return result(id, {});
+      return Effect.succeed(result(id, {}));
     }
     case "tools/list": {
-      return result(id, {
-        tools: [
-          {
-            name: TOOL_NAME,
-            description: TOOL_DESCRIPTION,
-            inputSchema: { type: "object", properties: {} },
-          },
-        ],
-      });
+      return Effect.succeed(
+        result(id, {
+          tools: [
+            {
+              name: TOOL_NAME,
+              description: TOOL_DESCRIPTION,
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+        })
+      );
     }
     case "tools/call": {
       if (params.name !== TOOL_NAME) {
-        return failure(
-          id,
-          -32_602,
-          `No tool named "${String(
-            params.name
-          )}". The only tool is ${TOOL_NAME}.`
+        return Effect.succeed(
+          failure(
+            id,
+            -32_602,
+            `No tool named "${String(
+              params.name
+            )}". The only tool is ${TOOL_NAME}.`
+          )
         );
       }
-      const minted = await deps.issue(caller.subject);
-      return result(id, {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              token: minted.token,
-              base_url: deps.baseUrl,
-              expires_at: minted.expires_at,
-            }),
-          },
-        ],
-      });
+      return deps.issue(caller.subject).pipe(
+        Effect.map((minted) =>
+          result(id, {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  token: minted.token,
+                  base_url: deps.baseUrl,
+                  expires_at: minted.expires_at,
+                }),
+              },
+            ],
+          })
+        )
+      );
     }
     default: {
-      return failure(
-        id,
-        -32_601,
-        `No method "${String(
-          m.method
-        )}". This server answers initialize, ping, tools/list and tools/call.`
+      return Effect.succeed(
+        failure(
+          id,
+          -32_601,
+          `No method "${String(
+            m.method
+          )}". This server answers initialize, ping, tools/list and tools/call.`
+        )
       );
     }
   }

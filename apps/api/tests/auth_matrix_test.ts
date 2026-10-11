@@ -168,8 +168,9 @@ test("no plain router serves traffic unseen", async () => {
   ]);
   const found: string[] = [];
   for (const file of await filesUnder(API_DIR)) {
+    // With or without type arguments: a typed plain router is still plain.
     if (
-      (await readFile(file, "utf-8")).includes("new Hono(") &&
+      /new Hono\s*[<(]/u.test(await readFile(file, "utf-8")) &&
       !allowed.has(file)
     ) {
       found.push(file);

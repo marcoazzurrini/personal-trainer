@@ -3,19 +3,20 @@ import type {
   IntakeDay,
   LogIntake,
 } from "@trainer/db/repositories/nutrition/intake.ts";
+import { Effect } from "effect";
 
+import { effectful } from "../shared/database.ts";
 import { requireNotFuture } from "../shared/dates.ts";
-import { ApiError, databaseError, requireRow } from "../shared/errors.ts";
+import { Invalid, requireRow } from "../shared/refusals.ts";
+import type { DatabaseFailure, NotFound } from "../shared/refusals.ts";
 import {
   date,
   decimal,
-  instant,
+  now,
   requestId,
-  romeDate,
-  systemClock,
+  today,
   wireInstant,
 } from "../shared/values.ts";
-import type { Clock } from "../shared/values.ts";
 import type { CorrectInput, DayView, LogInput } from "./intake.types.ts";
 import type { NutritionResolver } from "./resolve.ts";
 import { gramsEaten, sumMacros } from "./rules.ts";
@@ -30,24 +31,25 @@ function view(day: string, result: IntakeDay): DayView {
   return { day, entries, totals: sumMacros(entries), flags: result.flags };
 }
 
-function intakeScale(b: LogInput): number | null {
+const intakeScale = Effect.fnUntraced(function* (
+  b: LogInput
+): Effect.fn.Return<number | null, Invalid> {
   const wants = (["meal", "food", "adhoc_kcal"] as const).filter(
     (k) => b[k] !== undefined && b[k] !== null
   );
   if (wants.length !== 1) {
-    throw new ApiError(
-      422,
-      wants.length === 0
-        ? 'An intake entry is one of three things: "meal" (a saved meal by id, name, or alias), "food" plus "grams" or "units", or "adhoc_kcal" for an estimated entry. Send exactly one.'
-        : `Send exactly one of "meal", "food", "adhoc_kcal" — got ${wants.join(" and ")}. A meal plus an extra food is two calls, which is also how a variation on a routine gets logged.`
-    );
+    return yield* new Invalid({
+      message:
+        wants.length === 0
+          ? 'An intake entry is one of three things: "meal" (a saved meal by id, name, or alias), "food" plus "grams" or "units", or "adhoc_kcal" for an estimated entry. Send exactly one.'
+          : `Send exactly one of "meal", "food", "adhoc_kcal" — got ${wants.join(" and ")}. A meal plus an extra food is two calls, which is also how a variation on a routine gets logged.`,
+    });
   }
   for (const field of ["grams", "units"] as const) {
     if (b[field] !== null && b[field] !== undefined && wants[0] !== "food") {
-      throw new ApiError(
-        422,
-        `"${field}" goes with "food". For a saved meal send "scale"; for an estimate send "adhoc_kcal" at the number you mean.`
-      );
+      return yield* new Invalid({
+        message: `"${field}" goes with "food". For a saved meal send "scale"; for an estimate send "adhoc_kcal" at the number you mean.`,
+      });
     }
   }
   if (
@@ -55,92 +57,107 @@ function intakeScale(b: LogInput): number | null {
     b.adhoc_protein_g !== undefined &&
     wants[0] !== "adhoc_kcal"
   ) {
-    throw new ApiError(
-      422,
-      '"adhoc_protein_g" goes with "adhoc_kcal". Food and meal protein is computed from the saved food and quantity; omit the ad-hoc protein field.'
-    );
+    return yield* new Invalid({
+      message:
+        '"adhoc_protein_g" goes with "adhoc_kcal". Food and meal protein is computed from the saved food and quantity; omit the ad-hoc protein field.',
+    });
   }
   // A scale of 0 would log nothing; past 10x a routine portion is a misplaced decimal.
   const scale = b.scale ?? null;
   if (scale !== null) {
     if (wants[0] !== "meal") {
-      throw new ApiError(
-        422,
-        '"scale" is a portion of a saved meal, so it goes with "meal". A part of a single food is that food at fewer grams; an estimate is "adhoc_kcal" at the number you mean.'
-      );
+      return yield* new Invalid({
+        message:
+          '"scale" is a portion of a saved meal, so it goes with "meal". A part of a single food is that food at fewer grams; an estimate is "adhoc_kcal" at the number you mean.',
+      });
     }
     if (scale <= 0 || scale > MAX_SCALE) {
-      throw new ApiError(
-        422,
-        `"scale" must be greater than 0 and at most ${MAX_SCALE} — 0.5 for half the usual portion, 2 for a double. A meal not eaten is not logged, and past ${MAX_SCALE}x the decimal point is usually in the wrong place.`
-      );
+      return yield* new Invalid({
+        message: `"scale" must be greater than 0 and at most ${MAX_SCALE} — 0.5 for half the usual portion, 2 for a double. A meal not eaten is not logged, and past ${MAX_SCALE}x the decimal point is usually in the wrong place.`,
+      });
     }
   }
   return scale;
-}
+});
 
 export function intakeStore(
-  repository: IntakeRepository,
-  resolver: NutritionResolver,
-  clock: Clock = systemClock
+  rows: IntakeRepository,
+  resolver: NutritionResolver
 ) {
-  const today = () => romeDate(instant(clock().toISOString()));
-  async function viewDay(day?: string | null): Promise<DayView> {
-    const on = date(day ?? today());
-    return view(on, await repository.day(on));
-  }
-  async function seen(uuid: string) {
-    const day = await repository.requestDay(uuid);
-    return day ? await viewDay(day) : undefined;
-  }
-  async function foodInput(
+  const repository = effectful(rows);
+
+  const viewDay = Effect.fn("intake.viewDay")(function* (
+    day?: string | null
+  ): Effect.fn.Return<DayView, Invalid | DatabaseFailure> {
+    const on = yield* date(day ?? (yield* today));
+    return view(on, yield* repository.day(on));
+  });
+
+  const seen = Effect.fnUntraced(function* (
+    uuid: string
+  ): Effect.fn.Return<DayView | undefined, Invalid | DatabaseFailure> {
+    const day = yield* repository.requestDay(uuid);
+    return day ? yield* viewDay(day) : undefined;
+  });
+
+  const foodInput = Effect.fnUntraced(function* (
     b: LogInput,
     common: Pick<LogIntake, "day" | "note" | "requestId" | "createdAt">
-  ): Promise<LogIntake> {
-    const foodId = await resolver.resolveFoodId(b.food);
-    const food = requireRow(
-      await repository.food(foodId),
+  ): Effect.fn.Return<LogIntake, Invalid | NotFound | DatabaseFailure> {
+    const foodId = yield* resolver.resolveFoodId(b.food);
+    const food = yield* requireRow(
+      yield* repository.food(foodId),
       `No food with id ${foodId}.`
     );
-    const grams = gramsEaten(
+    const grams = yield* gramsEaten(
       b.grams ?? null,
       b.units ?? null,
       food.grams_per_unit,
       food.name
     );
-    decimal(grams, 7, 1);
+    yield* decimal(grams, 7, 1);
     const input: LogIntake = { ...common, kind: "food", foodId, grams };
     if (b.units !== null && b.units !== undefined) {
       input.gramsPerUnit = food.grams_per_unit;
     }
     return input;
-  }
-  async function logIntake(
+  });
+
+  const logIntake = Effect.fn("intake.logIntake")(function* (
     b: LogInput
-  ): Promise<{ view: DayView; created: boolean }> {
-    const uuid = requestId(b.request_id);
-    const replay = await seen(uuid);
+  ): Effect.fn.Return<
+    { view: DayView; created: boolean },
+    Invalid | NotFound | DatabaseFailure
+  > {
+    const uuid = yield* requestId(b.request_id);
+    const replay = yield* seen(uuid);
     if (replay) {
       return { view: replay, created: false };
     }
-    try {
-      const day = requireNotFuture(date(b.day ?? today()), today(), "day");
+    return yield* Effect.gen(function* () {
+      const day = yield* requireNotFuture(
+        yield* date(b.day ?? (yield* today)),
+        yield* today,
+        "day"
+      );
       const note = b.note ?? null;
-      const scale = intakeScale(b);
+      const scale = yield* intakeScale(b);
 
       const common = {
         day,
         note,
         requestId: uuid,
-        createdAt: instant(clock().toISOString()),
+        createdAt: yield* now,
       };
       let input: LogIntake;
       if (b.adhoc_kcal !== null && b.adhoc_kcal !== undefined) {
         if (b.adhoc_kcal < 0) {
-          throw new ApiError(422, '"adhoc_kcal" must be zero or more.');
+          return yield* new Invalid({
+            message: '"adhoc_kcal" must be zero or more.',
+          });
         }
-        decimal(b.adhoc_kcal, 7, 1);
-        decimal(b.adhoc_protein_g ?? null, 6, 1);
+        yield* decimal(b.adhoc_kcal, 7, 1);
+        yield* decimal(b.adhoc_protein_g ?? null, 6, 1);
         input = {
           ...common,
           kind: "adhoc",
@@ -148,34 +165,43 @@ export function intakeStore(
           protein: b.adhoc_protein_g ?? null,
         };
       } else if (b.food === null || b.food === undefined) {
-        const mealId = await resolver.resolveMealId(b.meal);
-        const [meal] = await repository.meal(mealId);
+        const mealId = yield* resolver.resolveMealId(b.meal);
+        const [meal] = yield* repository.meal(mealId);
         if (!meal?.items) {
-          throw new ApiError(
-            422,
-            `"${meal?.name}" has no foods in it, so there is nothing to log. Add its items first.`
-          );
+          return yield* new Invalid({
+            message: `"${meal?.name}" has no foods in it, so there is nothing to log. Add its items first.`,
+          });
         }
         input = { ...common, kind: "meal", mealId, scale: scale ?? 1 };
       } else {
-        input = await foodInput(b, common);
+        input = yield* foodInput(b, common);
       }
-      return { view: view(day, await repository.log(input)), created: true };
-    } catch (error) {
-      const recovered = await seen(uuid);
-      if (recovered) {
-        return { view: recovered, created: false };
-      }
-      throw databaseError(error);
-    }
-  }
+      return { view: view(day, yield* repository.log(input)), created: true };
+    }).pipe(
+      // Any failure, defects included, may be a concurrent retry that logged
+      // this request first; otherwise it fails as it was.
+      Effect.catchCause((cause) =>
+        seen(uuid).pipe(
+          Effect.flatMap((recovered) =>
+            recovered
+              ? Effect.succeed({ view: recovered, created: false })
+              : Effect.failCause(cause)
+          )
+        )
+      )
+    );
+  });
+
   // oxlint-disable-next-line complexity -- Keep correction validation, ordered refusals and the coordinated write in the existing request boundary.
-  async function correctEntry(
+  const correctEntry = Effect.fn("intake.correctEntry")(function* (
     id: number,
     b: CorrectInput
-  ): Promise<{ view: DayView; movedFrom: string | null }> {
-    const entry = requireRow(
-      await repository.entry(id),
+  ): Effect.fn.Return<
+    { view: DayView; movedFrom: string | null },
+    Invalid | NotFound | DatabaseFailure
+  > {
+    const entry = yield* requireRow(
+      yield* repository.entry(id),
       `No intake entry with id ${id}. GET /intake?day=YYYY-MM-DD lists a day's entries with their ids.`
     );
     const note = b.note === undefined ? undefined : b.note;
@@ -190,10 +216,12 @@ export function intakeStore(
     // no recipe is re-read and no override is replaced by derived values.
     const rawDay = b.day ?? null;
     const day =
-      rawDay === null ? null : requireNotFuture(date(rawDay), today(), "day");
+      rawDay === null
+        ? null
+        : yield* requireNotFuture(yield* date(rawDay), yield* today, "day");
     const rawGrams = b.grams ?? null;
     const grams =
-      rawGrams === null ? null : gramsEaten(rawGrams, null, null, "");
+      rawGrams === null ? null : yield* gramsEaten(rawGrams, null, null, "");
 
     // "grams" answers every macro question by re-scaling from the food; a
     // direct macro is a second answer to one of them. Accepting both wrote a
@@ -204,31 +232,30 @@ export function intakeStore(
       ["kcal", "protein_g", "carbs_g", "fat_g", "fiber_g"] as const
     ).filter((k) => b[k] !== undefined && b[k] !== null);
     if (grams !== null && overridden.length > 0) {
-      throw new ApiError(
-        422,
-        `"grams" recomputes kcal and the macros from the food, so it cannot be combined with ${overridden
+      return yield* new Invalid({
+        message: `"grams" recomputes kcal and the macros from the food, so it cannot be combined with ${overridden
           .map((k) => `"${k}"`)
           .join(
             ", "
-          )}. Send "grams" alone to re-scale, or the numbers alone to override them.`
-      );
+          )}. Send "grams" alone to re-scale, or the numbers alone to override them.`,
+      });
     }
 
     if (grams !== null && entry.food_id === null) {
-      throw new ApiError(
-        422,
-        'This is an ad-hoc entry, so it has no food to re-scale from. Correct it with "kcal" (and optionally "protein_g") directly.'
-      );
+      return yield* new Invalid({
+        message:
+          'This is an ad-hoc entry, so it has no food to re-scale from. Correct it with "kcal" (and optionally "protein_g") directly.',
+      });
     }
 
     if (grams !== null) {
-      decimal(grams, 7, 1);
+      yield* decimal(grams, 7, 1);
     }
     const macros: Partial<Record<(typeof MACROS)[number], number>> = {};
     for (const macro of MACROS) {
       const value = b[macro] ?? null;
       if (value !== null) {
-        decimal(value, macro === "kcal" ? 7 : 6, 1);
+        yield* decimal(value, macro === "kcal" ? 7 : 6, 1);
         macros[macro] = value;
       }
     }
@@ -238,58 +265,55 @@ export function intakeStore(
       grams === null &&
       !overridden.length
     ) {
-      throw new ApiError(
-        422,
-        'Send at least one of "day" (moves the entry to another date, numbers untouched), "grams" (re-scales from the food as it is now), "kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", or "note". To remove an entry entirely, DELETE it.'
-      );
-    }
-    const result = await repository
-      .correct(id, {
-        note,
-        day,
-        grams,
-        macros,
-        foodBacked: entry.food_id !== null,
-      })
-      .catch((error) => {
-        throw databaseError(error);
+      return yield* new Invalid({
+        message:
+          'Send at least one of "day" (moves the entry to another date, numbers untouched), "grams" (re-scales from the food as it is now), "kcal", "protein_g", "carbs_g", "fat_g", "fiber_g", or "note". To remove an entry entirely, DELETE it.',
       });
+    }
+    const result = yield* repository.correct(id, {
+      note,
+      day,
+      grams,
+      macros,
+      foodBacked: entry.food_id !== null,
+    });
     return {
       view: view(result.landed, result.day),
       movedFrom: result.landed === result.previous ? null : result.previous,
     };
-  }
-  async function removeEntry(id: number): Promise<DayView> {
-    const entry = requireRow(
-      await repository.remove(id).catch((error) => {
-        throw databaseError(error);
-      }),
+  });
+
+  const removeEntry = Effect.fn("intake.removeEntry")(function* (
+    id: number
+  ): Effect.fn.Return<DayView, Invalid | NotFound | DatabaseFailure> {
+    const entry = yield* requireRow(
+      yield* repository.remove(id),
       `No intake entry with id ${id}.`
     );
-    return await viewDay(entry.day);
-  }
-  async function flagDay(day: string, flag: string): Promise<DayView> {
-    const on = requireNotFuture(date(day), today(), "day");
-    return view(
-      on,
-      await repository
-        .flag(on, flag, instant(clock().toISOString()))
-        .catch((error) => {
-          throw databaseError(error);
-        })
-    );
-  }
-  async function unflagDay(day: string, flag: string): Promise<DayView> {
-    const on = date(day);
-    const result = await repository.unflag(on, flag).catch((error) => {
-      throw databaseError(error);
-    });
-    requireRow(
+    return yield* viewDay(entry.day);
+  });
+
+  const flagDay = Effect.fn("intake.flagDay")(function* (
+    day: string,
+    flag: string
+  ): Effect.fn.Return<DayView, Invalid | DatabaseFailure> {
+    const on = yield* requireNotFuture(yield* date(day), yield* today, "day");
+    return view(on, yield* repository.flag(on, flag, yield* now));
+  });
+
+  const unflagDay = Effect.fn("intake.unflagDay")(function* (
+    day: string,
+    flag: string
+  ): Effect.fn.Return<DayView, Invalid | NotFound | DatabaseFailure> {
+    const on = yield* date(day);
+    const result = yield* repository.unflag(on, flag);
+    yield* requireRow(
       result.removed ? [true] : [],
       `${day} is not flagged "${flag}".`
     );
     return view(on, result.day);
-  }
+  });
+
   return { viewDay, logIntake, correctEntry, removeEntry, flagDay, unflagDay };
 }
 

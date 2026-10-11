@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Effect } from "effect";
 import type { Context } from "hono";
 
 import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
@@ -13,7 +14,7 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { SOURCES } from "./constants.ts";
 
@@ -88,7 +89,7 @@ foods.openapi(
   }),
   async (c) => {
     const q = c.req.valid("query").q?.trim();
-    const found = await services(c).foods.searchFoods(q);
+    const found = await run(c, services(c).foods.searchFoods(q));
     // `query` is absent rather than empty when the whole registry was asked
     // for: it echoes a search, and there was none.
     return c.json(q ? { query: q, foods: found } : { foods: found });
@@ -148,8 +149,9 @@ foods.openapi(
     },
   }),
   async (c) => {
-    const { row, created } = await services(c).foods.saveFood(
-      c.req.valid("json")
+    const { row, created } = await run(
+      c,
+      services(c).foods.saveFood(c.req.valid("json"))
     );
     return created ? c.json({ food: row }, 201) : c.json({ food: row }, 200);
   }
@@ -172,7 +174,7 @@ foods.openapi(
   }),
   async (c) =>
     c.json({
-      food: await services(c).foods.foodByRef(c.req.valid("param").ref),
+      food: await run(c, services(c).foods.foodByRef(c.req.valid("param").ref)),
     })
 );
 
@@ -238,9 +240,12 @@ foods.openapi(
   }),
   async (c) =>
     c.json(
-      await services(c).foods.correctFood(
-        c.req.valid("param").ref,
-        c.req.valid("json")
+      await run(
+        c,
+        services(c).foods.correctFood(
+          c.req.valid("param").ref,
+          c.req.valid("json")
+        )
       )
     )
 );
@@ -251,12 +256,14 @@ const aliasSurface = {
   tag: "Nutrition",
   kind: "food" as const,
   ref,
-  resolve: async (c: Context<AppEnv>, reference: string) => ({
-    id: await services(c).nutritionResolver.resolveFoodId(reference),
-  }),
-  respond: async (c: Context<AppEnv>, id: number) => ({
-    food: await services(c).foods.foodById(id),
-  }),
+  resolve: (c: Context<AppEnv>, reference: string) =>
+    services(c)
+      .nutritionResolver.resolveFoodId(reference)
+      .pipe(Effect.map((id) => ({ id }))),
+  respond: (c: Context<AppEnv>, id: number) =>
+    services(c)
+      .foods.foodById(id)
+      .pipe(Effect.map((food) => ({ food }))),
   responseSchema: z.object({ food: Food }),
 };
 
@@ -300,6 +307,9 @@ foods.openapi(
   }),
   async (c) =>
     c.json({
-      deleted: await services(c).foods.deleteFood(c.req.valid("param").ref),
+      deleted: await run(
+        c,
+        services(c).foods.deleteFood(c.req.valid("param").ref)
+      ),
     })
 );

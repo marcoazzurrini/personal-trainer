@@ -15,7 +15,7 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { EFFORTS, KINDS } from "./rules.ts";
 import { setCorrectionFields } from "./set_correction.schema.ts";
@@ -126,7 +126,10 @@ sessions.openapi(
   async (c) => {
     const { limit, mesocycle } = c.req.valid("query");
     return c.json({
-      sessions: await services(c).sessions.listSessions(limit ?? 20, mesocycle),
+      sessions: await run(
+        c,
+        services(c).sessions.listSessions(limit ?? 20, mesocycle)
+      ),
     });
   }
 );
@@ -152,8 +155,9 @@ sessions.openapi(
   }),
   async (c) =>
     c.json({
-      session: await services(c).sessions.sessionDetail(
-        c.req.valid("param").id
+      session: await run(
+        c,
+        services(c).sessions.sessionDetail(c.req.valid("param").id)
       ),
     })
 );
@@ -214,8 +218,9 @@ sessions.openapi(
     },
   }),
   async (c) => {
-    const { session, created } = await services(c).sessions.writeSession(
-      c.req.valid("json")
+    const { session, created } = await run(
+      c,
+      services(c).sessions.writeSession(c.req.valid("json"))
     );
     return created ? c.json({ session }, 201) : c.json({ session }, 200);
   }
@@ -259,9 +264,12 @@ sessions.openapi(
     },
   }),
   async (c) => {
-    const { set, created } = await services(c).sessions.appendSet(
-      c.req.valid("param").id,
-      c.req.valid("json")
+    const { set, created } = await run(
+      c,
+      services(c).sessions.appendSet(
+        c.req.valid("param").id,
+        c.req.valid("json")
+      )
     );
     return created ? c.json({ set }, 201) : c.json({ set }, 200);
   }
@@ -329,9 +337,12 @@ sessions.openapi(
   }),
   async (c) =>
     c.json({
-      session: await services(c).sessions.correctSession(
-        c.req.valid("param").id,
-        c.req.valid("json")
+      session: await run(
+        c,
+        services(c).sessions.correctSession(
+          c.req.valid("param").id,
+          c.req.valid("json")
+        )
       ),
     })
 );
@@ -369,8 +380,9 @@ sessions.openapi(
   }),
   async (c) =>
     c.json({
-      deleted: await services(c).sessions.discardSession(
-        c.req.valid("param").id
+      deleted: await run(
+        c,
+        services(c).sessions.discardSession(c.req.valid("param").id)
       ),
     })
 );

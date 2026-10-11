@@ -1,11 +1,13 @@
 // The Withings half of the bodyweight sync: refreshing the token, asking for
 // measurements, and deciding which of them count as weigh-ins.
 //
-// Import-free on purpose, like surfaces/github.ts: no database and no clock
-// beyond Date.now(). Everything here can be exercised against a
-// stub server in a plain `bun test`, which matters because the two ways this
+// Free of the database on purpose, like surfaces/github.ts: time comes from
+// the Effect Clock and nothing else. Everything here can be exercised against
+// a stub server in a plain `bun test`, which matters because the two ways this
 // integration fails are both invisible in production — a token that quietly
 // stops refreshing, and a filter that quietly lets the wrong numbers through.
+
+import { Clock, Data, Effect, Redacted } from "effect";
 
 // oxlint-disable-next-line typescript/consistent-type-definitions -- A closed type alias is assignable to fetch's HeadersInit record; an open interface has no implicit index signature.
 type WithingsHeaders = {
@@ -16,13 +18,24 @@ type WithingsHeaders = {
 export interface WithingsConfig {
   apiBase: string; // https://wbsapi.withings.net, or the stub in tests
   clientId: string;
-  clientSecret: string;
+  // Unwrapped only into the form body of the refresh call.
+  clientSecret: Redacted.Redacted<string>;
 }
 
 // Routes translate this into a logged failure rather than an error response:
 // a notification we could not service is not the notifier's problem.
-// eslint-disable-next-line unicorn/custom-error-definition -- Preserve the existing Error name; routes classify provider failures with instanceof WithingsError.
-export class WithingsError extends Error {}
+export class WithingsError extends Data.TaggedError("WithingsError")<{
+  readonly message: string;
+}> {}
+
+// The raw envelope stays unknown until callWithings checks its status field.
+type Envelope = { status?: unknown; body?: unknown; error?: unknown } | null;
+
+function unreachable(outcome: string): WithingsError {
+  return new WithingsError({
+    message: `Withings ${outcome}. Sync did not complete; the checkpoint is unchanged. A token refresh may already have occurred upstream; do not assume it rolled back. Check synchronization before retrying.`,
+  });
+}
 
 /**
  * Every call to Withings goes through here, for one reason.
@@ -35,60 +48,64 @@ export class WithingsError extends Error {}
  * result and the HTTP code is decoration; a missing status field is a failure
  * too, because it means this is not a Withings response at all.
  */
-async function callWithings(
+const callWithings = Effect.fn("withings.call")(function* (
   cfg: WithingsConfig,
   path: string,
   params: Record<string, string>,
   accessToken?: string
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- This transport validates only the envelope; refreshTokens and getWeights validate their distinct payloads before use.
-): Promise<unknown> {
-  const signal = AbortSignal.timeout(5000);
-  let res: Response;
-  let json: { status?: unknown; body?: unknown; error?: unknown } | null;
-  try {
-    const headers: WithingsHeaders = {
-      "content-type": "application/x-www-form-urlencoded",
-    };
-    if (accessToken) {
-      headers.authorization = `Bearer ${accessToken}`;
-    }
-    res = await fetch(`${cfg.apiBase}${path}`, {
-      signal,
-      method: "POST",
-      headers,
-      body: new URLSearchParams(params),
-    });
-
-    json = await res.json().catch((error) => {
-      if (signal.aborted) {
-        throw error;
+): Effect.fn.Return<unknown, WithingsError> {
+  // The deadline covers the headers and the body alike: a server that
+  // answers and then stalls holds the request as surely as one that never
+  // answers. The timeout interrupts this fetch, which aborts it through the
+  // signal. Nothing here retries; the caller decides, and a refresh is never
+  // retried at all.
+  const { res, json } = yield* Effect.tryPromise({
+    try: async (signal) => {
+      const headers: WithingsHeaders = {
+        "content-type": "application/x-www-form-urlencoded",
+      };
+      if (accessToken) {
+        headers.authorization = `Bearer ${accessToken}`;
       }
-      return null;
-    });
-  } catch {
-    throw new WithingsError(
-      `Withings ${
-        signal.aborted ? "timed out after 5 seconds" : "could not be reached"
-      }. Sync did not complete; the checkpoint is unchanged. A token refresh may already have occurred upstream; do not assume it rolled back. Check synchronization before retrying.`
-    );
-  }
+      const response = await fetch(`${cfg.apiBase}${path}`, {
+        signal,
+        method: "POST",
+        headers,
+        body: new URLSearchParams(params),
+      });
+      const envelope: Envelope = await response.json().catch((error) => {
+        if (signal.aborted) {
+          throw error;
+        }
+        return null;
+      });
+      return { res: response, json: envelope };
+    },
+    catch: () => unreachable("could not be reached"),
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: "5 seconds",
+      orElse: () => Effect.fail(unreachable("timed out after 5 seconds")),
+    })
+  );
 
   // eslint-disable-next-line anti-slop/no-runtime-typeof -- Withings uses the numeric JSON status, not HTTP success, to identify its response envelope.
   if (json === null || typeof json.status !== "number") {
-    throw new WithingsError(
-      `Withings replied ${res.status} to ${path} with a body that is not a Withings response. Either the API base is wrong or something is answering in its place.`
-    );
+    return yield* new WithingsError({
+      message: `Withings replied ${res.status} to ${path} with a body that is not a Withings response. Either the API base is wrong or something is answering in its place.`,
+    });
   }
   if (json.status !== 0) {
-    throw new WithingsError(
-      `Withings refused ${path} with status ${json.status}${
+    return yield* new WithingsError({
+      message: `Withings refused ${path} with status ${json.status}${
         // eslint-disable-next-line anti-slop/no-runtime-typeof -- Include provider error text only when the raw response field is a string.
         typeof json.error === "string" ? ` (${json.error})` : ""
-      }. HTTP was ${res.status}; the status field is the one that means anything.`
-    );
+      }. HTTP was ${res.status}; the status field is the one that means anything.`,
+    });
   }
   return json.body ?? {};
-}
+});
 
 // --- Tokens ----------------------------------------------------------------
 
@@ -109,24 +126,26 @@ export interface TokenSet {
  * differs is one Withings behaviour change away from an integration that works
  * for three hours and then stops without saying so.
  */
-export async function refreshTokens(
+export const refreshTokens = Effect.fn("withings.refreshTokens")(function* (
   cfg: WithingsConfig,
-  refreshToken: string,
-  now: () => number = Date.now
-): Promise<TokenSet> {
-  const rawBody = await callWithings(cfg, "/v2/oauth2", {
+  refreshToken: string
+): Effect.fn.Return<TokenSet, WithingsError> {
+  // Sent once and never retried: Withings may consume the refresh token even
+  // when its answer is lost, and a second attempt with a spent token fails.
+  const rawBody = yield* callWithings(cfg, "/v2/oauth2", {
     action: "requesttoken",
     grant_type: "refresh_token",
     client_id: cfg.clientId,
-    client_secret: cfg.clientSecret,
+    client_secret: Redacted.value(cfg.clientSecret),
     refresh_token: refreshToken,
   });
   const body = isObject(rawBody) ? rawBody : {};
 
+  const now = yield* Clock.currentTimeMillis;
   const expiresAt =
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Compute expiry only from a numeric provider field; all other values keep the existing invalid-date refusal.
     typeof body.expires_in === "number"
-      ? new Date(now() + body.expires_in * 1000)
+      ? new Date(now + body.expires_in * 1000)
       : new Date(Number.NaN);
   if (
     // eslint-disable-next-line anti-slop/no-runtime-typeof -- The refresh response must contain a nonempty access token before any credentials are persisted.
@@ -141,9 +160,10 @@ export async function refreshTokens(
     !Number.isSafeInteger(body.expires_in) ||
     !Number.isFinite(expiresAt.getTime())
   ) {
-    throw new WithingsError(
-      "Withings accepted the refresh but did not return an access token, a refresh token and an expiry. Refusing to persist a partial token set."
-    );
+    return yield* new WithingsError({
+      message:
+        "Withings accepted the refresh but did not return an access token, a refresh token and an expiry. Refusing to persist a partial token set.",
+    });
   }
 
   return {
@@ -151,7 +171,7 @@ export async function refreshTokens(
     refreshToken: body.refresh_token,
     expiresAt: expiresAt.toISOString(),
   };
-}
+});
 
 // --- Measurements ----------------------------------------------------------
 
@@ -184,11 +204,11 @@ export type MeasureRange =
 const MEASTYPE_WEIGHT = "1";
 const CATEGORY_REAL = "1"; // as opposed to 2, a user's stated objective
 
-export async function getWeights(
+export const getWeights = Effect.fn("withings.getWeights")(function* (
   cfg: WithingsConfig,
   accessToken: string,
   range: MeasureRange
-): Promise<MeasureResponse> {
+): Effect.fn.Return<MeasureResponse, WithingsError> {
   const window: Record<string, string> =
     "lastupdate" in range
       ? { lastupdate: String(range.lastupdate) }
@@ -197,7 +217,7 @@ export async function getWeights(
           enddate: String(range.enddate),
         };
 
-  const body = await callWithings(
+  const body = yield* callWithings(
     cfg,
     "/measure",
     {
@@ -212,10 +232,14 @@ export async function getWeights(
   // Validate the whole batch before selection or any record writes. A missing
   // array is not an empty history, and our clock cannot vouch for unseen data.
   if (!isObject(body) || !isEpoch(body.updatetime)) {
-    throw malformedMeasurements("body.updatetime (upstream epoch seconds)");
+    return yield* malformedMeasurements(
+      "body.updatetime (upstream epoch seconds)"
+    );
   }
   if (!Array.isArray(body.measuregrps)) {
-    throw malformedMeasurements("body.measuregrps (an array, even when empty)");
+    return yield* malformedMeasurements(
+      "body.measuregrps (an array, even when empty)"
+    );
   }
   for (const [i, group] of body.measuregrps.entries()) {
     const path = `body.measuregrps[${i}]`;
@@ -226,7 +250,7 @@ export async function getWeights(
       !isEpoch(group.date) ||
       !Array.isArray(group.measures)
     ) {
-      throw malformedMeasurements(
+      return yield* malformedMeasurements(
         `${path} (grpid, category, date and measures)`
       );
     }
@@ -244,7 +268,7 @@ export async function getWeights(
           scaleToKg({ value: measure.value, unit: measure.unit })
         )
       ) {
-        throw malformedMeasurements(
+        return yield* malformedMeasurements(
           `${path}.measures[${j}] (type, value and unit)`
         );
       }
@@ -255,7 +279,7 @@ export async function getWeights(
     // eslint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- The loops above validate every field consumed by selection; attrib and deviceid remain unchecked provider passthrough as before.
     groups: body.measuregrps as MeasureGroup[],
   };
-}
+});
 
 // eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- This guard only identifies a provider JSON object; each token or measurement field is validated by its parser.
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -272,9 +296,9 @@ function isEpoch(value: unknown): value is number {
 }
 
 function malformedMeasurements(field: string): WithingsError {
-  return new WithingsError(
-    `Withings accepted /measure but returned malformed ${field}. Refusing the measurement batch; no readings or sync checkpoint may be advanced from this response.`
-  );
+  return new WithingsError({
+    message: `Withings accepted /measure but returned malformed ${field}. Refusing the measurement batch; no readings or sync checkpoint may be advanced from this response.`,
+  });
 }
 
 // --- What counts as a weigh-in ---------------------------------------------

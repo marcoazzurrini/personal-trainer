@@ -8,15 +8,22 @@ import {
 import type { DatabaseFailureKind } from "@trainer/db/errors.ts";
 import { jsonChunks } from "@trainer/db/write.ts";
 import { DrizzleQueryError } from "drizzle-orm/errors";
+import { Effect } from "effect";
 import { Hono } from "hono";
 
+import { fromDatabase } from "../../src/shared/database.ts";
 import {
-  ApiError,
   constraintMessages,
-  databaseError,
   errorResponse,
+  refusalOf,
 } from "../../src/shared/errors.ts";
 import type { Diagnostic } from "../../src/shared/errors.ts";
+import {
+  Conflict,
+  DatabaseFailure,
+  Invalid,
+  isRefusal,
+} from "../../src/shared/refusals.ts";
 import { retrySessionWrite } from "../../src/training/session_write.ts";
 
 const uniqueConstraints = [
@@ -61,8 +68,8 @@ test("oversized repository writes retain the public 413 refusal", () => {
     () => jsonChunks(["x".repeat(1536 * 1024)]),
     new DatabaseFailureError("too_large", "")
   );
-  const refusal = databaseError(new DatabaseFailureError("too_large", ""));
-  assert.ok(refusal instanceof ApiError);
+  const refusal = refusalOf(new DatabaseFailureError("too_large", ""));
+  assert.ok(isRefusal(refusal));
   assert.equal(refusal.status, 413);
   assert.equal(
     refusal.message,
@@ -81,11 +88,17 @@ test("raw and Drizzle UNIQUE failures retain every public constraint message", (
       assert.equal(failure.kind, "unique");
       assert.equal(failure.subject, columns);
       assert.equal(classifyDatabaseFailure(failure), failure);
-      const refusal = databaseError(failure);
-      assert.ok(refusal instanceof ApiError);
+      const refusal = refusalOf(failure);
+      assert.ok(isRefusal(refusal));
       assert.equal(refusal.status, 409);
       assert.equal(refusal.message, constraintMessages[name]);
-      assert.deepEqual(databaseError(error), refusal);
+      assert.deepEqual(refusalOf(error), refusal);
+      assert.deepEqual(
+        refusalOf(
+          new DatabaseFailure({ kind: failure.kind, subject: failure.subject })
+        ),
+        refusal
+      );
     }
   }
 });
@@ -152,8 +165,8 @@ test("raw and Drizzle constraints retain classification, fallback text and HTTP 
       assert.equal(failure.message, "The database rejected a write.");
       assert.equal(failure.cause, undefined);
       for (const input of [error, failure]) {
-        const refusal = databaseError(input);
-        assert.ok(refusal instanceof ApiError);
+        const refusal = refusalOf(input);
+        assert.ok(isRefusal(refusal));
         assert.equal(refusal.status, status);
         assert.equal(refusal.message, expected);
       }
@@ -161,7 +174,7 @@ test("raw and Drizzle constraints retain classification, fallback text and HTTP 
   }
 });
 
-test("unknown exceptions pass through unchanged; wrapper SQL never classifies a failure", () => {
+test("unknown exceptions have no refusal; wrapper SQL never classifies a failure", () => {
   const native = new Error("private_token private_sql");
   const errors = [
     native,
@@ -182,13 +195,13 @@ test("unknown exceptions pass through unchanged; wrapper SQL never classifies a 
   ];
   for (const error of errors) {
     assert.equal(classifyDatabaseFailure(error), error);
-    assert.equal(databaseError(error), error);
+    assert.equal(refusalOf(error), undefined);
   }
-  const refusal = new ApiError(
-    418,
-    "CHECK constraint failed: foods_source_check"
-  );
-  assert.equal(databaseError(refusal), refusal);
+  // A refusal is answered as written, even when its sentence reads like SQL.
+  const refusal = new Invalid({
+    message: "CHECK constraint failed: foods_source_check",
+  });
+  assert.equal(refusalOf(refusal), refusal);
 });
 
 test("HTTP error boundary accepts raw, wrapped and classified failures without logging", async () => {
@@ -197,7 +210,8 @@ test("HTTP error boundary accepts raw, wrapped and classified failures without l
     native,
     wrapped(native),
     classifyDatabaseFailure(native),
-    new ApiError(409, constraintMessages.foods_name_key),
+    new DatabaseFailure({ kind: "unique", subject: "foods.name_key" }),
+    new Conflict({ message: constraintMessages.foods_name_key }),
   ];
   const logged: string[] = [];
   const original = console.error;
@@ -278,20 +292,32 @@ test("session retries recognize classified version assertions before HTTP transl
   for (const error of [native, wrapped(native)]) {
     const conflict = classifyDatabaseFailure(error);
     let attempts = 0;
-    const result = await retrySessionWrite(7, () => {
-      attempts += 1;
-      return attempts === 1
-        ? Promise.reject(conflict)
-        : Promise.resolve("saved");
-    });
+    // The repository boundary classifies the rejection, as it does for every
+    // store; the retry reads only the classified failure.
+    const result = await Effect.runPromise(
+      retrySessionWrite(
+        7,
+        fromDatabase(() => {
+          attempts += 1;
+          return attempts === 1
+            ? Promise.reject(conflict)
+            : Promise.resolve("saved");
+        })
+      )
+    );
     assert.equal(result, "saved");
     assert.equal(attempts, 2);
     attempts = 0;
     await assert.rejects(
-      retrySessionWrite(7, () => {
-        attempts += 1;
-        return Promise.reject(conflict);
-      }),
+      Effect.runPromise(
+        retrySessionWrite(
+          7,
+          fromDatabase(() => {
+            attempts += 1;
+            return Promise.reject(conflict);
+          })
+        )
+      ),
       {
         status: 409,
         message:
@@ -311,10 +337,15 @@ test("session writes do not retry unknown outcomes or unrelated constraints", as
   ]) {
     let attempts = 0;
     await assert.rejects(
-      retrySessionWrite(7, () => {
-        attempts += 1;
-        return Promise.reject(error);
-      })
+      Effect.runPromise(
+        retrySessionWrite(
+          7,
+          fromDatabase(() => {
+            attempts += 1;
+            return Promise.reject(error);
+          })
+        )
+      )
     );
     assert.equal(attempts, 1);
   }

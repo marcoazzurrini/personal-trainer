@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Effect } from "effect";
 import type { Context } from "hono";
 
 import { addAliasRoute, releaseAliasRoute } from "../shared/aliases.routes.ts";
@@ -10,7 +11,7 @@ import {
   query,
   text,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { SYSTEMIC_FATIGUE_LEVELS } from "./constants.ts";
 import { MEASURES, STIMULUS_TYPES } from "./rules.ts";
@@ -91,7 +92,7 @@ exercises.openapi(
     },
   }),
   async (c) =>
-    c.json({ exercises: await services(c).exercises.listExercises() })
+    c.json({ exercises: await run(c, services(c).exercises.listExercises()) })
 );
 
 exercises.openapi(
@@ -141,7 +142,10 @@ exercises.openapi(
   async (c) =>
     c.json(
       {
-        exercise: await services(c).exercises.addExercise(c.req.valid("json")),
+        exercise: await run(
+          c,
+          services(c).exercises.addExercise(c.req.valid("json"))
+        ),
       },
       201
     )
@@ -198,9 +202,12 @@ exercises.openapi(
   }),
   async (c) =>
     c.json(
-      await services(c).exercises.exerciseHistory(
-        c.req.valid("param").ref,
-        c.req.valid("query").limit
+      await run(
+        c,
+        services(c).exercises.exerciseHistory(
+          c.req.valid("param").ref,
+          c.req.valid("query").limit
+        )
       )
     )
 );
@@ -259,9 +266,12 @@ exercises.openapi(
   }),
   async (c) =>
     c.json({
-      exercise: await services(c).exercises.correctExercise(
-        c.req.valid("param").ref,
-        c.req.valid("json")
+      exercise: await run(
+        c,
+        services(c).exercises.correctExercise(
+          c.req.valid("param").ref,
+          c.req.valid("json")
+        )
       ),
     })
 );
@@ -274,9 +284,10 @@ const aliasSurface = {
   ref,
   resolve: (c: Context<AppEnv>, reference: string) =>
     services(c).trainingResolver.resolveExercise(reference),
-  respond: async (c: Context<AppEnv>, id: number) => ({
-    exercise: await services(c).exercises.exerciseById(id),
-  }),
+  respond: (c: Context<AppEnv>, id: number) =>
+    services(c)
+      .exercises.exerciseById(id)
+      .pipe(Effect.map((exercise) => ({ exercise }))),
   responseSchema: z.object({ exercise: Exercise }),
 };
 
@@ -320,8 +331,9 @@ exercises.openapi(
   }),
   async (c) =>
     c.json({
-      deleted: await services(c).exercises.deleteExercise(
-        c.req.valid("param").ref
+      deleted: await run(
+        c,
+        services(c).exercises.deleteExercise(c.req.valid("param").ref)
       ),
     })
 );
@@ -369,9 +381,12 @@ exercises.openapi(
   }),
   async (c) =>
     c.json(
-      await services(c).exercises.reclassifyMuscles(
-        c.req.valid("param").ref,
-        c.req.valid("json").muscles
+      await run(
+        c,
+        services(c).exercises.reclassifyMuscles(
+          c.req.valid("param").ref,
+          c.req.valid("json").muscles
+        )
       )
     )
 );
@@ -398,7 +413,8 @@ muscles.openapi(
       },
     },
   }),
-  async (c) => c.json({ muscles: await services(c).exercises.listMuscles() })
+  async (c) =>
+    c.json({ muscles: await run(c, services(c).exercises.listMuscles()) })
 );
 
 muscles.openapi(
@@ -426,7 +442,10 @@ muscles.openapi(
   async (c) =>
     c.json(
       {
-        muscle: await services(c).exercises.addMuscle(c.req.valid("json").name),
+        muscle: await run(
+          c,
+          services(c).exercises.addMuscle(c.req.valid("json").name)
+        ),
       },
       201
     )

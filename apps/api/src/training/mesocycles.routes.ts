@@ -12,7 +12,7 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { DOSE_UNITS, ROLES, TRACKS } from "./rules.ts";
 
@@ -152,8 +152,9 @@ mesocycles.openapi(
     },
   }),
   async (c) => {
-    const { mesocycle, created } = await services(c).plans.createMesocycle(
-      c.req.valid("json")
+    const { mesocycle, created } = await run(
+      c,
+      services(c).plans.createMesocycle(c.req.valid("json"))
     );
     return created ? c.json({ mesocycle }, 201) : c.json({ mesocycle }, 200);
   }
@@ -180,8 +181,9 @@ mesocycles.openapi(
   }),
   async (c) =>
     c.json({
-      mesocycle: await services(c).plans.mesocycleByRef(
-        c.req.valid("param").id
+      mesocycle: await run(
+        c,
+        services(c).plans.mesocycleByRef(c.req.valid("param").id)
       ),
     })
 );
@@ -230,9 +232,12 @@ mesocycles.openapi(
   }),
   async (c) =>
     c.json({
-      mesocycle: await services(c).plans.renameMesocycle(
-        c.req.valid("param").id,
-        c.req.valid("json")
+      mesocycle: await run(
+        c,
+        services(c).plans.renameMesocycle(
+          c.req.valid("param").id,
+          c.req.valid("json")
+        )
       ),
     })
 );
@@ -326,9 +331,13 @@ mesocycles.openapi(
     },
   }),
   async (c) => {
-    const { mesocycle, decision, created } = await services(
-      c
-    ).plans.recordDecision(c.req.valid("param").id, c.req.valid("json"));
+    const { mesocycle, decision, created } = await run(
+      c,
+      services(c).plans.recordDecision(
+        c.req.valid("param").id,
+        c.req.valid("json")
+      )
+    );
     return created
       ? c.json({ mesocycle, decision }, 201)
       : c.json({ mesocycle, decision }, 200);
@@ -359,5 +368,5 @@ mesocycles.openapi(
     },
   }),
   async (c) =>
-    c.json(await services(c).plans.decisionLog(c.req.valid("param").id))
+    c.json(await run(c, services(c).plans.decisionLog(c.req.valid("param").id)))
 );

@@ -1,5 +1,7 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
+
 import {
   canonicalResource,
   discoverJwksUrl,
@@ -11,6 +13,7 @@ import {
 } from "../src/access/jwt.ts";
 import type { Jwks } from "../src/access/jwt.ts";
 import { assert, assertEquals, assertRejects } from "./assertions.ts";
+import { at } from "./effects.ts";
 // In-process, no stack: the verifier is import-free, so it runs here against
 // tokens signed with keys this file generates. What an authorization server
 // does in production — sign with an RSA or an EC key and publish the public
@@ -86,12 +89,16 @@ const GOOD = {
   iat: NOW,
 };
 function check(token: string, jwks: Jwks) {
-  return verifyJwt(token, {
-    issuer: ISSUER,
-    audience: AUDIENCE,
-    jwks,
-    now: NOW,
-  });
+  return Effect.runPromise(
+    at(
+      NOW * 1000,
+      verifyJwt(token, {
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        jwks,
+      })
+    )
+  );
 }
 async function refused(
   token: string,
@@ -256,11 +263,13 @@ test("every other token is refused with a sentence", async (t) => {
   await t.test("every refusal is a JwtError, never a bare throw", async () => {
     const error = await assertRejects(
       () =>
-        verifyJwt("!!!.!!!.!!!", {
-          issuer: ISSUER,
-          audience: AUDIENCE,
-          jwks: ec.jwks,
-        }),
+        Effect.runPromise(
+          verifyJwt("!!!.!!!.!!!", {
+            issuer: ISSUER,
+            audience: AUDIENCE,
+            jwks: ec.jwks,
+          })
+        ),
       JwtError
     );
     assert(error.message.length > 0);
@@ -276,11 +285,11 @@ test("one spelling of a resource", () => {
 });
 test("where an issuer publishes its metadata", () => {
   assertEquals(
-    metadataUrl("https://x.authkit.app"),
+    Effect.runSync(metadataUrl("https://x.authkit.app")),
     "https://x.authkit.app/.well-known/oauth-authorization-server"
   );
   assertEquals(
-    metadataUrl("https://x.example/auth/v1/"),
+    Effect.runSync(metadataUrl("https://x.example/auth/v1/")),
     "https://x.example/.well-known/oauth-authorization-server/auth/v1"
   );
 });
@@ -327,14 +336,17 @@ test("the metadata and the key set are read rarely", async (t) => {
   forgetJwks();
   try {
     await t.test("the key set's address comes from the metadata", async () => {
-      assertEquals(await discoverJwksUrl(base, { now: t0 }), url);
+      assertEquals(await Effect.runPromise(at(t0, discoverJwksUrl(base))), url);
       assertEquals(hits, 1);
-      assertEquals(await discoverJwksUrl(base, { now: t0 + 1000 }), url);
+      assertEquals(
+        await Effect.runPromise(at(t0 + 1000, discoverJwksUrl(base))),
+        url
+      );
       assertEquals(hits, 1);
     });
     await t.test("an issuer with a path is described under it", async () => {
       assertEquals(
-        await discoverJwksUrl(`${base}/auth/v1`, { now: t0 }),
+        await Effect.runPromise(at(t0, discoverJwksUrl(`${base}/auth/v1`))),
         `${base}/auth/v1/jwks.json`
       );
     });
@@ -342,17 +354,17 @@ test("the metadata and the key set are read rarely", async (t) => {
       "metadata that is not the issuer's, or names no keys",
       async () => {
         await assertRejects(
-          () => discoverJwksUrl(`${base}/no-keys`),
+          () => Effect.runPromise(discoverJwksUrl(`${base}/no-keys`)),
           Error,
           "did not name a jwks_uri"
         );
         await assertRejects(
-          () => discoverJwksUrl(`${base}/liar`),
+          () => Effect.runPromise(discoverJwksUrl(`${base}/liar`)),
           Error,
           "names issuer"
         );
         await assertRejects(
-          () => discoverJwksUrl(`${base}/missing`),
+          () => Effect.runPromise(discoverJwksUrl(`${base}/missing`)),
           Error,
           "answered 404"
         );
@@ -362,27 +374,37 @@ test("the metadata and the key set are read rarely", async (t) => {
     await t.test(
       "the second read of the keys is served from memory",
       async () => {
-        await fetchJwks(url, { now: t0 });
-        await fetchJwks(url, { now: t0 + 1000 });
+        await Effect.runPromise(at(t0, fetchJwks(url)));
+        await Effect.runPromise(at(t0 + 1000, fetchJwks(url)));
         assertEquals(hits, before + 1);
       }
     );
     await t.test("a known kid does not refetch", async () => {
-      await fetchJwks(url, { now: t0 + 2000, unknownKid: "k1" });
+      await Effect.runPromise(
+        at(t0 + 2000, fetchJwks(url, { unknownKid: "k1" }))
+      );
       assertEquals(hits, before + 1);
     });
     await t.test("an unknown kid refetches once", async () => {
       // Two minutes on, so the refetch is not held back by the last one.
-      await fetchJwks(url, { now: t0 + 120_000, unknownKid: "rotated" });
+      await Effect.runPromise(
+        at(t0 + 120_000, fetchJwks(url, { unknownKid: "rotated" }))
+      );
       assertEquals(hits, before + 2);
     });
     await t.test("a burst of unknown kids does not refetch again", async () => {
-      await fetchJwks(url, { now: t0 + 121_000, unknownKid: "rotated-2" });
-      await fetchJwks(url, { now: t0 + 122_000, unknownKid: "rotated-3" });
+      await Effect.runPromise(
+        at(t0 + 121_000, fetchJwks(url, { unknownKid: "rotated-2" }))
+      );
+      await Effect.runPromise(
+        at(t0 + 122_000, fetchJwks(url, { unknownKid: "rotated-3" }))
+      );
       assertEquals(hits, before + 2);
     });
     await t.test("an hour on, the keys are read again", async () => {
-      await fetchJwks(url, { now: t0 + 120_000 + 60 * 60 * 1000 });
+      await Effect.runPromise(
+        at(t0 + 120_000 + 60 * 60 * 1000, fetchJwks(url))
+      );
       assertEquals(hits, before + 3);
     });
     await t.test(
@@ -390,12 +412,12 @@ test("the metadata and the key set are read rarely", async (t) => {
       async () => {
         forgetJwks();
         await assertRejects(
-          () => fetchJwks(`${base}/nope.json`),
+          () => Effect.runPromise(fetchJwks(`${base}/nope.json`)),
           Error,
           "answered 404"
         );
         await assertRejects(
-          () => fetchJwks(`${base}/not-keys.json`),
+          () => Effect.runPromise(fetchJwks(`${base}/not-keys.json`)),
           Error,
           "did not answer with a key set"
         );

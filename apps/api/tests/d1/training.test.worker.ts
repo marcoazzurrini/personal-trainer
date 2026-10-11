@@ -5,9 +5,13 @@ import type {
 import { createClient } from "@trainer/db/client.ts";
 import { aliasRepository } from "@trainer/db/repositories/aliases.ts";
 import { trainingRepositories } from "@trainer/db/repositories/training/index.ts";
+import { Effect } from "effect";
 
 import { aliasStore } from "../../src/shared/aliases.ts";
-import { ApiError, databaseError } from "../../src/shared/errors.ts";
+import { refusalOf } from "../../src/shared/errors.ts";
+import { invocationContext, run } from "../../src/shared/runtime.ts";
+import type { Invocation } from "../../src/shared/runtime.ts";
+import { fixedClock } from "../../src/shared/values.ts";
 import { exerciseStore } from "../../src/training/exercises.ts";
 import { trainingResolver } from "../../src/training/resolve.ts";
 import { trainingStateStore } from "../../src/training/state.ts";
@@ -75,7 +79,19 @@ export default {
           throw new Error("Test D1 sessions are unsupported.");
         },
       };
-      const clock = () => new Date(input.now ?? "2026-08-30T12:00:00Z");
+      const context = invocationContext({
+        env: { DB: db },
+        invocation: {
+          waitUntil() {
+            // The harness answers only after each operation settles.
+          },
+          passThroughOnException() {
+            // No upstream service exists in this harness.
+          },
+        },
+        diagnostic: { id: crypto.randomUUID(), route: "test" },
+        clock: fixedClock(input.now ?? "2026-08-30T12:00:00Z"),
+      });
       const client = createClient(db);
       const repositories = trainingRepositories(client);
       const resolver = trainingResolver(repositories.resolution);
@@ -84,15 +100,13 @@ export default {
         exercises: exerciseStore(
           repositories.exercises,
           resolver,
-          exerciseAliases,
-          clock
+          exerciseAliases
         ),
         state: trainingStateStore(
           repositories.state,
-          contextStore(repositories.context, clock),
-          clock
+          contextStore(repositories.context)
         ),
-        volume: volumeStore(repositories.volume, resolver, clock),
+        volume: volumeStore(repositories.volume, resolver),
         exerciseAliases,
         foodAliases: aliasStore(aliasRepository(client, "food")),
         mealAliases: aliasStore(aliasRepository(client, "meal")),
@@ -110,16 +124,23 @@ export default {
         throw new Error("Unknown test method.");
       }
       // oxlint-disable-next-line anti-slop/no-reflect-apply -- Negative persistence tests intentionally pass unvalidated arguments to an own store method.
-      const result = await Reflect.apply(operation, store, input.args);
+      const outcome = Reflect.apply(operation, store, input.args);
+      // SAFETY: store operations require nothing beyond the invocation context.
+      const effect = outcome as Effect.Effect<unknown, unknown, Invocation>;
+      const result = Effect.isEffect(outcome)
+        ? await run(context, effect)
+        : outcome;
       return Response.json(result ?? null);
     } catch (error) {
-      const mapped = databaseError(error);
+      // Match the production HTTP boundary when calling stores directly.
+      const refusal = refusalOf(error);
       return Response.json(
         {
           error:
-            error instanceof Error ? error.message : "Unknown test failure",
+            refusal?.message ??
+            (error instanceof Error ? error.message : "Unknown test failure"),
         },
-        { status: mapped instanceof ApiError ? mapped.status : 500 }
+        { status: refusal?.status ?? 500 }
       );
     }
   },

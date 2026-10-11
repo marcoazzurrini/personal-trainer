@@ -1,7 +1,10 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
+
 import { JwtError, verifyJwt, verifyWebSessionJwt } from "../src/access/jwt.ts";
 import { assertEquals, assertRejects } from "./assertions.ts";
+import { at } from "./effects.ts";
 import { webSigner } from "./web_signer.ts";
 
 test("web sessions and connector tokens have disjoint claim policies", async () => {
@@ -18,12 +21,11 @@ test("web sessions and connector tokens have disjoint claim policies", async () 
     issuer: good.iss,
     clientId: good.client_id,
     jwks: signer.jwks,
-    now,
   };
-  assertEquals(
-    (await verifyWebSessionJwt(await signer.sign(good), options)).sub,
-    "owner"
-  );
+  // The verifiers read the time from the Clock; this one is stopped at now.
+  const verifyWebSession = (token: string) =>
+    Effect.runPromise(at(now * 1000, verifyWebSessionJwt(token, options)));
+  assertEquals((await verifyWebSession(await signer.sign(good))).sub, "owner");
   for (const patch of [
     { iss: "https://other.example.test" },
     { sub: "" },
@@ -46,31 +48,31 @@ test("web sessions and connector tokens have disjoint claim policies", async () 
       () =>
         signer
           .sign({ ...good, ...patch })
-          .then((token) => verifyWebSessionJwt(token, options)),
+          .then((token) => verifyWebSession(token)),
       JwtError
     );
   }
   const impostor = await webSigner();
   await assertRejects(
-    () =>
-      impostor.sign(good).then((token) => verifyWebSessionJwt(token, options)),
+    () => impostor.sign(good).then((token) => verifyWebSession(token)),
     JwtError
   );
   for (const malformed of ["not-a-token", "a.b.c", "e30.e30.e30"]) {
-    await assertRejects(
-      () => verifyWebSessionJwt(malformed, options),
-      JwtError
-    );
+    await assertRejects(() => verifyWebSession(malformed), JwtError);
   }
   await assertRejects(
     () =>
       signer.sign(good).then((token) =>
-        verifyJwt(token, {
-          issuer: good.iss,
-          audience: "https://trainer.example.test/api/mcp",
-          jwks: signer.jwks,
-          now,
-        })
+        Effect.runPromise(
+          at(
+            now * 1000,
+            verifyJwt(token, {
+              issuer: good.iss,
+              audience: "https://trainer.example.test/api/mcp",
+              jwks: signer.jwks,
+            })
+          )
+        )
       ),
     JwtError
   );

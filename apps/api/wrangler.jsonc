@@ -17,5 +17,7 @@
     },
   ],
   "observability": { "enabled": true },
+  // Zod's locale index only; see src/shared/zod_locales.ts for why.
+  "alias": { "../locales/index.js": "./src/shared/zod_locales.ts" },
   "triggers": { "crons": ["0 */6 * * *"] },
 }

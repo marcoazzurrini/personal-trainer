@@ -1,5 +1,7 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
+
 import { createServices } from "../src/services.ts";
 import { assert, assertEquals } from "./assertions.ts";
 import d1, { database } from "./d1.ts";
@@ -383,9 +385,8 @@ test("session report D1 writes stay bounded and return all twenty sets", async (
       return await database.batch<T>(statements);
     },
   };
-  const saved = await createServices(observed).sessions.correctSession(
-    before.id,
-    {
+  const saved = await Effect.runPromise(
+    createServices(observed).sessions.correctSession(before.id, {
       sets: before.sets.map((s: { id: number }) => ({
         id: s.id,
         weight_kg: 100,
@@ -393,7 +394,7 @@ test("session report D1 writes stay bounded and return all twenty sets", async (
         effort: "hard" as const,
       })),
       notes: "One report",
-    }
+    })
   );
   assertEquals(saved.sets.length, 20);
   assert(saved.sets.every((s) => s.reps === 5));

@@ -1,7 +1,10 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
+
 import { discoverJwksUrl, fetchJwks, forgetJwks } from "../src/access/jwt.ts";
 import { assertEquals, assertRejects } from "./assertions.ts";
+import { at } from "./effects.ts";
 
 test("JWT publication reads coalesce, cool down failures, recover and reset", async (t) => {
   let hits = 0;
@@ -32,10 +35,13 @@ test("JWT publication reads coalesce, cool down failures, recover and reset", as
     forgetJwks();
     hits = 0;
     fail = false;
+    // The caches read the time from the Clock of whoever reads them.
     const read = (now: number) =>
       kind === "keys"
-        ? fetchJwks(`${base}/keys`, { now, unknownKid: "rotated" })
-        : discoverJwksUrl(base, { now });
+        ? Effect.runPromise(
+            at(now, fetchJwks(`${base}/keys`, { unknownKid: "rotated" }))
+          )
+        : Effect.runPromise(at(now, discoverJwksUrl(base)));
     async function burst(now: number) {
       release = Promise.withResolvers();
       entered = Promise.withResolvers();
@@ -84,6 +90,44 @@ test("JWT publication reads coalesce, cool down failures, recover and reset", as
     }
   } finally {
     release.resolve();
+    forgetJwks();
+    await server.stop(true);
+  }
+});
+
+// A token naming an unknown kid asks the authorization server for its keys
+// again. If that read fails, only that token is refused: the keys already
+// held keep verifying every token signed with them, so one forged header
+// during an outage cannot lock the owner out until the outage ends.
+test("a failed key rotation refuses the unknown kid and keeps the held keys", async () => {
+  let hits = 0;
+  let fail = false;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => {
+      hits += 1;
+      return fail
+        ? new Response("offline", { status: 503 })
+        : Response.json({ keys: [{ kid: "known" }] });
+    },
+  });
+  const url = `http://127.0.0.1:${server.port}/keys`;
+  const read = (now: number, unknownKid?: string) =>
+    Effect.runPromise(
+      at(now, fetchJwks(url, unknownKid === undefined ? {} : { unknownKid }))
+    );
+  try {
+    forgetJwks();
+    assertEquals((await read(1_000_000)).keys, [{ kid: "known" }]);
+    fail = true;
+    await assertRejects(() => read(1_120_000, "forged"), Error, "answered 503");
+    assertEquals(hits, 2);
+    assertEquals((await read(1_121_000)).keys, [{ kid: "known" }]);
+    assertEquals((await read(1_121_000, "known")).keys, [{ kid: "known" }]);
+    await assertRejects(() => read(1_121_000, "forged"), Error, "answered 503");
+    assertEquals(hits, 2);
+  } finally {
     forgetJwks();
     await server.stop(true);
   }

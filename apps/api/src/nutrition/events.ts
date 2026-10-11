@@ -2,101 +2,103 @@ import type {
   EventRecord,
   EventsRepository,
 } from "@trainer/db/repositories/nutrition/events.ts";
+import { Effect } from "effect";
 
+import { effectful } from "../shared/database.ts";
 import { addDays } from "../shared/dates.ts";
-import { databaseError, requireRow } from "../shared/errors.ts";
+import { requireRow } from "../shared/refusals.ts";
+import type { DatabaseFailure, Invalid, NotFound } from "../shared/refusals.ts";
 import {
   date,
-  instant,
+  now,
   requestId,
   romeDate,
-  systemClock,
   wireInstant,
 } from "../shared/values.ts";
-import type { Clock } from "../shared/values.ts";
 import type { ActiveTransient, EventRow, Kind } from "./events.types.ts";
 
 function wireEvent(row: EventRecord): EventRow {
   return { ...row, created_at: wireInstant(row.created_at) };
 }
 
-export function eventStore(
-  repository: EventsRepository,
-  clock: Clock = systemClock
-) {
-  async function listEvents(): Promise<EventRow[]> {
-    try {
-      return (await repository.list()).map(wireEvent);
-    } catch (error) {
-      throw databaseError(error);
+export function eventStore(rows: EventsRepository) {
+  const repository = effectful(rows);
+
+  const listEvents = Effect.fn("events.listEvents")(
+    function* (): Effect.fn.Return<EventRow[], DatabaseFailure> {
+      return (yield* repository.list()).map(wireEvent);
     }
-  }
-  async function activeTransients(asOf: string): Promise<ActiveTransient[]> {
-    const day = date(asOf);
-    try {
-      return await repository.inRange(addDays(day, -14), day);
-    } catch (error) {
-      throw databaseError(error);
-    }
-  }
-  async function registerEvent(b: {
+  );
+
+  const activeTransients = Effect.fn("events.activeTransients")(function* (
+    asOf: string
+  ): Effect.fn.Return<ActiveTransient[], Invalid | DatabaseFailure> {
+    const day = yield* date(asOf);
+    return yield* repository.inRange(addDays(day, -14), day);
+  });
+
+  const registerEvent = Effect.fn("events.registerEvent")(function* (b: {
     day?: string | null;
     kind: Kind;
     note?: string | null;
     request_id: string;
-  }): Promise<{ row: EventRow; created: boolean }> {
-    const uuid = requestId(b.request_id);
-    const seen = async () => {
-      try {
-        return await repository.findRequest(uuid);
-      } catch (error) {
-        throw databaseError(error);
-      }
-    };
-    const replay = await seen();
+  }): Effect.fn.Return<
+    { row: EventRow; created: boolean },
+    Invalid | NotFound | DatabaseFailure
+  > {
+    const uuid = yield* requestId(b.request_id);
+    const seen = () => repository.findRequest(uuid);
+    const replay = yield* seen();
     if (replay) {
       return { row: wireEvent(replay), created: false };
     }
-    try {
-      const now = instant(clock().toISOString());
-      const result = await repository.save({
-        day: date(b.day ?? romeDate(now)),
+    return yield* Effect.gen(function* () {
+      const createdAt = yield* now;
+      const result = yield* repository.save({
+        day: yield* date(b.day ?? (yield* romeDate(createdAt))),
         kind: b.kind,
         note: b.note ?? null,
         request_id: uuid,
-        created_at: now,
+        created_at: createdAt,
       });
       return {
         row: wireEvent(
-          requireRow(
+          yield* requireRow(
             result.row ? [result.row] : [],
             "The nutrition event could not be read after saving."
           )
         ),
         created: result.created,
       };
-    } catch (error) {
-      const recovered = await seen();
-      if (recovered) {
-        return { row: wireEvent(recovered), created: false };
-      }
-      throw databaseError(error);
-    }
-  }
-  async function withdrawEvent(
+    }).pipe(
+      // Whatever went wrong, a concurrent retry may have saved this request;
+      // anything else still fails exactly as it did.
+      Effect.catchCause((cause) =>
+        seen().pipe(
+          Effect.flatMap((recovered) =>
+            recovered
+              ? Effect.succeed({ row: wireEvent(recovered), created: false })
+              : Effect.failCause(cause)
+          )
+        )
+      )
+    );
+  });
+
+  const withdrawEvent = Effect.fn("events.withdrawEvent")(function* (
     id: number
-  ): Promise<Pick<EventRow, "day" | "kind" | "note">> {
+  ): Effect.fn.Return<
+    Pick<EventRow, "day" | "kind" | "note">,
+    NotFound | DatabaseFailure
+  > {
     const missing = `No nutrition event with id ${id}. Read GET /nutrition-events and use an id from the current events list.`;
-    try {
-      const row =
-        id < 0
-          ? await repository.suppressGoalSwitch(id)
-          : await repository.remove(id);
-      return requireRow(row ? [row] : [], missing);
-    } catch (error) {
-      throw databaseError(error);
-    }
-  }
+    const row =
+      id < 0
+        ? yield* repository.suppressGoalSwitch(id)
+        : yield* repository.remove(id);
+    return yield* requireRow(row ? [row] : [], missing);
+  });
+
   return { listEvents, activeTransients, registerEvent, withdrawEvent };
 }
 

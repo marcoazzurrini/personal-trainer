@@ -1,7 +1,9 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { Effect } from "effect";
+import type { Clock, Context } from "effect";
 
-import { createMcpRoutes } from "./access/mcp.routes.ts";
-import { authorizeWebRead } from "./access/web.ts";
+import { createMcpRoutes, mcpConfig } from "./access/mcp.routes.ts";
+import { authorizeWebRead, webAuthConfig } from "./access/web.ts";
 import { bodyfat } from "./body/bodyfat.routes.ts";
 import { bodyweight } from "./body/bodyweight.routes.ts";
 import { createWithingsRoutes } from "./body/withings.routes.ts";
@@ -20,15 +22,19 @@ import { createServices, createWithingsService } from "./services.ts";
 import { boundedBody } from "./shared/body.ts";
 import { buildRevision } from "./shared/build.ts";
 import {
-  ApiError,
   errorResponse,
   internalError,
   validationHook,
 } from "./shared/errors.ts";
 import type { Diagnostic } from "./shared/errors.ts";
+import { Unavailable } from "./shared/refusals.ts";
+import {
+  invocationContext,
+  Invocation as InvocationService,
+} from "./shared/runtime.ts";
+import { run } from "./shared/services.ts";
 import type { AppEnv } from "./shared/services.ts";
-import { systemClock } from "./shared/values.ts";
-import type { Clock } from "./shared/values.ts";
+import type { SpanRecord } from "./shared/tracing.ts";
 import { issues } from "./surfaces/index.ts";
 import {
   blocks,
@@ -47,35 +53,15 @@ import {
 // Topic routers and their schemas are shared. The composition root binds each
 // invocation's capabilities explicitly, so no environment's database or secrets
 // survive into another environment's request.
-export function createApplication(
-  env: Bindings,
-  invocation: Invocation,
-  clock: Clock = systemClock
-) {
-  const services = createServices(env.DB, clock);
+export function createApplication(env: Bindings) {
+  const services = createServices(env.DB);
   const { tokens } = services;
-  const withings = createWithingsService(
-    env.DB,
-    {
-      clientId: env.WITHINGS_CLIENT_ID,
-      clientSecret: env.WITHINGS_CLIENT_SECRET,
-      apiBase: env.WITHINGS_API_BASE,
-    },
-    clock
-  );
-  const { withingsWebhook, withingsAdmin } = createWithingsRoutes(
-    withings,
-    (work) => invocation.waitUntil(work)
-  );
-  const mcp = createMcpRoutes(
-    {
-      issuer: env.AUTH_ISSUER,
-      jwksUrl: env.AUTH_JWKS_URL,
-      allowedSubject: env.ALLOWED_SUBJECT,
-      publicOrigin: env.PUBLIC_ORIGIN,
-    },
-    { issueToken: tokens.issueToken }
-  );
+  // Withings and the connector read their settings from this invocation's
+  // bindings when a request needs them, and hand background work to its
+  // waitUntil.
+  const withings = createWithingsService(env.DB);
+  const { withingsWebhook, withingsAdmin } = createWithingsRoutes(withings);
+  const mcp = createMcpRoutes(mcpConfig, { issueToken: tokens.issueToken });
 
   // OpenAPIHono rather than Hono: it is a Hono subclass, so every router
   // mounted below stays an ordinary Hono router and keeps working untouched.
@@ -89,15 +75,19 @@ export function createApplication(
   // from answering in a shape the others do not.
   const app = new OpenAPIHono<
     AppEnv & {
-      Bindings: Bindings & { diagnostic: Diagnostic };
+      Bindings: Bindings & {
+        diagnostic: Diagnostic;
+        context: Context.Context<InvocationService>;
+      };
     }
   >({
     defaultHook: validationHook,
   }).basePath("/api");
 
   app.use(async (c, next) => {
-    const { diagnostic } = c.env;
+    const { diagnostic, context } = c.env;
     c.set("diagnostic", diagnostic);
+    c.set("context", context);
     c.set("services", services);
     // oxlint-disable-next-line node/callback-return -- Hono next is awaited middleware continuation; route diagnostics must run after it.
     await next();
@@ -108,34 +98,9 @@ export function createApplication(
   });
 
   // Readiness is read-only. The Cron Trigger, not an external health poll, owns
-  // scheduled Withings catch-up. D1 has no interactive query cancellation API.
+  // scheduled Withings catch-up.
   app.get("/health", async (c) => {
-    const query = services.checkReadiness();
-    invocation.waitUntil(
-      // oxlint-disable-next-line promise/prefer-await-to-then -- Register the read immediately with waitUntil; the response still races the one-second deadline.
-      query.catch(() => {
-        // The race below owns the response error; waitUntil only retains the database read.
-      })
-    );
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        query,
-        // oxlint-disable-next-line promise/avoid-new -- Adapt the timer to a rejection without changing the database readiness deadline.
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            reject(
-              new ApiError(
-                503,
-                "Database readiness check timed out. Try the health read again later."
-              )
-            );
-          }, 1000);
-        }),
-      ]);
-    } finally {
-      clearTimeout(timer);
-    }
+    await run(c, readiness(services.checkReadiness));
     c.header("Cache-Control", "no-store");
     return c.json({ status: "ok", revision: buildRevision });
   });
@@ -239,14 +204,24 @@ export function createApplication(
     if (bearer === "") {
       return c.json(refusal, 401);
     }
-    if (bearer.includes(".")) {
-      await authorizeWebRead(bearer, c.req.method, c.req.path, {
-        issuer: env.WEB_AUTH_ISSUER,
-        clientId: env.WEB_AUTH_CLIENT_ID,
-        jwksUrl: env.WEB_AUTH_JWKS_URL,
-        allowedSubject: env.ALLOWED_SUBJECT,
-      });
-    } else if ((await tokens.verifyToken(bearer)) === null) {
+    // A web session that fails its policy is refused with that policy's own
+    // sentence; a coach token that matches no live row gets the one above.
+    const admitted = await run(
+      c,
+      Effect.gen(function* () {
+        if (bearer.includes(".")) {
+          yield* authorizeWebRead(
+            bearer,
+            c.req.method,
+            c.req.path,
+            webAuthConfig
+          );
+          return true;
+        }
+        return (yield* tokens.verifyToken(bearer)) !== null;
+      })
+    );
+    if (!admitted) {
       return c.json(refusal, 401);
     }
     // oxlint-disable-next-line node/callback-return -- Hono next returns a promise, not a Node-style callback.
@@ -387,78 +362,131 @@ async function normalized(req: Request): Promise<Request> {
   return new Request(req.url, { method: req.method, headers, body: raw });
 }
 
-// Local tests and deployed Workers execute this same request boundary.
-export async function handleRequest(
+// D1 has no interactive query cancellation API, so a read that misses the
+// deadline keeps running after the timeout answers. waitUntil retains it, and
+// its late failure is nobody's to report: the timeout already owns the answer.
+function readiness<T>(check: () => Promise<T>) {
+  return Effect.gen(function* () {
+    const invocation = yield* InvocationService;
+    yield* Effect.promise(() => {
+      const query = check();
+      invocation.waitUntil(
+        query.catch(() => {
+          // The timeout below owns the response error.
+        })
+      );
+      return query;
+    });
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: "1 second",
+      orElse: () =>
+        Effect.fail(
+          new Unavailable({
+            message:
+              "Database readiness check timed out. Try the health read again later.",
+          })
+        ),
+    })
+  );
+}
+
+const METHODS = new Set([
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+]);
+
+const answer = Effect.fn("request")(function* (
   req: Request,
   env: Bindings,
-  invocation: Invocation,
-  clock: Clock = systemClock
-): Promise<Response> {
-  const started = performance.now();
-  const diagnostic: Diagnostic = {
-    id: crypto.randomUUID(),
-    route: "unmatched",
-  };
-  const method = [
-    "GET",
-    "HEAD",
-    "POST",
-    "PUT",
-    "PATCH",
-    "DELETE",
-    "OPTIONS",
-  ].includes(req.method)
-    ? req.method
-    : "OTHER";
-  let response: Response;
-  let request = req;
-  try {
-    try {
-      request = await boundedBody(request);
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(
-        400,
-        "Request body could not be read. Send a complete request body."
-      );
-    }
-    const url = new URL(request.url);
-    const collapsed = url.pathname.replace(/^(?:\/api)+(?=\/|$)/u, "/api");
-    if (collapsed !== url.pathname) {
-      url.pathname = collapsed;
-      request = new Request(url, request);
-    }
-    response = await createApplication(env, invocation, clock).fetch(
-      await normalized(request),
-      { ...env, diagnostic }
-    );
-  } catch (error) {
-    response = Response.json(
-      {
-        error:
-          error instanceof ApiError
-            ? error.message
-            : internalError(diagnostic, method),
-      },
-      { status: error instanceof ApiError ? error.status : 500 }
-    );
+  diagnostic: Diagnostic
+) {
+  let request = yield* boundedBody(req);
+  const url = new URL(request.url);
+  const collapsed = url.pathname.replace(/^(?:\/api)+(?=\/|$)/u, "/api");
+  if (collapsed !== url.pathname) {
+    url.pathname = collapsed;
+    request = new Request(url, request);
   }
+  // Handlers run their Effects in this context, so their spans, logs and
+  // clock belong to this request.
+  const context = yield* Effect.context<InvocationService>();
+  const app = createApplication(env);
+  const forwarded = request;
+  return yield* Effect.promise(async () =>
+    app.fetch(await normalized(forwarded), { ...env, diagnostic, context })
+  );
+});
+
+const serve = Effect.fnUntraced(function* (
+  req: Request,
+  env: Bindings,
+  diagnostic: Diagnostic,
+  spans: readonly SpanRecord[]
+) {
+  const started = performance.now();
+  const method = METHODS.has(req.method) ? req.method : "OTHER";
+  const response = yield* answer(req, env, diagnostic).pipe(
+    Effect.catch((refusal) =>
+      Effect.succeed(
+        Response.json({ error: refusal.message }, { status: refusal.status })
+      )
+    ),
+    Effect.catchDefect(() =>
+      Effect.succeed(
+        Response.json(
+          { error: internalError(diagnostic, method) },
+          { status: 500 }
+        )
+      )
+    )
+  );
   response.headers.set("X-Request-ID", diagnostic.id);
   const failure: Pick<Diagnostic, "error"> = {};
   if (diagnostic.error) {
     failure.error = diagnostic.error;
   }
-  console.log(
-    JSON.stringify({
-      diagnostic_id: diagnostic.id,
+  // One record per request. The spans say where its time went: each store
+  // call by name, with how long it waited and whether it failed.
+  yield* Effect.logInfo("request").pipe(
+    Effect.annotateLogs({
       method,
       route: diagnostic.route,
       status: response.status,
       duration_ms: Math.round(performance.now() - started),
       ...failure,
+      spans,
     })
   );
   return response;
+});
+
+// Local tests and deployed Workers execute this same request boundary. Only
+// tests pass a clock; production reads the system time.
+export async function handleRequest(
+  req: Request,
+  env: Bindings,
+  invocation: Invocation,
+  clock?: Clock.Clock
+): Promise<Response> {
+  const diagnostic: Diagnostic = {
+    id: crypto.randomUUID(),
+    route: "unmatched",
+  };
+  const spans: SpanRecord[] = [];
+  const context = invocationContext({
+    env,
+    invocation,
+    diagnostic,
+    clock,
+    spans,
+  });
+  return await Effect.runPromiseWith(context)(
+    serve(req, env, diagnostic, spans)
+  );
 }

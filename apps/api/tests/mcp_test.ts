@@ -1,5 +1,7 @@
 import { test } from "node:test";
 
+import { Config, Effect } from "effect";
+import { Hono } from "hono";
 import { z } from "zod";
 
 import type { McpOutcome } from "../src/access/mcp.ts";
@@ -10,7 +12,9 @@ import {
   publicOrigin,
   TOOL_NAME,
 } from "../src/access/mcp.ts";
+import type { AppEnv } from "../src/shared/services.ts";
 import { assert, assertEquals, assertStringIncludes } from "./assertions.ts";
+import { testContext } from "./effects.ts";
 // The connector, in two halves. The dispatch is import-free and runs here
 // with a stub minter, so every branch of the protocol is exercised without a
 // sign-in. The route is probed live for what it does before a sign-in — the
@@ -21,13 +25,26 @@ import { assert, assertEquals, assertStringIncludes } from "./assertions.ts";
 const CALLER = { subject: "user_01TEST" };
 const deps = {
   issue: (subject: string) =>
-    Promise.resolve({
+    Effect.succeed({
       token: `minted-for-${subject}`,
       expires_at: "2026-09-04T12:00:00.000Z",
     }),
   baseUrl: "https://example.test/api",
   version: "1",
 };
+const dispatch = (...args: Parameters<typeof handleMcp<never>>) =>
+  Effect.runPromise(handleMcp(...args));
+// What index.ts gives every request before the connector sees it: an Effect
+// context to run in, here with the wall clock stopped at the request.
+function withContext(router: Hono<AppEnv>): Hono<AppEnv> {
+  const mounted = new Hono<AppEnv>();
+  mounted.use((c, next) => {
+    c.set("context", testContext(Date.now()));
+    return next();
+  });
+  mounted.route("/", router);
+  return mounted;
+}
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- Each caller validates this raw protocol payload with its response-specific Zod schema.
 function body(outcome: McpOutcome): unknown {
   assert("body" in outcome, `a ${outcome.status} carries no body`);
@@ -82,7 +99,7 @@ test("the protocol, one message at a time", async (t) => {
   await t.test(
     "initialize answers in the client's version when known",
     async () => {
-      const out = await handleMcp(
+      const out = await dispatch(
         {
           jsonrpc: "2.0",
           id: 1,
@@ -102,7 +119,7 @@ test("the protocol, one message at a time", async (t) => {
     }
   );
   await t.test("and in the latest it knows when not", async () => {
-    const out = await handleMcp(
+    const out = await dispatch(
       {
         jsonrpc: "2.0",
         id: 2,
@@ -118,7 +135,7 @@ test("the protocol, one message at a time", async (t) => {
     );
   });
   await t.test("a notification is accepted with nothing to say", async () => {
-    const out = await handleMcp(
+    const out = await dispatch(
       { jsonrpc: "2.0", method: "notifications/initialized" },
       CALLER,
       deps
@@ -127,7 +144,7 @@ test("the protocol, one message at a time", async (t) => {
     assert(!("body" in out));
   });
   await t.test("ping", async () => {
-    const out = await handleMcp(
+    const out = await dispatch(
       { jsonrpc: "2.0", id: "p", method: "ping" },
       CALLER,
       deps
@@ -135,7 +152,7 @@ test("the protocol, one message at a time", async (t) => {
     assertEquals(body(out), { jsonrpc: "2.0", id: "p", result: {} });
   });
   await t.test("tools/list names the one tool, taking no input", async () => {
-    const out = await handleMcp(
+    const out = await dispatch(
       { jsonrpc: "2.0", id: 3, method: "tools/list" },
       CALLER,
       deps
@@ -149,7 +166,7 @@ test("the protocol, one message at a time", async (t) => {
   await t.test(
     "tools/call mints for the caller and says where to use it",
     async () => {
-      const out = await handleMcp(
+      const out = await dispatch(
         {
           jsonrpc: "2.0",
           id: 4,
@@ -170,7 +187,7 @@ test("the protocol, one message at a time", async (t) => {
     }
   );
   await t.test("another tool name is a JSON-RPC error, in a 200", async () => {
-    const out = await handleMcp(
+    const out = await dispatch(
       {
         jsonrpc: "2.0",
         id: 5,
@@ -185,7 +202,7 @@ test("the protocol, one message at a time", async (t) => {
     assertStringIncludes(failure.parse(body(out)).error.message, TOOL_NAME);
   });
   await t.test("an unknown method is -32601", async () => {
-    const out = await handleMcp(
+    const out = await dispatch(
       { jsonrpc: "2.0", id: 6, method: "resources/list" },
       CALLER,
       deps
@@ -194,7 +211,7 @@ test("the protocol, one message at a time", async (t) => {
   });
   await t.test("not a message at all is a 400", async () => {
     for (const bad of [null, 42, "hi", [], { id: 1, method: "ping" }]) {
-      const out = await handleMcp(bad, CALLER, deps);
+      const out = await dispatch(bad, CALLER, deps);
       assertEquals(out.status, 400, JSON.stringify(bad));
       assertEquals(failure.parse(body(out)).error.code, -32_600);
     }
@@ -274,14 +291,16 @@ test("signed connector calls enforce identity and mint usable API tokens", async
     ALLOWED_SUBJECT: CALLER.subject,
     PUBLIC_ORIGIN: "",
   };
-  const mcp = createMcpRoutes(
-    {
-      issuer: config.AUTH_ISSUER,
-      jwksUrl: config.AUTH_JWKS_URL,
-      allowedSubject: config.ALLOWED_SUBJECT,
-      publicOrigin: config.PUBLIC_ORIGIN,
-    },
-    createServices(database).tokens
+  const mcp = withContext(
+    createMcpRoutes(
+      Config.succeed({
+        issuer: config.AUTH_ISSUER,
+        jwksUrl: config.AUTH_JWKS_URL,
+        allowedSubject: config.ALLOWED_SUBJECT,
+        publicOrigin: config.PUBLIC_ORIGIN,
+      }),
+      createServices(database).tokens
+    )
   );
   const { fetch } = globalThis;
   const pair = await crypto.subtle.generateKey(
@@ -434,17 +453,19 @@ test("the connector before a sign-in", async (t) => {
       // outbound networking, even to a synthetic hostname.
       const { createMcpRoutes } = await import("../src/access/mcp.routes.ts");
       const { forgetJwks } = await import("../src/access/jwt.ts");
-      const route = createMcpRoutes(
-        {
-          issuer: "https://auth.example.test",
-          jwksUrl: "https://auth.example.test/unavailable",
-          allowedSubject: CALLER.subject,
-        },
-        {
-          issueToken: () => {
-            throw new Error("Must not mint during an outage");
-          },
-        }
+      const route = withContext(
+        createMcpRoutes(
+          Config.succeed({
+            issuer: "https://auth.example.test",
+            jwksUrl: "https://auth.example.test/unavailable",
+            allowedSubject: CALLER.subject,
+          }),
+          {
+            issueToken: () => {
+              throw new Error("Must not mint during an outage");
+            },
+          }
+        )
       );
       const token = `${segment({ alg: "RS256", kid: "k" })}.${segment({ iss: "x" })}.AAAA`;
       const originalFetch = globalThis.fetch;

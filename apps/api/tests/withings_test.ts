@@ -1,5 +1,7 @@
 import { test } from "node:test";
 
+import { Effect, Redacted } from "effect";
+
 import {
   getWeights,
   refreshTokens,
@@ -51,7 +53,7 @@ function stubWithings(
     cfg: {
       apiBase: `http://127.0.0.1:${server.port}`,
       clientId: "client-id",
-      clientSecret: "client-secret",
+      clientSecret: Redacted.make("client-secret"),
     },
     requests,
     close: () => server.stop(true),
@@ -80,7 +82,7 @@ test("withings tokens", async (t) => {
     }));
     try {
       const before = Date.now();
-      const tokens = await refreshTokens(cfg, "refresh-1");
+      const tokens = await Effect.runPromise(refreshTokens(cfg, "refresh-1"));
       assertEquals(tokens.accessToken, "access-2");
       assertEquals(tokens.refreshToken, "refresh-2");
       const ttl = Date.parse(tokens.expiresAt) - before;
@@ -107,7 +109,7 @@ test("withings tokens", async (t) => {
       },
     }));
     try {
-      const tokens = await refreshTokens(cfg, "refresh-1");
+      const tokens = await Effect.runPromise(refreshTokens(cfg, "refresh-1"));
       assertEquals(tokens.refreshToken, "refresh-1");
     } finally {
       await close();
@@ -145,7 +147,7 @@ test("withings tokens", async (t) => {
         for (body of malformed) {
           const before = requests.length;
           await assertRejects(
-            () => refreshTokens(cfg, "refresh-1"),
+            () => Effect.runPromise(refreshTokens(cfg, "refresh-1")),
             WithingsError,
             "token set"
           );
@@ -157,7 +159,8 @@ test("withings tokens", async (t) => {
         }
         body = valid;
         assertEquals(
-          (await refreshTokens(cfg, "refresh-1")).accessToken,
+          (await Effect.runPromise(refreshTokens(cfg, "refresh-1")))
+            .accessToken,
           "access-2"
         );
       } finally {
@@ -178,7 +181,7 @@ test("withings reads status, not the HTTP code", async (t) => {
     }));
     try {
       await assertRejects(
-        () => getWeights(cfg, "token", { lastupdate: 0 }),
+        () => Effect.runPromise(getWeights(cfg, "token", { lastupdate: 0 })),
         WithingsError,
         "status 401"
       );
@@ -194,7 +197,7 @@ test("withings reads status, not the HTTP code", async (t) => {
       });
       try {
         await assertRejects(
-          () => getWeights(cfg, "token", { lastupdate: 0 }),
+          () => Effect.runPromise(getWeights(cfg, "token", { lastupdate: 0 })),
           WithingsError,
           "not a Withings response"
         );
@@ -211,10 +214,12 @@ test("withings measurement fetch", async (t) => {
       body: { updatetime: 1_786_287_339, measuregrps: [group()] },
     }));
     try {
-      const res = await getWeights(cfg, "access-9", {
-        startdate: 100,
-        enddate: 200,
-      });
+      const res = await Effect.runPromise(
+        getWeights(cfg, "access-9", {
+          startdate: 100,
+          enddate: 200,
+        })
+      );
       assertEquals(res.updatetime, 1_786_287_339);
       assertEquals(res.groups.length, 1);
       const [req] = requests;
@@ -236,7 +241,9 @@ test("withings measurement fetch", async (t) => {
       body: { updatetime: 5, measuregrps: [] },
     }));
     try {
-      await getWeights(cfg, "access-9", { lastupdate: 1_786_000_000 });
+      await Effect.runPromise(
+        getWeights(cfg, "access-9", { lastupdate: 1_786_000_000 })
+      );
       assertEquals(requests[0].params.lastupdate, "1786000000");
       assertEquals(requests[0].params.startdate);
     } finally {
@@ -287,16 +294,22 @@ test("withings rejects malformed successful measurement batches", async () => {
   try {
     for (body of malformed) {
       await assertRejects(
-        () => getWeights(cfg, "local-token", { lastupdate: 0 }),
+        () =>
+          Effect.runPromise(getWeights(cfg, "local-token", { lastupdate: 0 })),
         WithingsError,
         "malformed"
       );
     }
     body = { ...valid, measuregrps: [] };
-    assertEquals(await getWeights(cfg, "local-token", { lastupdate: 0 }), {
-      updatetime: valid.updatetime,
-      groups: [],
-    });
+    assertEquals(
+      await Effect.runPromise(
+        getWeights(cfg, "local-token", { lastupdate: 0 })
+      ),
+      {
+        updatetime: valid.updatetime,
+        groups: [],
+      }
+    );
     body = {
       ...valid,
       measuregrps: [
@@ -305,7 +318,9 @@ test("withings rejects malformed successful measurement batches", async () => {
         group({ grpid: 3, measures: [] }),
       ],
     };
-    const result = await getWeights(cfg, "local-token", { lastupdate: 0 });
+    const result = await Effect.runPromise(
+      getWeights(cfg, "local-token", { lastupdate: 0 })
+    );
     const selected = selectWeights(result.groups);
     assertEquals(selected.accepted.length, 1);
     assertEquals(

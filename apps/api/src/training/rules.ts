@@ -1,4 +1,6 @@
-import { ApiError } from "../shared/errors.ts";
+import { Effect } from "effect";
+
+import { Invalid } from "../shared/refusals.ts";
 
 // The closed vocabularies of the training half, and the three rules that
 // connect them: which fields a set of an exercise may carry, which dose units
@@ -149,14 +151,15 @@ export function assertSetMeasures(
   exercise: string,
   side: "target" | "actual",
   v: SetMeasures
-): void {
+): Effect.Effect<void, Invalid> {
   const rule = ruleFor(measure);
   if (!rule) {
-    throw new ApiError(
-      422,
-      `"${exercise}" has an unknown measure "${measure}". Measures are: ${MEASURES.join(
-        ", "
-      )}.`
+    return Effect.fail(
+      new Invalid({
+        message: `"${exercise}" has an unknown measure "${measure}". Measures are: ${MEASURES.join(
+          ", "
+        )}.`,
+      })
     );
   }
 
@@ -165,7 +168,7 @@ export function assertSetMeasures(
   const empty =
     v.weightKg === null && ALL_FIELDS.every((f) => value(v, f) === null);
   if (empty) {
-    return;
+    return Effect.void;
   }
 
   const noun = side === "target" ? "asked for" : "recorded";
@@ -174,28 +177,30 @@ export function assertSetMeasures(
     if (rule.needs.includes(field) || value(v, field) === null) {
       continue;
     }
-    throw new ApiError(
-      422,
-      `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${requiredMeasures(
-        rule,
-        side
-      )} — not ${column(
-        field,
-        side
-      )}. If that is wrong, fix the exercise rather than the set: PATCH /exercises/:ref changes the measure while nothing has been logged against it; once sets exist, the fix is a new exercise with the right measure, taking the old one's aliases.`
+    return Effect.fail(
+      new Invalid({
+        message: `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${requiredMeasures(
+          rule,
+          side
+        )} — not ${column(
+          field,
+          side
+        )}. If that is wrong, fix the exercise rather than the set: PATCH /exercises/:ref changes the measure while nothing has been logged against it; once sets exist, the fix is a new exercise with the right measure, taking the old one's aliases.`,
+      })
     );
   }
 
   if (rule.weight === "required" && v.weightKg === null) {
-    throw new ApiError(
-      422,
-      `"${exercise}" is measured in ${measure}: send ${column(
-        "weight",
-        side
-      )} as well as ${column(
-        "reps",
-        side
-      )}. An unloaded set of a loaded exercise is 0, not absent — 0 is a real bodyweight set and absent means the set was not done.`
+    return Effect.fail(
+      new Invalid({
+        message: `"${exercise}" is measured in ${measure}: send ${column(
+          "weight",
+          side
+        )} as well as ${column(
+          "reps",
+          side
+        )}. An unloaded set of a loaded exercise is 0, not absent — 0 is a real bodyweight set and absent means the set was not done.`,
+      })
     );
   }
 
@@ -205,17 +210,19 @@ export function assertSetMeasures(
       ? present.length === rule.needs.length
       : present.length > 0;
   if (!satisfied) {
-    throw new ApiError(
-      422,
-      `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${requiredMeasures(
-        rule,
-        side
-      )}. This one is missing ${rule.needs
-        .filter((f) => value(v, f) === null)
-        .map((f) => column(f, side))
-        .join(" and ")}.`
+    return Effect.fail(
+      new Invalid({
+        message: `"${exercise}" is measured in ${measure}, so a set of it is ${noun} as ${requiredMeasures(
+          rule,
+          side
+        )}. This one is missing ${rule.needs
+          .filter((f) => value(v, f) === null)
+          .map((f) => column(f, side))
+          .join(" and ")}.`,
+      })
     );
   }
+  return Effect.void;
 }
 
 // Effort is a report of how close a set came to failure, so it is information
@@ -234,16 +241,17 @@ export function assertEffort(
   kind: string,
   reps: number | null,
   effort: string | null
-): void {
+): Effect.Effect<void, Invalid> {
   if (kind !== "working" || reps === null || effort !== null) {
-    return;
+    return Effect.void;
   }
   if (stimulusType !== EFFORT_BEARING) {
-    return;
+    return Effect.void;
   }
-  throw new ApiError(
-    422,
-    `effort is required on a working set of "${exercise}": send easy, hard, or failure. It is what the next session's load is chosen from, and a missing chip cannot be told from an honest one later. Work scored by the clock or the tape carries none.`
+  return Effect.fail(
+    new Invalid({
+      message: `effort is required on a working set of "${exercise}": send easy, hard, or failure. It is what the next session's load is chosen from, and a missing chip cannot be told from an honest one later. Work scored by the clock or the tape carries none.`,
+    })
   );
 }
 
@@ -255,16 +263,17 @@ export function assertDoseUnit(
   measure: string,
   unit: string,
   exercise: string
-): void {
+): Effect.Effect<void, Invalid> {
   const allowed = doseUnitsFor(measure);
   if (allowed.some((allowedUnit) => allowedUnit === unit)) {
-    return;
+    return Effect.void;
   }
-  throw new ApiError(
-    422,
-    `"${exercise}" is measured in ${measure}, so its weekly dose cannot be in ${unit} — nothing delivered would ever count towards it, and the dose would read as permanently unmet. Allowed here: ${allowed.join(
-      ", "
-    )}.`
+  return Effect.fail(
+    new Invalid({
+      message: `"${exercise}" is measured in ${measure}, so its weekly dose cannot be in ${unit} — nothing delivered would ever count towards it, and the dose would read as permanently unmet. Allowed here: ${allowed.join(
+        ", "
+      )}.`,
+    })
   );
 }
 

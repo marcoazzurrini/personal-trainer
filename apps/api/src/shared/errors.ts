@@ -3,37 +3,15 @@ import {
   DatabaseFailureError,
 } from "@trainer/db/errors.ts";
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-// Thrown anywhere in a route; the app-level onError turns it into JSON.
-// The client is an LLM: every message states what was wrong and what a
-// correct call looks like.
-export class ApiError extends Error {
-  public status: ContentfulStatusCode;
-
-  // oxlint-disable-next-line unicorn/custom-error-definition -- Keep the existing Error name used by callers; only status belongs to this envelope.
-  constructor(status: ContentfulStatusCode, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
-// A read that found nothing, turned into the refusal that says so. Thirteen
-// sites ran a query, tested the result and threw; only the sentence differed,
-// and it has to — the client is a model, and "No session with id 4." sends it
-// somewhere different from "No food with id 4."
-//
-// 404 is fixed rather than a parameter because an absent row is the only thing
-// this answers. A query that comes back empty for some other reason — an
-// exercise that exists but is not in the plan, a name that resolves to nothing
-// — is refusing something else, and those sites state their own status and
-// often run a second query to say what the caller should have sent instead.
-export function requireRow<T>(rows: readonly T[], message: string): T {
-  if (rows.length === 0) {
-    throw new ApiError(404, message);
-  }
-  return rows[0];
-}
+import {
+  Conflict,
+  DatabaseFailure,
+  Invalid,
+  isRefusal,
+  TooLarge,
+} from "./refusals.ts";
+import type { Refusal } from "./refusals.ts";
 
 // Human messages for constraint violations that a well-formed request can
 // still trigger. Everything else falls through to a generic message that
@@ -135,61 +113,75 @@ function constraintMessage(name: string | undefined): string | undefined {
     : undefined;
 }
 
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- Exception boundary: translate classified constraints and pass every other thrown value unchanged to the diagnostic handler. */
-export function databaseError(error: unknown): unknown {
-  if (error instanceof ApiError) {
-    return error;
-  }
-  const failure = classifyDatabaseFailure(error);
-  if (!(failure instanceof DatabaseFailureError)) {
-    // Unknown failures may contain SQL, bound values or provider credentials.
-    return failure;
-  }
+export function databaseRefusal(failure: DatabaseFailure): Refusal {
   if (failure.kind === "too_large") {
-    return new ApiError(
-      413,
-      "One entry exceeds the database value limit. Shorten its text before retrying. Nothing was written."
-    );
+    return new TooLarge({
+      message:
+        "One entry exceeds the database value limit. Shorten its text before retrying. Nothing was written.",
+    });
   }
   if (failure.kind === "unique") {
     const name = hasKey(uniqueConstraints, failure.subject)
       ? uniqueConstraints[failure.subject]
       : undefined;
-    return new ApiError(
-      409,
-      constraintMessage(name) ??
-        "That would duplicate an existing record. Read the existing record; reuse the original request_id only when retrying the same operation."
-    );
+    return new Conflict({
+      message:
+        constraintMessage(name) ??
+        "That would duplicate an existing record. Read the existing record; reuse the original request_id only when retrying the same operation.",
+    });
   }
   if (failure.kind === "check" && failure.subject === "api_incomplete_write") {
-    return new ApiError(
-      409,
-      "The record changed while saving it. Nothing was saved. Read the record before retrying."
-    );
+    return new Conflict({
+      message:
+        "The record changed while saving it. Nothing was saved. Read the record before retrying.",
+    });
   }
   if (failure.kind === "check") {
-    return new ApiError(
-      422,
-      constraintMessage(failure.subject) ??
+    return new Invalid({
+      message:
+        constraintMessage(failure.subject) ??
         `The database rejected a value (check constraint "${
           failure.subject
-        }"). Fix the offending field and retry.`
-    );
+        }"). Fix the offending field and retry.`,
+    });
   }
   if (failure.kind === "required") {
-    return new ApiError(
-      422,
-      `"${
+    return new Invalid({
+      message: `"${
         failure.subject
-      }" is required and cannot be null. Omit the field to leave it unchanged, or send a real value.`
-    );
+      }" is required and cannot be null. Omit the field to leave it unchanged, or send a real value.`,
+    });
   }
-  return new ApiError(
-    422,
-    "A referenced row does not exist. Read the referenced record and use its current id."
-  );
+  return new Invalid({
+    message:
+      "A referenced row does not exist. Read the referenced record and use its current id.",
+  });
 }
-/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
+
+// What a caller is told for an expected failure: a refusal as it is, a
+// classified constraint violation in the sentence written for it. Anything
+// else is not expected and has no refusal.
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Exception boundary: anything thrown or failed can arrive here.
+export function refusalOf(error: unknown): Refusal | undefined {
+  if (isRefusal(error)) {
+    return error;
+  }
+  if (error instanceof DatabaseFailure) {
+    return databaseRefusal(error);
+  }
+  // Drizzle embeds SQL and parameters in its outer message; only the native
+  // cause can identify a constraint. A failure that bypassed the repository
+  // boundary is still answered with its constraint's sentence.
+  const classified = classifyDatabaseFailure(error);
+  return classified instanceof DatabaseFailureError
+    ? databaseRefusal(
+        new DatabaseFailure({
+          kind: classified.kind,
+          subject: classified.subject,
+        })
+      )
+    : undefined;
+}
 
 // Where a schema refusal becomes the envelope every other refusal uses.
 //
@@ -236,8 +228,8 @@ export function internalError(diagnostic: Diagnostic, method: string): string {
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Exception boundary: arbitrary thrown values must reach the safe diagnostic envelope.
 export function errorResponse(err: unknown, c: Context): Response {
-  const refusal = databaseError(err);
-  if (refusal instanceof ApiError) {
+  const refusal = refusalOf(err);
+  if (refusal !== undefined) {
     return c.json({ error: refusal.message }, refusal.status);
   }
   // Unknown failures are diagnostics, never raw SQL or bound parameters.

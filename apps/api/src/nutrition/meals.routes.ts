@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Effect } from "effect";
 
 import { releaseAliasRoute } from "../shared/aliases.routes.ts";
 import {
@@ -10,7 +11,7 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 
 export const meals = new OpenAPIHono<AppEnv>();
@@ -92,7 +93,7 @@ meals.openapi(
       },
     },
   }),
-  async (c) => c.json({ meals: await services(c).meals.listMeals() })
+  async (c) => c.json({ meals: await run(c, services(c).meals.listMeals()) })
 );
 
 meals.openapi(
@@ -136,8 +137,9 @@ meals.openapi(
     },
   }),
   async (c) => {
-    const { meal, created } = await services(c).meals.saveMeal(
-      c.req.valid("json")
+    const { meal, created } = await run(
+      c,
+      services(c).meals.saveMeal(c.req.valid("json"))
     );
     return created ? c.json({ meal }, 201) : c.json({ meal }, 200);
   }
@@ -162,7 +164,7 @@ meals.openapi(
   }),
   async (c) =>
     c.json({
-      meal: await services(c).meals.mealByRef(c.req.valid("param").ref),
+      meal: await run(c, services(c).meals.mealByRef(c.req.valid("param").ref)),
     })
 );
 
@@ -207,9 +209,12 @@ meals.openapi(
   }),
   async (c) =>
     c.json(
-      await services(c).meals.editMeal(
-        c.req.valid("param").ref,
-        c.req.valid("json")
+      await run(
+        c,
+        services(c).meals.editMeal(
+          c.req.valid("param").ref,
+          c.req.valid("json")
+        )
       )
     )
 );
@@ -222,10 +227,14 @@ releaseAliasRoute(meals, {
   tag: "Nutrition",
   kind: "meal",
   ref,
-  resolve: async (c, reference) => ({
-    id: await services(c).nutritionResolver.resolveMealId(reference),
-  }),
-  respond: async (c, id) => ({ meal: await services(c).meals.mealDetail(id) }),
+  resolve: (c, reference) =>
+    services(c)
+      .nutritionResolver.resolveMealId(reference)
+      .pipe(Effect.map((id) => ({ id }))),
+  respond: (c, id) =>
+    services(c)
+      .meals.mealDetail(id)
+      .pipe(Effect.map((meal) => ({ meal }))),
   responseSchema: z.object({ meal: MealDetail }),
   summary: "Retire a meal's spoken name",
   description:

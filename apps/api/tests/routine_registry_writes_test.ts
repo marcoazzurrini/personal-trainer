@@ -1,5 +1,7 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
+
 import {
   assert,
   assertEquals,
@@ -22,7 +24,13 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
   const services = createServices(database);
   const { exerciseById } = services.exercises;
   const { hashToken } = await import("../src/access/tokens.ts");
-  const { issueToken, verifyToken } = services.tokens;
+  // The token store answers with Effects; these run them the way a request
+  // would, logger included, with the wall clock read at the call.
+  const { runAt: runTokensAt } = await import("./effects.ts");
+  const issueToken = (subject: string) =>
+    runTokensAt(new Date(), services.tokens.issueToken(subject));
+  const verifyToken = (token: string) =>
+    runTokensAt(new Date(), services.tokens.verifyToken(token));
   async function food(name: string, aliases: string[] = []) {
     const created = await api.post("/foods", {
       name,
@@ -61,7 +69,13 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
           });
           assertEquals((await api.get("/exercises", minted.token)).status, 200);
           assertEquals(await verifyToken(expired), null);
-          assertEquals(messages, [["Expired API token cleanup failed."]]);
+          // One JSON line per log entry; its message is the sentence.
+          assertEquals(
+            messages.map((args) =>
+              args.map((line) => JSON.parse(String(line)).message)
+            ),
+            [["Expired API token cleanup failed."]]
+          );
           assertEquals(
             (
               await sql`select token_hash from api_tokens where token_hash = ${expiredHash}`
@@ -128,7 +142,12 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
         ] as const) {
           const alias = `batch-${uuid()}`;
           await assertRejects(() =>
-            services.aliases[kind].addAliases(id, [alias, alias.toUpperCase()])
+            Effect.runPromise(
+              services.aliases[kind].addAliases(id, [
+                alias,
+                alias.toUpperCase(),
+              ])
+            )
           );
           assertEquals(
             (
@@ -139,11 +158,10 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
             ).length,
             0
           );
-          await services.aliases[kind].addAliases(id, []);
-          await services.aliases[kind].addAliases(id, [
-            alias,
-            `${alias}-second`,
-          ]);
+          await Effect.runPromise(services.aliases[kind].addAliases(id, []));
+          await Effect.runPromise(
+            services.aliases[kind].addAliases(id, [alias, `${alias}-second`])
+          );
           assertEquals(
             (
               await sql.unsafe(
@@ -224,7 +242,10 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
           muscles,
         });
         assertEquals(replacement.status, 409);
-        assertEquals(await exerciseById(id), created.body.exercise);
+        assertEquals(
+          await Effect.runPromise(exerciseById(id)),
+          created.body.exercise
+        );
         assertEquals((await api.delete(`/exercises/${id}`)).status, 200);
         assertEquals(
           (await sql`select id from exercise_aliases where exercise_id = ${id}`)
@@ -351,7 +372,10 @@ test("routine registry writes keep their atomic and historical boundaries", asyn
           [...(await sql`select * from sets where exercise_id = ${id}`)],
           sets
         );
-        assertEquals(await exerciseById(id), created.body.exercise);
+        assertEquals(
+          await Effect.runPromise(exerciseById(id)),
+          created.body.exercise
+        );
         for (const table of [
           "sets",
           "mesocycle_exercises",

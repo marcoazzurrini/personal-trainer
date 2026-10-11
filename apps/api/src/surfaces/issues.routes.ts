@@ -8,9 +8,10 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
+import { run } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
 import { ISSUE_KINDS } from "./github.ts";
 import { commentOnReport, fileIssue, listIssues } from "./issues.ts";
-import type { IssueBindings } from "./issues.ts";
 
 // The only enum on the endpoint, and it decides what else is required. Its
 // message carries the whole distinction rather than listing two words,
@@ -21,7 +22,7 @@ const kindError = () =>
 const docsError = () =>
   '"docs" must be an array of document names, like ["tasks/programming"]. Leave it out if no document is involved.';
 
-export const issues = new OpenAPIHono<{ Bindings: IssueBindings }>();
+export const issues = new OpenAPIHono<AppEnv>();
 
 const Issue = z.object({
   number: z.int(),
@@ -57,7 +58,7 @@ issues.openapi(
       502: { description: "GitHub could not be reached." },
     },
   }),
-  async (c) => c.json({ issues: await listIssues(c.env) })
+  async (c) => c.json({ issues: await run(c, listIssues()) })
 );
 
 issues.openapi(
@@ -114,7 +115,7 @@ issues.openapi(
     },
   }),
   async (c) => {
-    const issue = await fileIssue(c.req.valid("json"), c.env);
+    const issue = await run(c, fileIssue(c.req.valid("json")));
     return c.json({ issue }, 201);
   }
 );
@@ -153,10 +154,9 @@ issues.openapi(
   async (c) =>
     c.json(
       {
-        comment: await commentOnReport(
-          c.req.valid("param").number,
-          c.req.valid("json").note,
-          c.env
+        comment: await run(
+          c,
+          commentOnReport(c.req.valid("param").number, c.req.valid("json").note)
         ),
       },
       201

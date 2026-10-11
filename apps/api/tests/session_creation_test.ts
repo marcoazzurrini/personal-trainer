@@ -1,6 +1,7 @@
 import { test } from "node:test";
 
 import type { D1Database } from "@cloudflare/workers-types";
+import { Effect } from "effect";
 
 import { createServices } from "../src/services.ts";
 import type { SetEntry } from "../src/training/sessions.types.ts";
@@ -32,12 +33,14 @@ test("session creation resolves references per request and inserts sets in batch
   const { writeSession } = createServices(observed).sessions;
   const measured = async (sets: SetEntry[], request_id = uuid()) => {
     statements = [];
-    const result = await writeSession({
-      date: today(),
-      rationale: "Session creation regression fixture",
-      request_id,
-      sets,
-    });
+    const result = await Effect.runPromise(
+      writeSession({
+        date: today(),
+        rationale: "Session creation regression fixture",
+        request_id,
+        sets,
+      })
+    );
     return { ...result, statements: [...statements], request_id };
   };
   const squat: SetEntry = {

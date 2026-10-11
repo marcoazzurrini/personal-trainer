@@ -3,10 +3,13 @@ import type {
   D1PreparedStatement,
 } from "@cloudflare/workers-types";
 import { jsonChunks } from "@trainer/db/write.ts";
+import { Effect } from "effect";
 
 import { createServices } from "../../src/services.ts";
-import { ApiError, databaseError } from "../../src/shared/errors.ts";
-import { instant } from "../../src/shared/values.ts";
+import { refusalOf } from "../../src/shared/errors.ts";
+import { invocationContext, run } from "../../src/shared/runtime.ts";
+import type { Invocation } from "../../src/shared/runtime.ts";
+import { fixedClock, instant } from "../../src/shared/values.ts";
 // Local test harness, not a deployable API. It deliberately bypasses HTTP
 // schemas to exercise persistence under workerd, with synthetic records only.
 import { operationInput } from "./test-input.ts";
@@ -89,8 +92,21 @@ export default {
           );
         },
       };
-      const clock = () => new Date(input.now ?? "2026-08-30T12:00:00Z");
-      const services = createServices(db, clock);
+      const now = input.now ?? "2026-08-30T12:00:00Z";
+      const services = createServices(db);
+      const context = invocationContext({
+        env: { DB: db },
+        invocation: {
+          waitUntil() {
+            // The harness answers only after each operation settles.
+          },
+          passThroughOnException() {
+            // No upstream service exists in this harness.
+          },
+        },
+        diagnostic: { id: crypto.randomUUID(), route: "test" },
+        clock: fixedClock(now),
+      });
       const stores = {
         sessions: services.sessions,
         bodyweight: services.bodyweight,
@@ -116,10 +132,10 @@ export default {
             };
           },
           refusal(message: string) {
-            const error = databaseError(new Error(message));
-            return error instanceof ApiError
-              ? { status: error.status, message: error.message }
-              : { status: 500 };
+            const refusal = refusalOf(new Error(message));
+            return refusal === undefined
+              ? { status: 500 }
+              : { status: refusal.status, message: refusal.message };
           },
         },
       };
@@ -133,18 +149,28 @@ export default {
         return new Response("Unknown test operation", { status: 400 });
       }
       // oxlint-disable-next-line anti-slop/no-reflect-apply -- Negative persistence tests intentionally pass unvalidated arguments to an own store method.
-      return Response.json(await Reflect.apply(operation, store, input.args));
+      const outcome = Reflect.apply(operation, store, input.args);
+      return Response.json(
+        Effect.isEffect(outcome)
+          ? // SAFETY: store operations require nothing beyond the invocation context.
+            await run(
+              context,
+              outcome as Effect.Effect<unknown, unknown, Invocation>
+            )
+          : await outcome
+      );
     } catch (error) {
       // Match the production HTTP boundary when calling services directly.
-      const refusal = databaseError(error);
+      const refusal = refusalOf(error);
       // Diagnostic text is allowed only here: the harness holds no real data
       // and has no provider access. Production keeps the safe error envelope.
       return Response.json(
         {
           error:
-            refusal instanceof Error ? refusal.message : "Unknown test failure",
+            refusal?.message ??
+            (error instanceof Error ? error.message : "Unknown test failure"),
         },
-        { status: refusal instanceof ApiError ? refusal.status : 500 }
+        { status: refusal?.status ?? 500 }
       );
     }
   },

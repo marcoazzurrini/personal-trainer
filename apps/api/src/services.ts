@@ -13,7 +13,6 @@ import { tokenStore } from "./access/tokens.ts";
 import { bodyfatStore } from "./body/bodyfat.ts";
 import { bodyweightStore } from "./body/bodyweight.ts";
 import { withingsStore } from "./body/withings.ts";
-import type { WithingsStoreConfig } from "./body/withings.ts";
 import { eventStore } from "./nutrition/events.ts";
 import { foodStore } from "./nutrition/foods.ts";
 import { intakeStore } from "./nutrition/intake.ts";
@@ -23,8 +22,6 @@ import { nutritionStateStore } from "./nutrition/state.ts";
 import { targetStore } from "./nutrition/targets.ts";
 import { nutritionWeeklyStore } from "./nutrition/weekly.ts";
 import { aliasStore } from "./shared/aliases.ts";
-import { instant, romeDate, systemClock } from "./shared/values.ts";
-import type { Clock } from "./shared/values.ts";
 import { blockStore } from "./training/blocks.ts";
 import { exerciseStore } from "./training/exercises.ts";
 import { mesocycleStore } from "./training/mesocycles.ts";
@@ -35,16 +32,19 @@ import { contextStore } from "./training/user_context.ts";
 import { volumeStore } from "./training/volume.ts";
 import { scheduleStore } from "./training/week_schedule.ts";
 
-/** Each invocation receives services with named persistence operations and its own clock. */
-export function createServices(db: D1Database, clock: Clock = systemClock) {
+/**
+ * Each invocation receives services with named persistence operations. Time
+ * is not one of them: the stores read the Clock of the Effect that runs them.
+ */
+export function createServices(db: D1Database) {
   const client = createClient(db);
   const training = trainingRepositories(client);
   const nutrition = nutritionRepositories(client);
   const trainingReferences = trainingResolver(training.resolution);
   const nutritionReferences = nutritionResolver(nutrition.resolve);
-  const bodyweight = bodyweightStore(bodyweightRepository(client), clock);
-  const bodyfat = bodyfatStore(bodyfatRepository(client), clock);
-  const context = contextStore(training.context, clock);
+  const bodyweight = bodyweightStore(bodyweightRepository(client));
+  const bodyfat = bodyfatStore(bodyfatRepository(client));
+  const context = contextStore(training.context);
   const aliases = {
     exercise: aliasStore(aliasRepository(client, "exercise")),
     food: aliasStore(aliasRepository(client, "food")),
@@ -52,40 +52,31 @@ export function createServices(db: D1Database, clock: Clock = systemClock) {
   };
   return {
     checkReadiness: readinessRepository(client).check,
-    clock,
-    today: () => romeDate(instant(clock().toISOString())),
-    sessions: sessionStore(training.sessions, trainingReferences, clock),
+    sessions: sessionStore(training.sessions, trainingReferences),
     bodyweight,
     bodyfat,
-    tokens: tokenStore(accessRepository(client), clock),
+    tokens: tokenStore(accessRepository(client)),
     blocks: blockStore(training.blocks),
     context,
-    schedule: scheduleStore(training.schedule, clock),
-    plans: mesocycleStore(training.mesocycles, trainingReferences, clock),
+    schedule: scheduleStore(training.schedule),
+    plans: mesocycleStore(training.mesocycles, trainingReferences),
     exercises: exerciseStore(
       training.exercises,
       trainingReferences,
-      aliases.exercise,
-      clock
+      aliases.exercise
     ),
-    trainingState: trainingStateStore(training.state, context, clock),
-    volume: volumeStore(training.volume, trainingReferences, clock),
-    foods: foodStore(nutrition.foods, nutritionReferences, clock),
-    meals: mealStore(nutrition.meals, nutritionReferences, clock),
-    intake: intakeStore(nutrition.intake, nutritionReferences, clock),
-    targets: targetStore(nutrition.targets, bodyweight, bodyfat, clock),
-    events: eventStore(nutrition.events, clock),
-    nutritionState: nutritionStateStore(
-      nutrition.state,
-      bodyweight,
-      bodyfat,
-      clock
-    ),
+    trainingState: trainingStateStore(training.state, context),
+    volume: volumeStore(training.volume, trainingReferences),
+    foods: foodStore(nutrition.foods, nutritionReferences),
+    meals: mealStore(nutrition.meals, nutritionReferences),
+    intake: intakeStore(nutrition.intake, nutritionReferences),
+    targets: targetStore(nutrition.targets, bodyweight, bodyfat),
+    events: eventStore(nutrition.events),
+    nutritionState: nutritionStateStore(nutrition.state, bodyweight, bodyfat),
     nutritionWeekly: nutritionWeeklyStore(
       nutrition.weekly,
       bodyweight,
-      bodyfat,
-      clock
+      bodyfat
     ),
     trainingResolver: trainingReferences,
     nutritionResolver: nutritionReferences,
@@ -96,17 +87,9 @@ export function createServices(db: D1Database, clock: Clock = systemClock) {
 export type Services = ReturnType<typeof createServices>;
 
 /** Scheduled and HTTP synchronization use identical account-guarded persistence. */
-export function createWithingsService(
-  binding: D1Database,
-  config: WithingsStoreConfig,
-  clock: Clock = systemClock
-) {
+export function createWithingsService(binding: D1Database) {
   const client = createClient(binding);
-  return withingsStore(
-    withingsRepository(client),
-    (accountId) =>
-      bodyweightStore(bodyweightRepository(client, accountId), clock),
-    config,
-    clock
+  return withingsStore(withingsRepository(client), (accountId) =>
+    bodyweightStore(bodyweightRepository(client, accountId))
   );
 }

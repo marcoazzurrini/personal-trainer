@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { query } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { GOALS } from "./expenditure.ts";
 
@@ -127,8 +127,9 @@ nutritionWeekly.openapi(
   }),
   async (c) =>
     c.json(
-      await services(c).nutritionWeekly.finishedWeeks(
-        c.req.valid("query").weeks
+      await run(
+        c,
+        services(c).nutritionWeekly.finishedWeeks(c.req.valid("query").weeks)
       )
     )
 );

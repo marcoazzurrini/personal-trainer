@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Effect } from "effect";
 
 import {
   body,
@@ -11,8 +12,9 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
+import { today } from "../shared/values.ts";
 import { CLIP_REASONS } from "./constants.ts";
 import { GOALS } from "./expenditure.ts";
 
@@ -90,10 +92,17 @@ nutritionTargets.openapi(
     },
   }),
   async (c) =>
-    c.json({
-      targets: await services(c).targets.listTargets(),
-      active: await services(c).targets.activeTarget(services(c).today()),
-    })
+    c.json(
+      await run(
+        c,
+        Effect.gen(function* () {
+          return {
+            targets: yield* services(c).targets.listTargets(),
+            active: yield* services(c).targets.activeTarget(yield* today),
+          };
+        })
+      )
+    )
 );
 
 nutritionTargets.openapi(
@@ -153,7 +162,10 @@ nutritionTargets.openapi(
     },
   }),
   async (c) => {
-    const result = await services(c).targets.setTarget(c.req.valid("json"));
+    const result = await run(
+      c,
+      services(c).targets.setTarget(c.req.valid("json"))
+    );
     return result.created ? c.json(result.body, 201) : c.json(result.body, 200);
   }
 );

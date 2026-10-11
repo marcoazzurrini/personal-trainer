@@ -8,10 +8,12 @@
 // where the tests and the rest of the code are visible.
 
 import { z } from "@hono/zod-openapi";
+import { Data, Effect, Redacted } from "effect";
 
 export interface GithubConfig {
   apiBase: string; // https://api.github.com, or the stub in tests
-  token: string;
+  // Unwrapped only into the Authorization header.
+  token: Redacted.Redacted<string>;
   repo: string; // "owner/name"
 }
 
@@ -25,20 +27,15 @@ export const COACH_LABEL = "coach";
 export const ISSUE_KINDS = ["bug", "improvement"] as const;
 export type IssueKind = (typeof ISSUE_KINDS)[number];
 
-// Routes translate this into an ApiError; the message is written for the
+// Routes translate this into a refusal; the message is written for the
 // LLM on the other end, like every other error in this API. The status is
 // carried so a route can tell a mistake by the caller (a wrong issue
 // number) from GitHub being unreachable — a 502 in answer to a typo tells
 // the caller nothing it can act on.
-export class GithubError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "GithubError";
-    this.status = status;
-  }
-}
+export class GithubError extends Data.TaggedError("GithubError")<{
+  readonly message: string;
+  readonly status: number;
+}> {}
 
 const nonempty = z.string().refine((value) => value.trim().length > 0);
 const httpUrl = nonempty.refine((value) => {
@@ -61,27 +58,35 @@ type GithubWrite =
   | { title: string; body: string; labels: string[] }
   | { body: string };
 
-function malformed(method: "GET" | "POST"): never {
-  throw new GithubError(
-    502,
-    `GitHub returned an unusable response. ${
-      method === "GET"
-        ? "Try the read again later."
-        : "The write may already exist at GitHub. Check existing issues or comments before retrying; do not blindly repeat the write."
-    }`
-  );
+function retryAdvice(method: "GET" | "POST"): string {
+  return method === "GET"
+    ? "Try the read again later."
+    : "The write may already exist at GitHub. Check existing issues or comments before retrying; do not blindly repeat the write.";
 }
 
-async function gh<Result>(
+function malformed(method: "GET" | "POST"): GithubError {
+  return new GithubError({
+    status: 502,
+    message: `GitHub returned an unusable response. ${retryAdvice(method)}`,
+  });
+}
+
+function unreachable(method: "GET" | "POST", outcome: string): GithubError {
+  return new GithubError({
+    status: 502,
+    message: `GitHub ${outcome}. ${retryAdvice(method)}`,
+  });
+}
+
+const gh = Effect.fn("github.request")(function* <Result>(
   cfg: GithubConfig,
   method: "GET" | "POST",
   path: string,
   schema: z.ZodType<Result>,
   body?: GithubWrite
-): Promise<Result> {
-  const signal = AbortSignal.timeout(5000);
+): Effect.fn.Return<Result, GithubError> {
   const headers = new Headers({
-    authorization: `Bearer ${cfg.token}`,
+    authorization: `Bearer ${Redacted.value(cfg.token)}`,
     accept: "application/vnd.github+json",
     // GitHub requires an explicit User-Agent in the Workers runtime.
     "user-agent": "personal-trainer",
@@ -89,51 +94,52 @@ async function gh<Result>(
   if (body !== undefined) {
     headers.set("content-type", "application/json");
   }
-  let res: Response;
-  let json: unknown;
-  try {
-    const options =
-      method === "GET"
-        ? { signal, method, headers }
-        : {
-            signal,
-            method,
-            headers,
-            body: body === undefined ? undefined : JSON.stringify(body),
-          };
-    res = await fetch(`${cfg.apiBase}${path}`, options);
-    json = await res.json().catch((error) => {
-      if (signal.aborted) {
-        throw error;
-      }
-      return {};
-    });
-  } catch {
-    throw new GithubError(
-      502,
-      `GitHub ${
-        signal.aborted ? "timed out after 5 seconds" : "could not be reached"
-      }. ${
+  // One attempt, never retried: a write whose answer was lost may already
+  // exist at GitHub, and only the caller can reconcile that. The deadline
+  // covers the headers and the body alike, and interrupting the fetch aborts
+  // it through the signal.
+  const { res, json } = yield* Effect.tryPromise({
+    try: async (signal) => {
+      const options =
         method === "GET"
-          ? "Try the read again later."
-          : "The write may already exist at GitHub. Check existing issues or comments before retrying; do not blindly repeat the write."
-      }`
-    );
-  }
+          ? { signal, method, headers }
+          : {
+              signal,
+              method,
+              headers,
+              body: body === undefined ? undefined : JSON.stringify(body),
+            };
+      const response = await fetch(`${cfg.apiBase}${path}`, options);
+      const parsed: unknown = await response.json().catch((error) => {
+        if (signal.aborted) {
+          throw error;
+        }
+        return {};
+      });
+      return { res: response, json: parsed };
+    },
+    catch: () => unreachable(method, "could not be reached"),
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: "5 seconds",
+      orElse: () =>
+        Effect.fail(unreachable(method, "timed out after 5 seconds")),
+    })
+  );
   if (!res.ok) {
     const failure = z.object({ message: z.string() }).safeParse(json);
     const detail = failure.success ? failure.data.message : "no detail";
-    throw new GithubError(
-      res.status,
-      `GitHub replied ${res.status} to ${method} ${path}: ${detail}`
-    );
+    return yield* new GithubError({
+      status: res.status,
+      message: `GitHub replied ${res.status} to ${method} ${path}: ${detail}`,
+    });
   }
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
-    malformed(method);
+    return yield* malformed(method);
   }
   return parsed.data;
-}
+});
 
 // The issue's markdown, assembled here rather than accepted from the caller.
 // Every report reading the same way is the point: whoever picks it up in the
@@ -174,11 +180,11 @@ export function issueBody(opts: {
   return parts.join("\n\n");
 }
 
-export async function openIssue(
+export const openIssue = Effect.fn("github.openIssue")(function* (
   cfg: GithubConfig,
   opts: { title: string; body: string; kind: IssueKind }
-): Promise<{ number: number; url: string }> {
-  const issue = await gh(
+): Effect.fn.Return<{ number: number; url: string }, GithubError> {
+  const issue = yield* gh(
     cfg,
     "POST",
     `/repos/${cfg.repo}/issues`,
@@ -190,7 +196,7 @@ export async function openIssue(
     }
   );
   return { number: issue.number, url: issue.html_url };
-}
+});
 
 export interface CoachIssue {
   number: number;
@@ -215,10 +221,10 @@ const coachIssues = z.array(
   })
 );
 
-export async function listCoachIssues(
+export const listCoachIssues = Effect.fn("github.listCoachIssues")(function* (
   cfg: GithubConfig
-): Promise<CoachIssue[]> {
-  const raw = await gh(
+): Effect.fn.Return<CoachIssue[], GithubError> {
+  const raw = yield* gh(
     cfg,
     "GET",
     `/repos/${cfg.repo}/issues?state=open&labels=${COACH_LABEL}&per_page=100`,
@@ -243,14 +249,14 @@ export async function listCoachIssues(
         created_at: i.created_at,
       }))
   );
-}
+});
 
-export async function commentOnIssue(
+export const commentOnIssue = Effect.fn("github.commentOnIssue")(function* (
   cfg: GithubConfig,
   issueNumber: number,
   body: string
-): Promise<{ url: string }> {
-  const comment = await gh(
+): Effect.fn.Return<{ url: string }, GithubError> {
+  const comment = yield* gh(
     cfg,
     "POST",
     `/repos/${cfg.repo}/issues/${issueNumber}/comments`,
@@ -258,4 +264,4 @@ export async function commentOnIssue(
     { body }
   );
   return { url: comment.html_url };
-}
+});

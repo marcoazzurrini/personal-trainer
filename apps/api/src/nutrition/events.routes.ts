@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Effect } from "effect";
 
 import {
   body,
@@ -8,8 +9,9 @@ import {
   query,
   requestId,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
+import { today } from "../shared/values.ts";
 import { KINDS } from "./constants.ts";
 
 export const nutritionEvents = new OpenAPIHono<AppEnv>();
@@ -53,10 +55,17 @@ nutritionEvents.openapi(
     },
   }),
   async (c) =>
-    c.json({
-      events: await services(c).events.listEvents(),
-      active: await services(c).events.activeTransients(services(c).today()),
-    })
+    c.json(
+      await run(
+        c,
+        Effect.gen(function* () {
+          return {
+            events: yield* services(c).events.listEvents(),
+            active: yield* services(c).events.activeTransients(yield* today),
+          };
+        })
+      )
+    )
 );
 
 nutritionEvents.openapi(
@@ -97,8 +106,9 @@ nutritionEvents.openapi(
     },
   }),
   async (c) => {
-    const { row, created } = await services(c).events.registerEvent(
-      c.req.valid("json")
+    const { row, created } = await run(
+      c,
+      services(c).events.registerEvent(c.req.valid("json"))
     );
     return created ? c.json({ event: row }, 201) : c.json({ event: row }, 200);
   }
@@ -142,6 +152,9 @@ nutritionEvents.openapi(
   }),
   async (c) =>
     c.json({
-      deleted: await services(c).events.withdrawEvent(c.req.valid("param").id),
+      deleted: await run(
+        c,
+        services(c).events.withdrawEvent(c.req.valid("param").id)
+      ),
     })
 );
