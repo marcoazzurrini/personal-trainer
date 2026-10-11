@@ -28,7 +28,6 @@ test("operational scripts stay small and first-party tooling stays TypeScript", 
   assert.deepEqual((await readdir(new URL("scripts/", root))).toSorted(), [
     "build-worker.ts",
     "deploy-worker.ts",
-    "secrets.ts",
     "source-revision.ts",
     "tests",
   ]);

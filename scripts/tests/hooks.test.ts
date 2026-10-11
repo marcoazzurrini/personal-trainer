@@ -59,6 +59,37 @@ test("Bun owns the pinned Lefthook installation without custom launchers", async
   assert.equal(manifest.engines.deno, undefined);
 });
 
+// The repository is public, so a pushed secret is published before CI runs.
+// The commit hook is the gate that matters; this runs its real command.
+test("the commit hook refuses a staged secret without printing it", async () => {
+  // SAFETY: lefthook.yml is this repository's own hook file, and Lefthook
+  // itself refuses to install one without pre-commit jobs of this shape.
+  const hooks = Bun.YAML.parse(
+    await readFile(nodePath.join(root, "lefthook.yml"), "utf-8")
+  ) as { "pre-commit": { jobs: { name: string; run: string }[] } };
+  const scan = hooks["pre-commit"].jobs.find((job) => job.name === "secrets");
+  assert.ok(scan, "lefthook.yml must keep a secrets job.");
+  const cwd = await mkdtemp(nodePath.join(tmpdir(), "trainer-secrets-"));
+  try {
+    successful("git", ["init", "--quiet"], cwd);
+    const token = `ghp_${"A1b2C3d4E5".repeat(4).slice(0, 36)}`;
+    await writeFile(nodePath.join(cwd, "leak.ts"), `const t = "${token}";\n`);
+    successful("git", ["add", "--", "leak.ts"], cwd);
+    const refused = run("sh", ["-c", scan.run], cwd);
+    assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+    assert.doesNotMatch(
+      refused.stdout + refused.stderr,
+      new RegExp(token, "u")
+    );
+    successful("git", ["rm", "--quiet", "--cached", "--", "leak.ts"], cwd);
+    await writeFile(nodePath.join(cwd, "clean.ts"), "export const ok = 1;\n");
+    successful("git", ["add", "--", "clean.ts"], cwd);
+    successful("sh", ["-c", scan.run], cwd);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("prepare installs a real Git hook that blocks a failing check", async () => {
   const cwd = await mkdtemp(nodePath.join(tmpdir(), "trainer-hooks-"));
   try {

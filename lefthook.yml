@@ -1,8 +1,9 @@
 pre-commit:
   parallel: true
   jobs:
+    # Needs Gitleaks on the PATH: brew install gitleaks. CI scans the whole tree.
     - name: secrets
-      run: bun run secrets
+      run: gitleaks git --pre-commit --staged --redact --no-banner
     - name: format
       glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,yml,yaml,css,md}"
       exclude:

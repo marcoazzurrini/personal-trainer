@@ -125,7 +125,7 @@ test("CI gates a serialized Workers release on isolated API, D1, browser and Wor
     return body;
   };
   const checks = job("checks");
-  assert(checks.includes("run: bun run secrets"));
+  assert(checks.includes('"$RUNNER_TEMP/gitleaks" dir .'));
   assert(checks.includes("run: bun run check:style"));
   assert(checks.includes("run: bun run test:tooling"));
   const api = job("test");
