@@ -1,6 +1,6 @@
 # Coach
 
-The in-app coach: a [Flue](https://flueframework.com) agent on Cloudflare that runs the `personal-trainer` skill from `plugin/` with a model, and reaches the API through its `api` tool. One Durable Object holds Marco's one conversation and compacts it as it grows.
+The in-app coach: a [Flue](https://flueframework.com) agent on Cloudflare that runs the `personal-trainer` skill from `plugin/` with Claude Haiku 5.5 through OpenRouter, and reaches the API through its `api` tool. One Durable Object holds Marco's one conversation and compacts it as it grows.
 
 The Worker has no route and no `workers.dev` address. The web app reaches it through its `COACH` service binding after checking who is signed in; the coach reaches the API through its own `API` binding with `COACH_AGENT_TOKEN`.
 

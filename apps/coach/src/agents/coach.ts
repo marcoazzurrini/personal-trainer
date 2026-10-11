@@ -18,7 +18,7 @@ This app differs from the setup the skill describes in three ways:
 Marco has dyslexia. Write short, plain sentences, one idea each, and put workouts in a short list or table.`;
 
 export function Coach() {
-  useModel(`anthropic/${HAIKU}`, { thinkingLevel: "high" });
+  useModel(`openrouter/${HAIKU}`, { thinkingLevel: "high" });
   useSkill(personalTrainer);
   useTool(apiTool);
   useTool(showProgress);

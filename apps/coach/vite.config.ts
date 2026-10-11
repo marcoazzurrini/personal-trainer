@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 // merged Wrangler configuration the Cloudflare plugin consumes.
 export default defineConfig({
   plugins: [
-    flue({ providers: ["anthropic"] }),
+    flue({ providers: ["openrouter"] }),
     cloudflare({ config: flueWorkerConfig() }),
   ],
 });
