@@ -27,6 +27,6 @@ The codebase. This file holds intent and process, never technical state: the com
 ## How we work
 
 - Small steps. Propose, wait for a go, then do it. Commit only when told.
-- Boundaries are held by tests, not by folder names. A new rule comes with the test that fails when it is broken.
+- Boundaries are held by tests and by the import rules in `.dependency-cruiser.cjs`, not by folder names. A new rule comes with the test or rule that fails when it is broken.
 - A commit message is one sentence stating what is true after the change: "The last of Supabase leaves the repo".
 - Explain in plain language with a concrete example before asking for a decision. Marco is learning the development tools along the way; teach, do not assume.

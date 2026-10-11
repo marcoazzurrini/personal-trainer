@@ -1,6 +1,7 @@
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { assert, assertEquals } from "../apps/api/tests/assertions.ts";
+import { assert, assertEquals } from "./assertions.ts";
 // Workers have no application-owned listening socket, SQL pool or SIGTERM hook.
 // This checks the local runner's owned resources, not a fictional production drain.
 test("the Worker contract runner disposes its listener on SIGTERM", async () => {
@@ -8,7 +9,7 @@ test("the Worker contract runner disposes its listener on SIGTERM", async () => 
     [
       process.execPath,
       "--no-env-file",
-      "apps/api/tests/run.ts",
+      fileURLToPath(new URL("run.ts", import.meta.url)),
       "--lifecycle-probe",
     ],
     {

@@ -30,6 +30,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check:style
       - run: bun run check
+      - run: bun run boundaries
       - run: bun run test:tooling
       - run: bun run --cwd apps/api build
 

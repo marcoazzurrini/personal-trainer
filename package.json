@@ -13,16 +13,17 @@
     "lint": "oxlint --deny-warnings",
     "check": "tsc --noEmit",
     "check:style": "ultracite check",
+    "boundaries": "depcruise --config .dependency-cruiser.cjs apps packages",
     "fix": "ultracite fix",
     "backup": "bun run --cwd packages/db backup",
     "test": "bun run --cwd apps/api test && bun run --cwd apps/api test:d1 && bun run --cwd packages/db test && bun run test:tooling",
-    "test:tooling": "bun --no-env-file test ./tests/ --timeout 60000"
+    "test:tooling": "bun --no-env-file test ./toolchain.test.ts --timeout 120000"
   },
   "devDependencies": {
-    "@babel/parser": "7.29.9",
-    "@babel/types": "7.29.8",
+    "@swc/core": "1.16.18",
     "@types/bun": "1.4.2",
     "@types/node": "24.13.4",
+    "dependency-cruiser": "18.3.1",
     "lefthook": "2.1.10",
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",

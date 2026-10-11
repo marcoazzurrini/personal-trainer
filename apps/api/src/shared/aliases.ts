@@ -2,8 +2,6 @@ import type { AliasRepository } from "@trainer/db/repositories/aliases.ts";
 
 import { ApiError, databaseError } from "./errors.ts";
 
-export type { AliasKind } from "@trainer/db/repositories/aliases.ts";
-
 const kinds = {
   exercise: {
     route: "/exercises",

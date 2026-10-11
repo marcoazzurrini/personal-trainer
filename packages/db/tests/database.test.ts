@@ -87,3 +87,12 @@ test("root ignore rules protect nested database artifacts without hiding migrati
     assert.equal(result.status, expectedStatus, path);
   }
 });
+
+test("the client takes the invocation's binding, never environment or a global handle", async () => {
+  const client = await read("packages/db/src/client.ts");
+  assert.match(client, /export function createClient\(binding: D1Database\)/u);
+  assert.doesNotMatch(
+    client,
+    /process\.env|from ["']cloudflare:workers|connect\(/u
+  );
+});

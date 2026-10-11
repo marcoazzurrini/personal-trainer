@@ -15,7 +15,7 @@ D1 is the application's only database. This package, `@trainer/db`, owns persist
 - `testing/`: local D1 helpers shared with the API's D1 tests, imported as `@trainer/db/testing/<file>`. `storage.json` holds independent expectations for the application tables and decimal precision, not runtime configuration or health records.
 - `tests/`: schema, migration and storage tests for this package alone. Tests of API code over D1 live in `apps/api/tests/d1/`.
 
-Nothing in this package imports the API, Hono, the dashboard or the plugin; `tests/architecture.test.ts` at the repository root enforces it. API services own validation and arithmetic, and translate database failures into the existing refusal contract. The package has no local environment file. The root `.gitignore` protects nested dependencies, local Worker state, secret files and private snapshot/import outputs.
+Nothing in this package imports the API, Hono, the dashboard or the plugin; `.dependency-cruiser.cjs` at the repository root enforces it. API services own validation and arithmetic, and translate database failures into the existing refusal contract. The package has no local environment file. The root `.gitignore` protects nested dependencies, local Worker state, secret files and private snapshot/import outputs.
 
 ## Local verification
 
