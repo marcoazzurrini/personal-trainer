@@ -123,7 +123,7 @@ module.exports = {
       exportsFields: ["exports"],
     },
     exclude: {
-      path: "^apps/[^/]+/(\\.output|\\.tanstack|\\.wrangler|dist|test-results)/|(^|/)routeTree\\.gen\\.ts$",
+      path: "^apps/[^/]+/(\\.output|\\.tanstack|\\.wrangler|dist|test-results)/|(^|/)routeTree\\.gen(\\.ts)?$",
     },
     // swc still tells type-only imports apart.
     parser: "swc",
