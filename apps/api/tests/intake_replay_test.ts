@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { createServices } from "../src/services.ts";
 import { assertEquals } from "./assertions.ts";
 import d1, { database } from "./d1.ts";
+import { runAt } from "./effects.ts";
 import { api, resetNutrition, uuid } from "./helpers.ts";
 
 test("logIntake replays the stored meal day across Rome midnight", async () => {
@@ -39,16 +40,22 @@ test("logIntake replays the stored meal day across Rome midnight", async () => {
   );
   // An injected clock controls calendar decisions; storage remains real D1.
   const db = d1();
-  let now = new Date("2026-01-01T22:59:59Z");
-  const { logIntake } = createServices(database, () => now).intake;
+  let now = "2026-01-01T22:59:59Z";
+  const { logIntake } = createServices(database).intake;
   try {
     const request_id = uuid();
-    const first = await logIntake({ meal: "Midnight meal", request_id });
+    const first = await runAt(
+      now,
+      logIntake({ meal: "Midnight meal", request_id })
+    );
     assertEquals(first.created, true);
     assertEquals(first.view.day, "2026-01-01");
     assertEquals(first.view.entries.length, 2);
-    now = new Date("2026-01-01T23:00:01Z");
-    const retry = await logIntake({ meal: "Midnight meal", request_id });
+    now = "2026-01-01T23:00:01Z";
+    const retry = await runAt(
+      now,
+      logIntake({ meal: "Midnight meal", request_id })
+    );
     assertEquals(retry, { created: false, view: first.view });
     for (const day of ["2026-01-02", "2099-01-01"]) {
       const changed = await api.post("/intake", {

@@ -1,10 +1,13 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Effect } from "effect";
 import { Hono } from "hono";
 
-import { ApiError } from "../shared/errors.ts";
+import { Invalid, Upstream } from "../shared/refusals.ts";
+import { background } from "../shared/runtime.ts";
 import { query } from "../shared/schema.ts";
+import { run } from "../shared/services.ts";
+import type { AppEnv } from "../shared/services.ts";
 import type { WithingsStore } from "./withings.ts";
-import { WithingsError } from "./withings_client.ts";
 
 // The routes Withings itself calls. Mounted ahead of the bearer-token
 // middleware, because Withings has no way to send our token and a notification
@@ -19,13 +22,10 @@ export type WithingsRouteDeps = Pick<
   "catchUp" | "configuredUserId" | "syncNotifiedWindow"
 >;
 
-/** Mount webhook before authentication, admin after it. Bind waitUntil to this request's context. */
-export function createWithingsRoutes(
-  deps: WithingsRouteDeps,
-  waitUntil: (promise: Promise<unknown>) => void
-) {
+/** Mount webhook before authentication, admin after it. Background work belongs to the request's invocation. */
+export function createWithingsRoutes(deps: WithingsRouteDeps) {
   const { catchUp, configuredUserId, syncNotifiedWindow } = deps;
-  const withingsWebhook = new Hono();
+  const withingsWebhook = new Hono<AppEnv>();
 
   // Registered with Withings as the OAuth redirect URL and therefore required to
   // exist, but vestigial: the authorization happened once, by hand, and the
@@ -55,53 +55,62 @@ export function createWithingsRoutes(
     const startdate = start?.trim() ? Number(start) : Number.NaN;
     const enddate = end?.trim() ? Number(end) : Number.NaN;
 
-    if (appli !== APPLI_WEIGHT) {
-      console.log(
-        "withings: ignoring notification for another measurement type"
-      );
-      return c.json({ status: "ok" });
-    }
-
-    // Checked against the seeded row rather than an env var, so there is one
-    // answer to "whose scale is this" and it sits beside the credentials used to
-    // read it.
-    const expected = await configuredUserId();
-    if (expected === null) {
-      console.error(
-        "withings: notification arrived but withings_auth is empty"
-      );
-      return c.json({ status: "ok" });
-    }
-    if (userid !== expected) {
-      console.log("withings: ignoring notification for another account");
-      return c.json({ status: "ok" });
-    }
-
-    // The request's execution context owns the provider work after the 200.
-    // No isolate-global promise or shutdown/drain protocol survives in Workers.
-    waitUntil(
-      (async () => {
-        try {
-          const summary =
-            Number.isSafeInteger(startdate) &&
-            startdate >= 0 &&
-            Number.isSafeInteger(enddate) &&
-            enddate >= startdate
-              ? await syncNotifiedWindow(startdate, enddate, expected)
-              : await catchUp(undefined, expected);
-          console.log(
-            `withings: notification fetched ${summary.fetched}, written ${summary.written}, refused ${summary.refused}`
+    await run(
+      c,
+      Effect.gen(function* () {
+        if (appli !== APPLI_WEIGHT) {
+          yield* Effect.logInfo(
+            "withings: ignoring notification for another measurement type"
           );
-        } catch {
-          // Answer 200 regardless. A retry from Withings would help, but a callback
-          // that returns errors is a callback Withings eventually unsubscribes, and
-          // losing the subscription costs more than losing one notification — the
-          // catch-up pass exists to collect exactly what is lost here.
-          console.error(
-            "withings: notification sync failed; provider/error details withheld"
-          );
+          return;
         }
-      })()
+
+        // Checked against the seeded row rather than an env var, so there is
+        // one answer to "whose scale is this" and it sits beside the
+        // credentials used to read it.
+        const expected = yield* configuredUserId();
+        if (expected === null) {
+          yield* Effect.logError(
+            "withings: notification arrived but withings_auth is empty"
+          );
+          return;
+        }
+        if (userid !== expected) {
+          yield* Effect.logInfo(
+            "withings: ignoring notification for another account"
+          );
+          return;
+        }
+
+        // The request's execution context owns the provider work after the
+        // 200. No isolate-global promise or shutdown/drain protocol survives
+        // in Workers.
+        yield* background(
+          (Number.isSafeInteger(startdate) &&
+          startdate >= 0 &&
+          Number.isSafeInteger(enddate) &&
+          enddate >= startdate
+            ? syncNotifiedWindow(startdate, enddate, expected)
+            : catchUp(undefined, expected)
+          ).pipe(
+            Effect.flatMap((summary) =>
+              Effect.logInfo(
+                `withings: notification fetched ${summary.fetched}, written ${summary.written}, refused ${summary.refused}`
+              )
+            ),
+            // Answer 200 regardless. A retry from Withings would help, but a
+            // callback that returns errors is a callback Withings eventually
+            // unsubscribes, and losing the subscription costs more than losing
+            // one notification — the catch-up pass exists to collect exactly
+            // what is lost here.
+            Effect.catchCause(() =>
+              Effect.logError(
+                "withings: notification sync failed; provider/error details withheld"
+              )
+            )
+          )
+        );
+      })
     );
     return c.json({ status: "ok" });
   });
@@ -110,7 +119,7 @@ export function createWithingsRoutes(
   // this one is behind the token like every other endpoint. The split is the
   // point: only the two routes Withings calls are exposed, and the trigger that
   // can be aimed at Withings on demand is not.
-  const withingsAdmin = new OpenAPIHono();
+  const withingsAdmin = new OpenAPIHono<AppEnv>();
 
   // Runs the catch-up now, ignoring the throttle: what to reach for when a
   // notification is suspected lost.
@@ -178,29 +187,31 @@ export function createWithingsRoutes(
     }),
     async (c) => {
       const raw = c.req.valid("query").since;
-      let since: number | undefined;
-      if (raw !== undefined) {
-        since = Number(raw);
-        if (
-          !raw.trim() ||
-          !Number.isSafeInteger(since) ||
-          since < 0 ||
-          !Number.isFinite(new Date(since * 1000).getTime())
-        ) {
-          throw new ApiError(
-            422,
-            `"since" must be a whole number of seconds since the epoch, or 0 to re-import everything. Got "${raw}".`
+      const summary = await run(
+        c,
+        Effect.gen(function* () {
+          let since: number | undefined;
+          if (raw !== undefined) {
+            since = Number(raw);
+            if (
+              !raw.trim() ||
+              !Number.isSafeInteger(since) ||
+              since < 0 ||
+              !Number.isFinite(new Date(since * 1000).getTime())
+            ) {
+              return yield* new Invalid({
+                message: `"since" must be a whole number of seconds since the epoch, or 0 to re-import everything. Got "${raw}".`,
+              });
+            }
+          }
+          return yield* catchUp(since).pipe(
+            Effect.catchTag("WithingsError", (error) =>
+              Effect.fail(new Upstream({ message: error.message }))
+            )
           );
-        }
-      }
-      try {
-        return c.json({ withings: await catchUp(since) });
-      } catch (error) {
-        if (error instanceof WithingsError) {
-          throw new ApiError(502, error.message);
-        }
-        throw error;
-      }
+        })
+      );
+      return c.json({ withings: summary });
     }
   );
   return { withingsWebhook, withingsAdmin };

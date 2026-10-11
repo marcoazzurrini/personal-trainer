@@ -5,17 +5,19 @@ import type {
   WriteFields,
 } from "@trainer/db/contracts/training.ts";
 import type { SessionsRepository } from "@trainer/db/repositories/training/sessions.ts";
+import { Effect } from "effect";
 
-import { ApiError, requireRow } from "../shared/errors.ts";
+import { effectful } from "../shared/database.ts";
+import { Conflict, Invalid, NotFound, requireRow } from "../shared/refusals.ts";
+import type { DatabaseFailure } from "../shared/refusals.ts";
 import {
   date,
   decimal,
   instant,
+  now,
   requestId,
-  systemClock,
   wireInstant,
 } from "../shared/values.ts";
-import type { Clock } from "../shared/values.ts";
 import type { trainingResolver, SetResolver } from "./resolve.ts";
 import { assertEffort, assertSetMeasures } from "./rules.ts";
 import { retrySessionWrite } from "./session_write.ts";
@@ -43,7 +45,9 @@ const sessionFields = [
   "completed_at",
 ] as const;
 /** Validate API values without turning decimal measurements into stored integers. */
-function validatedFields(fields: WriteFields): WriteFields {
+const validatedFields = Effect.fnUntraced(function* (
+  fields: WriteFields
+): Effect.fn.Return<WriteFields, Invalid> {
   const measures = [
     ["weight_kg", 6, 2],
     ["target_weight_kg", 6, 2],
@@ -55,24 +59,26 @@ function validatedFields(fields: WriteFields): WriteFields {
   for (const [field, precision, scale] of measures) {
     const value = fields[field];
     if (value !== undefined) {
-      decimal(value, precision, scale);
+      yield* decimal(value, precision, scale);
     }
   }
   const normalized = { ...fields };
   for (const field of ["performed_at", "started_at", "completed_at"] as const) {
     const value = fields[field];
     if (value !== undefined && value !== null) {
-      normalized[field] = instant(value);
+      normalized[field] = yield* instant(value);
     }
   }
   return normalized;
-}
+});
 
-function snapshot(current: SessionSnapshot, id: number): Snapshot {
-  return {
-    header: requireRow(current.headers, `No session with id ${id}.`),
-    sets: current.sets,
-  };
+function snapshot(
+  current: SessionSnapshot,
+  id: number
+): Effect.Effect<Snapshot, NotFound> {
+  return requireRow(current.headers, `No session with id ${id}.`).pipe(
+    Effect.map((header) => ({ header, sets: current.sets }))
+  );
 }
 function detail(current: Snapshot): SessionDetailRow {
   const { write_version: _version, ...header } = current.header;
@@ -109,43 +115,53 @@ function appended(set: SetSnapshot): AppendedSetRow {
   return { ...publicSet, performed_at: wireInstant(publicSet.performed_at) };
 }
 export function sessionStore(
-  repository: SessionsRepository,
-  resolver: ReturnType<typeof trainingResolver>,
-  clock: Clock = systemClock
+  rows: SessionsRepository,
+  resolver: ReturnType<typeof trainingResolver>
 ) {
-  async function read(id: number): Promise<Snapshot> {
-    return snapshot(await repository.read(id), id);
-  }
-  async function sessionDetail(id: number): Promise<SessionDetailRow> {
-    return detail(await read(id));
-  }
-  async function listSessions(
+  const repository = effectful(rows);
+
+  const read = Effect.fnUntraced(function* (
+    id: number
+  ): Effect.fn.Return<Snapshot, NotFound | DatabaseFailure> {
+    return yield* snapshot(yield* repository.read(id), id);
+  });
+  const sessionDetail = Effect.fn("sessions.sessionDetail")(function* (
+    id: number
+  ): Effect.fn.Return<SessionDetailRow, NotFound | DatabaseFailure> {
+    return detail(yield* read(id));
+  });
+  const listSessions = Effect.fn("sessions.listSessions")(function* (
     limit: number,
     mesocycle?: string
-  ): Promise<SessionHeaderRow[]> {
+  ): Effect.fn.Return<
+    SessionHeaderRow[],
+    Invalid | NotFound | DatabaseFailure
+  > {
     const id = mesocycle
-      ? (await resolver.resolveMesocycle(mesocycle)).id
+      ? (yield* resolver.resolveMesocycle(mesocycle)).id
       : null;
-    const found = await repository.list(limit, id);
+    const found = yield* repository.list(limit, id);
     return found.map((row) => ({
       ...row,
       started_at: wireInstant(row.started_at),
       completed_at: wireInstant(row.completed_at),
     }));
-  }
+  });
 
   // Resolution caches belong to one write attempt, never a request-global cache.
   function parser(references: SetResolver = resolver) {
     const exercises = new Map<
       SetEntry["exercise"],
-      Awaited<ReturnType<typeof resolver.resolveExercise>>
+      Effect.Success<ReturnType<typeof resolver.resolveExercise>>
     >();
     const plans = new Map<number, Map<SetEntry["mesocycle"], number | null>>();
     // oxlint-disable-next-line complexity -- Keep ordered target, actual and effort refusals with the attempt-local resolution caches.
-    return async (s: SetEntry) => {
+    return Effect.fnUntraced(function* (
+      s: SetEntry
+    ): Effect.fn.Return<WriteFields, Invalid | NotFound | DatabaseFailure> {
       let exercise = exercises.get(s.exercise);
       if (exercise === undefined) {
-        exercise = await references.resolveExercise(s.exercise);
+        exercise = yield* references.resolveExercise(s.exercise);
         exercises.set(s.exercise, exercise);
       }
       const target = {
@@ -160,8 +176,18 @@ export function sessionStore(
         distanceM: s.distance_m ?? null,
         durationS: s.duration_s ?? null,
       };
-      assertSetMeasures(exercise.measure, exercise.name, "target", target);
-      assertSetMeasures(exercise.measure, exercise.name, "actual", actual);
+      yield* assertSetMeasures(
+        exercise.measure,
+        exercise.name,
+        "target",
+        target
+      );
+      yield* assertSetMeasures(
+        exercise.measure,
+        exercise.name,
+        "actual",
+        actual
+      );
       const asked =
         target.reps !== null ||
         target.distanceM !== null ||
@@ -171,12 +197,12 @@ export function sessionStore(
         actual.distanceM !== null ||
         actual.durationS !== null;
       if (asked && performed) {
-        throw new ApiError(
-          422,
-          "A new set carries targets (upcoming session) or actuals (retro-logged), never both: targets written after the fact would always match what was done."
-        );
+        return yield* new Invalid({
+          message:
+            "A new set carries targets (upcoming session) or actuals (retro-logged), never both: targets written after the fact would always match what was done.",
+        });
       }
-      assertEffort(
+      yield* assertEffort(
         exercise.stimulus_type,
         exercise.name,
         s.kind,
@@ -190,13 +216,13 @@ export function sessionStore(
       }
       let mesocycleId = forExercise.get(s.mesocycle);
       if (mesocycleId === undefined) {
-        mesocycleId = await references.resolveSetMesocycleId(
+        mesocycleId = yield* references.resolveSetMesocycleId(
           exercise.id,
           s.mesocycle
         );
         forExercise.set(s.mesocycle, mesocycleId);
       }
-      return validatedFields({
+      return yield* validatedFields({
         exercise_id: exercise.id,
         // Recheck the identity used for validation inside the write batch.
         // A registry edit must not race the first set logged for an exercise.
@@ -216,200 +242,223 @@ export function sessionStore(
         performed_at: s.performed_at ?? null,
         notes: s.notes ?? null,
       });
-    };
+    });
   }
 
-  async function writeSession(
+  const writeSession = Effect.fn("sessions.writeSession")(function* (
     b: WriteSessionInput
-  ): Promise<{ session: SessionDetailRow; created: boolean }> {
-    const uuid = requestId(b.request_id);
-    const [seen] = await repository.findRequest(uuid);
+  ): Effect.fn.Return<
+    { session: SessionDetailRow; created: boolean },
+    Invalid | NotFound | DatabaseFailure
+  > {
+    const uuid = yield* requestId(b.request_id);
+    const [seen] = yield* repository.findRequest(uuid);
     if (seen) {
-      return { session: await sessionDetail(seen.id), created: false };
+      return { session: yield* sessionDetail(seen.id), created: false };
     }
-    const parse = parser(await resolver.forSets(b.sets));
+    const parse = parser(yield* resolver.forSets(b.sets));
     const sets = [];
     for (const input of b.sets) {
-      sets.push(await parse(input));
+      sets.push(yield* parse(input));
     }
     // Parent lookup uses the unique request id, not last_insert_rowid(), which
     // is fragile in multi-statement batches containing trigger writes.
-    const result = await repository.create({
-      date: date(b.date),
+    const result = yield* repository.create({
+      date: yield* date(b.date),
       rationale: b.rationale,
       request_id: uuid,
       sets,
     });
     return {
-      session: detail(snapshot(result, 0)),
+      session: detail(yield* snapshot(result, 0)),
       created: true,
     };
-  }
+  });
 
-  async function appendSet(
+  const appendSet = Effect.fn("sessions.appendSet")(function* (
     id: number,
     b: SetEntry & { request_id: string }
-  ): Promise<{ set: AppendedSetRow; created: boolean }> {
-    const uuid = requestId(b.request_id);
-    return await retrySessionWrite(id, async () => {
-      const current = await read(id);
-      const seen = current.sets.find((set) => set.request_id === uuid);
-      if (seen) {
-        return { set: appended(seen), created: false };
-      }
-      const set = await parser()(b);
-      if (
-        set.target_reps !== null ||
-        set.target_distance_m !== null ||
-        set.target_duration_s !== null
-      ) {
-        throw new ApiError(
-          422,
-          "An unplanned set records what was done: send actuals, not targets."
+  ): Effect.fn.Return<
+    { set: AppendedSetRow; created: boolean },
+    Invalid | NotFound | Conflict | DatabaseFailure
+  > {
+    const uuid = yield* requestId(b.request_id);
+    return yield* retrySessionWrite(
+      id,
+      Effect.gen(function* () {
+        const current = yield* read(id);
+        const seen = current.sets.find((set) => set.request_id === uuid);
+        if (seen) {
+          return { set: appended(seen), created: false };
+        }
+        const set = yield* parser()(b);
+        if (
+          set.target_reps !== null ||
+          set.target_distance_m !== null ||
+          set.target_duration_s !== null
+        ) {
+          return yield* new Invalid({
+            message:
+              "An unplanned set records what was done: send actuals, not targets.",
+          });
+        }
+        if (
+          set.reps === null &&
+          set.distance_m === null &&
+          set.duration_s === null
+        ) {
+          return yield* new Invalid({
+            message:
+              "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured.",
+          });
+        }
+        set.performed_at ??= yield* now;
+        const result = yield* repository.append(
+          id,
+          current.header.write_version,
+          uuid,
+          set
         );
-      }
-      if (
-        set.reps === null &&
-        set.distance_m === null &&
-        set.duration_s === null
-      ) {
-        throw new ApiError(
-          422,
-          "An unplanned set records what was done, so it needs a measurement: reps, distance_m, or duration_s, depending on how the exercise is measured."
-        );
-      }
-      set.performed_at ??= instant(clock().toISOString());
-      const result = await repository.append(
-        id,
-        current.header.write_version,
-        uuid,
-        set
-      );
-      return {
-        set: appended(
-          requireRow(result, "The appended set could not be read.")
-        ),
-        created: true,
-      };
-    });
-  }
+        return {
+          set: appended(
+            yield* requireRow(result, "The appended set could not be read.")
+          ),
+          created: true,
+        };
+      })
+    );
+  });
 
-  async function correctSession(
+  const correctSession = Effect.fn("sessions.correctSession")(function* (
     id: number,
     b: CorrectSessionInput
-  ): Promise<SessionDetailRow> {
-    return await retrySessionWrite(id, async () => {
-      const current = await read(id);
-      const facts = validatedFields(
-        Object.fromEntries(
-          sessionFields
-            .filter((field) => b[field] !== undefined)
-            .map((field) => [field, b[field]])
-        )
-      );
-      if (Object.keys(facts).length === 0 && b.sets === undefined) {
-        throw new ApiError(
-          422,
-          'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at", or a non-empty "sets" array of corrections with set ids.'
+  ): Effect.fn.Return<
+    SessionDetailRow,
+    Invalid | NotFound | Conflict | DatabaseFailure
+  > {
+    return yield* retrySessionWrite(
+      id,
+      Effect.gen(function* () {
+        const current = yield* read(id);
+        const facts = yield* validatedFields(
+          Object.fromEntries(
+            sessionFields
+              .filter((field) => b[field] !== undefined)
+              .map((field) => [field, b[field]])
+          )
         );
-      }
-      if (b.sets !== undefined && b.sets.length === 0) {
-        throw new ApiError(
-          422,
-          '"sets" must be a non-empty array of corrections with set ids. Omit it when changing only session facts.'
-        );
-      }
-      if (new Set(b.sets?.map((s) => s.id)).size !== (b.sets?.length ?? 0)) {
-        throw new ApiError(
-          422,
-          'Each set id may appear only once in "sets". Combine corrections for the same set into one entry. Nothing was written.'
-        );
-      }
-      const byId = new Map(current.sets.map((set) => [set.id, set]));
-      const stamp = instant(clock().toISOString());
-      const changes = (b.sets ?? []).map((entry) => {
-        const was = byId.get(entry.id);
-        if (!was) {
-          throw new ApiError(
-            404,
-            `No set with id ${entry.id} in session ${id}. Read GET /sessions/${id} for its set ids. Nothing was written.`
-          );
+        if (Object.keys(facts).length === 0 && b.sets === undefined) {
+          return yield* new Invalid({
+            message:
+              'Send at least one of "notes", "overall_feel", "rationale", "started_at", "completed_at", or a non-empty "sets" array of corrections with set ids.',
+          });
         }
-        return {
-          id: entry.id,
-          fields: validatedFields(prepareSetCorrection(was, entry, stamp)),
-        };
-      });
-      const result = await repository.correct(
-        id,
-        current.header.write_version,
-        facts,
-        changes
-      );
-      return detail(snapshot(result, id));
-    });
-  }
+        if (b.sets !== undefined && b.sets.length === 0) {
+          return yield* new Invalid({
+            message:
+              '"sets" must be a non-empty array of corrections with set ids. Omit it when changing only session facts.',
+          });
+        }
+        if (new Set(b.sets?.map((s) => s.id)).size !== (b.sets?.length ?? 0)) {
+          return yield* new Invalid({
+            message:
+              'Each set id may appear only once in "sets". Combine corrections for the same set into one entry. Nothing was written.',
+          });
+        }
+        const byId = new Map(current.sets.map((set) => [set.id, set]));
+        const stamp = yield* now;
+        const changes = [];
+        for (const entry of b.sets ?? []) {
+          const was = byId.get(entry.id);
+          if (!was) {
+            return yield* new NotFound({
+              message: `No set with id ${entry.id} in session ${id}. Read GET /sessions/${id} for its set ids. Nothing was written.`,
+            });
+          }
+          changes.push({
+            id: entry.id,
+            fields: yield* validatedFields(
+              yield* prepareSetCorrection(was, entry, stamp)
+            ),
+          });
+        }
+        const result = yield* repository.correct(
+          id,
+          current.header.write_version,
+          facts,
+          changes
+        );
+        return detail(yield* snapshot(result, id));
+      })
+    );
+  });
 
-  async function correctSet(
+  const correctSet = Effect.fn("sessions.correctSet")(function* (
     setId: number,
     input: CorrectSetInput
-  ): Promise<SetRow> {
-    const owner = requireRow(
-      await repository.owner(setId),
+  ): Effect.fn.Return<SetRow, Invalid | NotFound | Conflict | DatabaseFailure> {
+    const owner = yield* requireRow(
+      yield* repository.owner(setId),
       `No set with id ${setId}.`
     );
-    try {
-      const session = await correctSession(owner.session_id, {
+    return yield* Effect.gen(function* () {
+      const session = yield* correctSession(owner.session_id, {
         sets: [{ ...input, id: setId }],
       });
-      const set = requireRow(
+      const set = yield* requireRow(
         session.sets.filter((s) => s.id === setId),
         `No set with id ${setId}.`
       );
       const { exercise: _exercise, measure: _measure, ...fields } = set;
       return { ...fields, session_id: owner.session_id };
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        throw new ApiError(404, `No set with id ${setId}.`);
-      }
-      throw error;
-    }
-  }
+    }).pipe(
+      // Every absence on the way — the session, or the set within it — is
+      // answered as the set the caller named.
+      Effect.catchTag("NotFound", () =>
+        Effect.fail(new NotFound({ message: `No set with id ${setId}.` }))
+      )
+    );
+  });
 
-  async function discardSession(
+  const discardSession = Effect.fn("sessions.discardSession")(function* (
     id: number
-  ): Promise<{ id: number; date: string; sets: number }> {
-    return await retrySessionWrite(id, async () => {
-      const current = await read(id);
-      const total = current.sets.length;
-      const performed = current.sets.filter((s) =>
-        [
-          s.weight_kg,
-          s.reps,
-          s.distance_m,
-          s.duration_s,
-          s.effort,
-          s.performed_at,
-        ].some((v) => v !== null)
-      ).length;
-      if (
-        performed > 0 ||
-        current.header.started_at !== null ||
-        current.header.completed_at !== null
-      ) {
-        const why =
-          performed > 0
-            ? `${performed} of its ${total} sets carry actuals`
-            : "it was started or finished";
-        throw new ApiError(
-          409,
-          `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`
-        );
-      }
-      await repository.discard(id, current.header.write_version, total);
-      return { id, date: current.header.date, sets: total };
-    });
-  }
+  ): Effect.fn.Return<
+    { id: number; date: string; sets: number },
+    NotFound | Conflict | DatabaseFailure
+  > {
+    return yield* retrySessionWrite(
+      id,
+      Effect.gen(function* () {
+        const current = yield* read(id);
+        const total = current.sets.length;
+        const performed = current.sets.filter((s) =>
+          [
+            s.weight_kg,
+            s.reps,
+            s.distance_m,
+            s.duration_s,
+            s.effort,
+            s.performed_at,
+          ].some((v) => v !== null)
+        ).length;
+        if (
+          performed > 0 ||
+          current.header.started_at !== null ||
+          current.header.completed_at !== null
+        ) {
+          const why =
+            performed > 0
+              ? `${performed} of its ${total} sets carry actuals`
+              : "it was started or finished";
+          return yield* new Conflict({
+            message: `This session is on the record — ${why} — so it cannot be deleted. A wrong actual is corrected with PATCH /sets/:id, session-level facts with PATCH /sessions/:id. Only a planned session nothing has touched can be discarded.`,
+          });
+        }
+        yield* repository.discard(id, current.header.write_version, total);
+        return { id, date: current.header.date, sets: total };
+      })
+    );
+  });
 
   return {
     sessionDetail,

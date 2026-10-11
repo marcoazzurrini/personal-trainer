@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { body, query, requestId, text } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 
 export const userContext = new OpenAPIHono<AppEnv>();
@@ -46,8 +46,8 @@ userContext.openapi(
   }),
   async (c) =>
     c.req.valid("query").history === "true"
-      ? c.json({ history: await services(c).context.contextHistory() })
-      : c.json({ context: await services(c).context.currentContext() })
+      ? c.json({ history: await run(c, services(c).context.contextHistory()) })
+      : c.json({ context: await run(c, services(c).context.currentContext()) })
 );
 
 // Append only. Correcting or retiring a fact means writing a new row on the
@@ -89,8 +89,9 @@ userContext.openapi(
     },
   }),
   async (c) => {
-    const { row, created } = await services(c).context.appendContext(
-      c.req.valid("json")
+    const { row, created } = await run(
+      c,
+      services(c).context.appendContext(c.req.valid("json"))
     );
     return created ? c.json({ entry: row }, 201) : c.json({ entry: row }, 200);
   }

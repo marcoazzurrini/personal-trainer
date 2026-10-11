@@ -1,5 +1,6 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
 import fc from "fast-check";
 
 import {
@@ -10,8 +11,9 @@ import {
   sumMacros,
 } from "../src/nutrition/rules.ts";
 import type { FoodMacros, Logged } from "../src/nutrition/rules.ts";
-import { ApiError } from "../src/shared/errors.ts";
+import type { Invalid } from "../src/shared/refusals.ts";
 import { assert, assertAlmostEquals, assertEquals } from "./assertions.ts";
+import { failureOf } from "./effects.ts";
 // The laws behind the nutrition arithmetic. nutrition_test.ts checks these
 // functions through the API at chosen values; this file states what must hold
 // at every value. Additivity gets the most attention because it is the whole
@@ -193,14 +195,12 @@ test("sumMacros laws", async (t) => {
   });
 });
 // --- The two sanity checks --------------------------------------------------
-function throws422(fn: () => void): boolean {
-  try {
-    fn();
+function refused422<A>(check: Effect.Effect<A, Invalid>): boolean {
+  if (Effect.runSyncExit(check)._tag === "Success") {
     return false;
-  } catch (error) {
-    assert(error instanceof ApiError && error.status === 422);
-    return true;
   }
+  assert(failureOf(check).status === 422);
+  return true;
 }
 test("checkEnergy law: rejects exactly outside the tolerance", () => {
   // The check must mirror its own contract — |stated − implied| beyond 15%
@@ -217,25 +217,19 @@ test("checkEnergy law: rejects exactly outside the tolerance", () => {
         const implied = 4 * p + 4 * c + 9 * f;
         const allowed = Math.max(implied * 0.15, 20);
         const out = Math.abs(kcal - implied) > allowed;
-        assertEquals(
-          throws422(() => checkEnergy(kcal, p, c, f, false, null)),
-          out
-        );
+        assertEquals(refused422(checkEnergy(kcal, p, c, f, false, null)), out);
         // The self-consistent label always passes.
         assertEquals(
-          throws422(() => checkEnergy(implied, p, c, f, false, null)),
+          refused422(checkEnergy(implied, p, c, f, false, null)),
           false
         );
         // An override with a written reason always passes; without one it is
         // refused wherever the plain check would have refused.
         assertEquals(
-          throws422(() => checkEnergy(kcal, p, c, f, true, "alcohol")),
+          refused422(checkEnergy(kcal, p, c, f, true, "alcohol")),
           false
         );
-        assertEquals(
-          throws422(() => checkEnergy(kcal, p, c, f, true, null)),
-          out
-        );
+        assertEquals(refused422(checkEnergy(kcal, p, c, f, true, null)), out);
       }
     )
   );
@@ -243,10 +237,7 @@ test("checkEnergy law: rejects exactly outside the tolerance", () => {
 test("checkMacroMass law: 105 g per 100 g, exactly", () => {
   fc.assert(
     fc.property(g1, g1, g1, (p, c, f) => {
-      assertEquals(
-        throws422(() => checkMacroMass(p, c, f)),
-        p + c + f > 105
-      );
+      assertEquals(refused422(checkMacroMass(p, c, f)), p + c + f > 105);
     })
   );
 });
@@ -262,13 +253,16 @@ test("gramsEaten is total, with exactly four outcomes", () => {
     fc.property(maybe, maybe, maybe, (g, u, gpu) => {
       const run = () => gramsEaten(g, u, gpu, "Test Food");
       if (g !== null && u !== null) {
-        assert(throws422(run));
+        assert(refused422(run()));
       } else if (g !== null) {
-        assertEquals(run(), Math.floor((Math.round(g * 100) + 5) / 10) / 10);
+        assertEquals(
+          Effect.runSync(run()),
+          Math.floor((Math.round(g * 100) + 5) / 10) / 10
+        );
       } else if (u !== null && gpu !== null) {
-        assertEquals(run(), Math.round(u * gpu * 10) / 10);
+        assertEquals(Effect.runSync(run()), Math.round(u * gpu * 10) / 10);
       } else {
-        assert(throws422(run));
+        assert(refused422(run()));
       }
     })
   );

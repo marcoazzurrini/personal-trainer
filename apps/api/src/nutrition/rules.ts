@@ -1,4 +1,6 @@
-import { ApiError } from "../shared/errors.ts";
+import { Effect } from "effect";
+
+import { Invalid } from "../shared/refusals.ts";
 
 // The arithmetic the coach is not allowed to do in its head. Two jobs:
 // scaling a food's per-100g values to an amount eaten, and refusing numbers
@@ -172,12 +174,12 @@ export function checkEnergy(
   fatG: number,
   override: boolean,
   sourceNote: string | null
-): void {
+): Effect.Effect<void, Invalid> {
   const implied = 4 * proteinG + 4 * carbsG + 9 * fatG;
   const allowed = Math.max(implied * TOLERANCE, FLOOR_KCAL);
   const off = kcal - implied;
   if (Math.abs(off) <= allowed) {
-    return;
+    return Effect.void;
   }
 
   const cause =
@@ -186,20 +188,24 @@ export function checkEnergy(
       : "alcohol at 7 kcal/g, or fibre counted in the energy line";
 
   if (!override) {
-    throw new ApiError(
-      422,
-      `Stated energy (${kcal} kcal per 100 g) and the macros disagree by more than 15%: ${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat account for ${Math.round(
-        implied
-      )} kcal. Usually this means a mis-transcribed or mis-scaled label — the classic case is per-serving macros against per-100 g energy, so recheck it first. If the label really does say this because the food carries energy the macros don't name (${cause}), resend with "energy_check": "override" and a "source_note" saying which.`
+    return Effect.fail(
+      new Invalid({
+        message: `Stated energy (${kcal} kcal per 100 g) and the macros disagree by more than 15%: ${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat account for ${Math.round(
+          implied
+        )} kcal. Usually this means a mis-transcribed or mis-scaled label — the classic case is per-serving macros against per-100 g energy, so recheck it first. If the label really does say this because the food carries energy the macros don't name (${cause}), resend with "energy_check": "override" and a "source_note" saying which.`,
+      })
     );
   }
 
   if (sourceNote === null) {
-    throw new ApiError(
-      422,
-      '"energy_check": "override" requires a "source_note" naming the cause (alcohol, sugar alcohols, fibre accounting). An override without a reason is indistinguishable from a typo.'
+    return Effect.fail(
+      new Invalid({
+        message:
+          '"energy_check": "override" requires a "source_note" naming the cause (alcohol, sugar alcohols, fibre accounting). An override without a reason is indistinguishable from a typo.',
+      })
     );
   }
+  return Effect.void;
 }
 
 // The other half of the sanity check, and the half the energy identity cannot
@@ -224,16 +230,17 @@ export function checkMacroMass(
   proteinG: number,
   carbsG: number,
   fatG: number
-): void {
+): Effect.Effect<void, Invalid> {
   const mass = proteinG + carbsG + fatG;
   if (mass <= MAX_MACRO_MASS_PER_100G) {
-    return;
+    return Effect.void;
   }
-  throw new ApiError(
-    422,
-    `${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat come to ${
-      Math.round(mass * 10) / 10
-    } g of macros in 100 g of food, which cannot be true — 100 g of anything holds at most 100 g. The usual cause is per-serving macros entered as per-100 g. Rescale them: divide by the serving size in grams and multiply by 100.`
+  return Effect.fail(
+    new Invalid({
+      message: `${proteinG} g protein, ${carbsG} g carbs and ${fatG} g fat come to ${
+        Math.round(mass * 10) / 10
+      } g of macros in 100 g of food, which cannot be true — 100 g of anything holds at most 100 g. The usual cause is per-serving macros entered as per-100 g. Rescale them: divide by the serving size in grams and multiply by 100.`,
+    })
   );
 }
 
@@ -245,28 +252,33 @@ export function gramsEaten(
   units: number | null,
   gramsPerUnit: number | null,
   foodName: string
-): number {
+): Effect.Effect<number, Invalid> {
   if (grams !== null && units !== null) {
-    throw new ApiError(
-      422,
-      'Send either "grams" or "units", not both — they are two ways of saying the same thing.'
+    return Effect.fail(
+      new Invalid({
+        message:
+          'Send either "grams" or "units", not both — they are two ways of saying the same thing.',
+      })
     );
   }
   // Match the stored weight before deriving macros, just as units and meals do.
   if (grams !== null) {
-    return round1(grams);
+    return Effect.succeed(round1(grams));
   }
   if (units !== null) {
     if (gramsPerUnit === null) {
-      throw new ApiError(
-        422,
-        `"${foodName}" has no grams_per_unit, so "units" cannot be converted to a weight. Send "grams" instead, or set grams_per_unit on the food if it is genuinely eaten in pieces.`
+      return Effect.fail(
+        new Invalid({
+          message: `"${foodName}" has no grams_per_unit, so "units" cannot be converted to a weight. Send "grams" instead, or set grams_per_unit on the food if it is genuinely eaten in pieces.`,
+        })
       );
     }
-    return round1(units * gramsPerUnit);
+    return Effect.succeed(round1(units * gramsPerUnit));
   }
-  throw new ApiError(
-    422,
-    'Logging a food needs an amount: send "grams", or "units" for a food with grams_per_unit set.'
+  return Effect.fail(
+    new Invalid({
+      message:
+        'Logging a food needs an amount: send "grams", or "units" for a food with grams_per_unit set.',
+    })
   );
 }

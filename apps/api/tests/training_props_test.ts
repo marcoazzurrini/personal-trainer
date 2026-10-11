@@ -1,8 +1,9 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
 import fc from "fast-check";
 
-import { ApiError } from "../src/shared/errors.ts";
+import type { Invalid } from "../src/shared/refusals.ts";
 import {
   assertDoseUnit,
   assertSetMeasures,
@@ -18,6 +19,7 @@ import {
 } from "../src/training/set_correction.ts";
 import type { SetForCorrection } from "../src/training/set_correction.ts";
 import { assert, assertAlmostEquals, assertEquals } from "./assertions.ts";
+import { failureOf } from "./effects.ts";
 // The measure table, restated as behaviour. training.ts holds one RULES table
 // read from three sides — what a set may carry, which units a dose may use,
 // how delivered work converts — and these tests pin the three sides to each
@@ -49,28 +51,26 @@ test("partial set corrections preserve omissions, explicit nulls and the first t
           reps,
           effort: "hard" as const,
         });
-        const first = prepareSetCorrection(
-          before,
-          input,
-          "2020-01-01T10:00:00.000Z"
+        const first = Effect.runSync(
+          prepareSetCorrection(before, input, "2020-01-01T10:00:00.000Z")
         );
         const stored = { ...before, ...first };
         assertEquals(stored.weight_kg, tenths / 10);
         assertEquals(stored.notes, before.notes);
         assertEquals(stored.performed_at, "2020-01-01T10:00:00.000Z");
-        const replay = prepareSetCorrection(
-          stored,
-          input,
-          "2020-01-02T10:00:00.000Z"
+        const replay = Effect.runSync(
+          prepareSetCorrection(stored, input, "2020-01-02T10:00:00.000Z")
         );
         assertEquals({ ...stored, ...replay }, stored);
-        const changed = prepareSetCorrection(
-          stored,
-          {
-            notes,
-            performed_at: null,
-          },
-          "unused"
+        const changed = Effect.runSync(
+          prepareSetCorrection(
+            stored,
+            {
+              notes,
+              performed_at: null,
+            },
+            "unused"
+          )
         );
         assertEquals(
           { ...stored, ...changed },
@@ -103,7 +103,7 @@ test("the shared correction rule refuses every frozen target even when clearing 
   for (const field of TARGET_FIELDS) {
     for (const value of [null, 0, 10]) {
       assert(
-        refused(() =>
+        refused(
           prepareSetCorrection(
             before,
             {
@@ -147,14 +147,12 @@ function setOf(
     durationS: fields.includes("duration") ? 30 : null,
   };
 }
-function refused(fn: () => void): boolean {
-  try {
-    fn();
+function refused<A>(check: Effect.Effect<A, Invalid>): boolean {
+  if (Effect.runSyncExit(check)._tag === "Success") {
     return false;
-  } catch (error) {
-    assert(error instanceof ApiError && error.status === 422);
-    return true;
   }
+  assert(failureOf(check).status === 422);
+  return true;
 }
 test("every combination of fields is judged by the rule table", () => {
   // For each measure and each of the 16 field/weight combinations: an empty
@@ -179,7 +177,7 @@ test("every combination of fields is judged by the rule table", () => {
           const missingWeight = spec.weight === "required" && weightKg === null;
           const ok = empty || (!foreign && enough && !missingWeight);
           assertEquals(
-            refused(() => assertSetMeasures(measure, "Test", side, v)),
+            refused(assertSetMeasures(measure, "Test", side, v)),
             !ok,
             `${measure} ${side} [${fields}] weight=${weightKg}`
           );
@@ -200,9 +198,7 @@ test("an unknown measure is refused, never guessed at", () => {
     fc.property(unknown, (m) => {
       fc.pre(!MEASURES.some((measure) => measure === m));
       assert(
-        refused(() =>
-          assertSetMeasures(m, "Test", "actual", setOf(["reps"], null))
-        ),
+        refused(assertSetMeasures(m, "Test", "actual", setOf(["reps"], null))),
         m
       );
       // The dose-unit view of the same table must not crash on it either.
@@ -227,7 +223,7 @@ test("dose units and set fields are one table seen twice", () => {
     );
     for (const unit of DOSE_UNITS) {
       assertEquals(
-        refused(() => assertDoseUnit(measure, unit, "Test")),
+        refused(assertDoseUnit(measure, unit, "Test")),
         !units.includes(unit),
         `${measure} in ${unit}`
       );

@@ -10,7 +10,7 @@ import {
   query,
   requestId,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { METHODS } from "./constants.ts";
 
@@ -44,7 +44,9 @@ bodyfat.openapi(
     },
   }),
   async (c) =>
-    c.json({ bodyfat_estimates: await services(c).bodyfat.listBodyfat() })
+    c.json({
+      bodyfat_estimates: await run(c, services(c).bodyfat.listBodyfat()),
+    })
 );
 
 bodyfat.openapi(
@@ -95,13 +97,16 @@ bodyfat.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const { row, created } = await services(c).bodyfat.recordBodyfat({
-      percent: b.percent,
-      method: b.method,
-      day: b.day,
-      note: b.note,
-      requestId: b.request_id,
-    });
+    const { row, created } = await run(
+      c,
+      services(c).bodyfat.recordBodyfat({
+        percent: b.percent,
+        method: b.method,
+        day: b.day,
+        note: b.note,
+        requestId: b.request_id,
+      })
+    );
     return created
       ? c.json({ bodyfat_estimate: row }, 201)
       : c.json({ bodyfat_estimate: row }, 200);
@@ -138,6 +143,8 @@ bodyfat.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    return c.json({ deleted: await services(c).bodyfat.removeBodyfat(id) });
+    return c.json({
+      deleted: await run(c, services(c).bodyfat.removeBodyfat(id)),
+    });
   }
 );

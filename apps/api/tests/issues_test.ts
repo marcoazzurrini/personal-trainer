@@ -1,5 +1,6 @@
 import { test } from "node:test";
 
+import { Effect, Redacted } from "effect";
 import { z } from "zod";
 
 import {
@@ -232,7 +233,7 @@ function stubGithub() {
   });
   const cfg = {
     apiBase: `http://127.0.0.1:${server.port}`,
-    token: "stub-token",
+    token: Redacted.make("stub-token"),
     repo: "o/r",
   };
   return { cfg, requests, close: () => server.stop(true) };
@@ -241,11 +242,13 @@ test("github client", async (t) => {
   await t.test("filing an issue labels it and returns its number", async () => {
     const { cfg, requests, close } = stubGithub();
     try {
-      const issue = await openIssue(cfg, {
-        title: "POST /sets 500s",
-        body: "…",
-        kind: "bug",
-      });
+      const issue = await Effect.runPromise(
+        openIssue(cfg, {
+          title: "POST /sets 500s",
+          body: "…",
+          kind: "bug",
+        })
+      );
       assertEquals(issue, {
         number: 7,
         url: "https://github.com/o/r/issues/7",
@@ -267,7 +270,7 @@ test("github client", async (t) => {
   await t.test("listing drops the pull requests GitHub mixes in", async () => {
     const { cfg, requests, close } = stubGithub();
     try {
-      const listed = await listCoachIssues(cfg);
+      const listed = await Effect.runPromise(listCoachIssues(cfg));
       assertEquals(listed, [
         {
           number: 7,
@@ -289,7 +292,9 @@ test("github client", async (t) => {
   await t.test("a comment posts to the issue's thread", async () => {
     const { cfg, requests, close } = stubGithub();
     try {
-      const { url } = await commentOnIssue(cfg, 7, "Happened again.");
+      const { url } = await Effect.runPromise(
+        commentOnIssue(cfg, 7, "Happened again.")
+      );
       assert(url.includes("issuecomment"));
       const post = requests.find((r) => r.path.endsWith("/comments"));
       assert(post !== undefined && post.body !== undefined);
@@ -319,7 +324,7 @@ test("github client", async (t) => {
       });
       const cfg = {
         apiBase: `http://127.0.0.1:${server.port}`,
-        token: "local-token",
+        token: Redacted.make("local-token"),
         repo: "o/r",
       };
       try {
@@ -337,7 +342,10 @@ test("github client", async (t) => {
         ]) {
           const before = calls;
           const error = await assertRejects(
-            () => openIssue(cfg, { title: "t", body: "b", kind: "bug" }),
+            () =>
+              Effect.runPromise(
+                openIssue(cfg, { title: "t", body: "b", kind: "bug" })
+              ),
             GithubError
           );
           assertEquals(error.status, 502);
@@ -356,7 +364,7 @@ test("github client", async (t) => {
         ]) {
           const before = calls;
           const error = await assertRejects(
-            () => commentOnIssue(cfg, 7, "n"),
+            () => Effect.runPromise(commentOnIssue(cfg, 7, "n")),
             GithubError
           );
           assertEquals(error.status, 502);
@@ -388,14 +396,14 @@ test("github client", async (t) => {
         ]) {
           const before = calls;
           const error = await assertRejects(
-            () => listCoachIssues(cfg),
+            () => Effect.runPromise(listCoachIssues(cfg)),
             GithubError
           );
           assertEquals(error.status, 502);
           assertEquals(calls, before + 1);
         }
         response = JSON.stringify([validIssue]);
-        assertEquals(await listCoachIssues(cfg), [
+        assertEquals(await Effect.runPromise(listCoachIssues(cfg)), [
           {
             number: 7,
             title: validIssue.title,
@@ -405,7 +413,7 @@ test("github client", async (t) => {
           },
         ]);
         response = "[]";
-        assertEquals(await listCoachIssues(cfg), []);
+        assertEquals(await Effect.runPromise(listCoachIssues(cfg)), []);
       } finally {
         await server.stop(true);
       }
@@ -421,12 +429,12 @@ test("github client", async (t) => {
     });
     const cfg = {
       apiBase: `http://127.0.0.1:${server.port}`,
-      token: "bad",
+      token: Redacted.make("bad"),
       repo: "o/r",
     };
     try {
       const err = await assertRejects(
-        () => commentOnIssue(cfg, 999, "n"),
+        () => Effect.runPromise(commentOnIssue(cfg, 999, "n")),
         GithubError,
         "404"
       );

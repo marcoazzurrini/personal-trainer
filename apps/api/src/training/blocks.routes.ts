@@ -8,7 +8,7 @@ import {
   requestId,
   text,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 
 export const blocks = new OpenAPIHono<AppEnv>();
@@ -39,7 +39,7 @@ blocks.openapi(
       },
     },
   }),
-  async (c) => c.json({ blocks: await services(c).blocks.listBlocks() })
+  async (c) => c.json({ blocks: await run(c, services(c).blocks.listBlocks()) })
 );
 
 blocks.openapi(
@@ -81,8 +81,9 @@ blocks.openapi(
     },
   }),
   async (c) => {
-    const { row, created } = await services(c).blocks.openBlock(
-      c.req.valid("json")
+    const { row, created } = await run(
+      c,
+      services(c).blocks.openBlock(c.req.valid("json"))
     );
     return created ? c.json({ block: row }, 201) : c.json({ block: row }, 200);
   }

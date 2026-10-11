@@ -1,6 +1,9 @@
 import type { ResolveRepository } from "@trainer/db/repositories/nutrition/resolve.ts";
+import { Effect } from "effect";
 
-import { databaseError, ApiError } from "../shared/errors.ts";
+import { effectful } from "../shared/database.ts";
+import { Conflict, Invalid } from "../shared/refusals.ts";
+import type { DatabaseFailure } from "../shared/refusals.ts";
 import { caseKey } from "../shared/values.ts";
 
 interface ResolutionMessages {
@@ -30,11 +33,13 @@ const MEALS: ResolutionMessages = {
   route: "/meals",
 };
 
-export function nutritionResolver(repository: ResolveRepository) {
-  async function resolveMany(
+export function nutritionResolver(rows: ResolveRepository) {
+  const repository = effectful(rows);
+
+  const resolveMany = Effect.fnUntraced(function* (
     ns: ResolutionMessages,
     refs: readonly unknown[]
-  ): Promise<number[]> {
+  ): Effect.fn.Return<number[], Invalid | DatabaseFailure> {
     const result = new Map<number, number>();
     const lookups = refs.map((ref, index) => ({
       index,
@@ -48,46 +53,48 @@ export function nutritionResolver(repository: ResolveRepository) {
           ? Number(ref.trim())
           : null,
     }));
-    const found = await repository
-      .resolve(ns.what === "food" ? "food" : "meal", lookups)
-      .catch((error) => {
-        throw databaseError(error);
-      });
+    const found = yield* repository.resolve(
+      ns.what === "food" ? "food" : "meal",
+      lookups
+    );
     for (const row of found) {
       if (row.id !== null) {
         result.set(row.position, row.id);
       }
     }
-    return refs.map((ref, index) => {
+    const ids: number[] = [];
+    for (const [index, ref] of refs.entries()) {
       const id = result.get(index);
       if (id !== undefined) {
-        return id;
+        ids.push(id);
+        continue;
       }
       // eslint-disable-next-line anti-slop/no-runtime-typeof -- Preserve the integer-id refusal for unresolved raw references.
       if (typeof ref === "number" && Number.isInteger(ref)) {
-        throw new ApiError(422, ns.noSuchId(ref));
+        return yield* new Invalid({ message: ns.noSuchId(ref) });
       }
       // eslint-disable-next-line anti-slop/no-runtime-typeof -- Distinguish an unknown name from a missing or invalid JSON reference.
       if (typeof ref === "string" && ref.trim()) {
         if (/^\d+$/u.test(ref.trim())) {
-          throw new ApiError(422, ns.noSuchId(Number(ref.trim())));
+          return yield* new Invalid({
+            message: ns.noSuchId(Number(ref.trim())),
+          });
         }
-        throw new ApiError(422, ns.unknownName(ref.trim()));
+        return yield* new Invalid({ message: ns.unknownName(ref.trim()) });
       }
-      throw new ApiError(422, ns.missingRef);
-    });
-  }
-  async function aliasesFree(
+      return yield* new Invalid({ message: ns.missingRef });
+    }
+    return ids;
+  });
+
+  const aliasesFree = Effect.fnUntraced(function* (
     ns: ResolutionMessages,
     aliases: readonly string[]
-  ) {
-    const taken = await repository
-      .takenAliases(ns.what === "food" ? "food" : "meal", [
-        ...new Set(aliases.map((a) => caseKey(a.trim()))),
-      ])
-      .catch((error) => {
-        throw databaseError(error);
-      });
+  ): Effect.fn.Return<void, Conflict | DatabaseFailure> {
+    const taken = yield* repository.takenAliases(
+      ns.what === "food" ? "food" : "meal",
+      [...new Set(aliases.map((a) => caseKey(a.trim())))]
+    );
     if (!taken.length) {
       return;
     }
@@ -103,9 +110,8 @@ export function nutritionResolver(repository: ResolveRepository) {
       )
       .join("; ");
     const one = taken.length === 1;
-    throw new ApiError(
-      409,
-      `${clashes}. Aliases are case-insensitive and globally unique — one name points at one ${ns.what}. Nothing was written: resend without ${
+    return yield* new Conflict({
+      message: `${clashes}. Aliases are case-insensitive and globally unique — one name points at one ${ns.what}. Nothing was written: resend without ${
         one ? "that alias" : "those aliases"
       }, which costs only ${
         one ? "that word" : "those words"
@@ -113,19 +119,54 @@ export function nutritionResolver(repository: ResolveRepository) {
         one ? "the name belongs" : "a name belongs"
       } on this row instead, release it first with DELETE ${ns.route}/${
         taken[0].id
-      }/aliases/${encodeURIComponent(taken[0].alias)}.`
-    );
-  }
-  return {
+      }/aliases/${encodeURIComponent(taken[0].alias)}.`,
+    });
+  });
+
+  const resolveFoodId = Effect.fn("nutritionResolver.resolveFoodId")(function* (
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- This parser boundary accepts raw food references and resolveMany validates their representation and existence.
-    resolveFoodId: async (ref: unknown) => (await resolveMany(FOODS, [ref]))[0],
+    ref: unknown
+  ): Effect.fn.Return<number, Invalid | DatabaseFailure> {
+    return (yield* resolveMany(FOODS, [ref]))[0];
+  });
+
+  const resolveMealId = Effect.fn("nutritionResolver.resolveMealId")(function* (
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- This parser boundary accepts raw meal references and resolveMany validates their representation and existence.
-    resolveMealId: async (ref: unknown) => (await resolveMany(MEALS, [ref]))[0],
-    resolveFoodIds: (refs: readonly unknown[]) => resolveMany(FOODS, refs),
-    assertFoodAliasesFree: (aliases: readonly string[]) =>
-      aliasesFree(FOODS, aliases),
-    assertMealAliasesFree: (aliases: readonly string[]) =>
-      aliasesFree(MEALS, aliases),
+    ref: unknown
+  ): Effect.fn.Return<number, Invalid | DatabaseFailure> {
+    return (yield* resolveMany(MEALS, [ref]))[0];
+  });
+
+  const resolveFoodIds = Effect.fn("nutritionResolver.resolveFoodIds")(
+    function* (
+      refs: readonly unknown[]
+    ): Effect.fn.Return<number[], Invalid | DatabaseFailure> {
+      return yield* resolveMany(FOODS, refs);
+    }
+  );
+
+  const assertFoodAliasesFree = Effect.fn(
+    "nutritionResolver.assertFoodAliasesFree"
+  )(function* (
+    aliases: readonly string[]
+  ): Effect.fn.Return<void, Conflict | DatabaseFailure> {
+    yield* aliasesFree(FOODS, aliases);
+  });
+
+  const assertMealAliasesFree = Effect.fn(
+    "nutritionResolver.assertMealAliasesFree"
+  )(function* (
+    aliases: readonly string[]
+  ): Effect.fn.Return<void, Conflict | DatabaseFailure> {
+    yield* aliasesFree(MEALS, aliases);
+  });
+
+  return {
+    resolveFoodId,
+    resolveMealId,
+    resolveFoodIds,
+    assertFoodAliasesFree,
+    assertMealAliasesFree,
   };
 }
 

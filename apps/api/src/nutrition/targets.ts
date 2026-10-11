@@ -2,20 +2,21 @@ import type {
   TargetRecord,
   TargetsRepository,
 } from "@trainer/db/repositories/nutrition/targets.ts";
+import { Effect } from "effect";
 
 import type { BodyfatService } from "../body/bodyfat.ts";
 import type { BodyweightService } from "../body/bodyweight.ts";
-import { ApiError, databaseError, requireRow } from "../shared/errors.ts";
+import { effectful } from "../shared/database.ts";
+import { Invalid, requireRow } from "../shared/refusals.ts";
+import type { DatabaseFailure, NotFound } from "../shared/refusals.ts";
 import {
   date,
   decimal,
-  instant,
+  now,
   requestId,
-  romeDate,
-  systemClock,
+  today,
   wireInstant,
 } from "../shared/values.ts";
-import type { Clock } from "../shared/values.ts";
 import {
   energyDensity,
   fatMassKg,
@@ -40,37 +41,45 @@ function wireTarget(row: TargetRecord): TargetRow {
 }
 
 export function targetStore(
-  repository: TargetsRepository,
+  rows: TargetsRepository,
   bodyweight: BodyweightService,
-  bodyfatService: BodyfatService,
-  clock: Clock = systemClock
+  bodyfatService: BodyfatService
 ) {
+  const repository = effectful(rows);
   const { loadTrend } = bodyweight;
   const { latestBodyfat } = bodyfatService;
   const { currentExpenditure } = expenditureStore(
-    repository.expenditure,
-    bodyfatService,
-    clock
+    rows.expenditure,
+    bodyfatService
   );
-  async function listTargets(): Promise<TargetRow[]> {
-    return (await repository.list()).map(wireTarget);
-  }
-  async function activeTarget(asOf: string): Promise<TargetRow | null> {
-    const row = await repository.active(date(asOf));
+  const listTargets = Effect.fn("targets.listTargets")(
+    function* (): Effect.fn.Return<TargetRow[], DatabaseFailure> {
+      return (yield* repository.list()).map(wireTarget);
+    }
+  );
+  const activeTarget = Effect.fn("targets.activeTarget")(function* (
+    asOf: string
+  ): Effect.fn.Return<TargetRow | null, Invalid | DatabaseFailure> {
+    const row = yield* repository.active(yield* date(asOf));
     return row ? wireTarget(row) : null;
-  }
-  // oxlint-disable-next-line complexity -- Keep ordered refusals, asynchronous reads and idempotent recovery together in this write boundary.
-  async function setTarget(b: SetTargetInput): Promise<TargetWritten> {
-    const uuid = requestId(b.request_id);
-    const seen = async () => {
-      const row = await repository.findRequest(uuid);
-      return row ? wireTarget(row) : undefined;
-    };
-    const replay = await seen();
+  });
+  const setTarget = Effect.fn("targets.setTarget")(function* (
+    b: SetTargetInput
+  ): Effect.fn.Return<TargetWritten, Invalid | NotFound | DatabaseFailure> {
+    const uuid = yield* requestId(b.request_id);
+    const seen = () =>
+      repository
+        .findRequest(uuid)
+        .pipe(Effect.map((row) => (row ? wireTarget(row) : undefined)));
+    const replay = yield* seen();
     if (replay) {
       return { created: false, body: { target: replay } };
     }
-    try {
+    // oxlint-disable-next-line complexity -- Keep ordered refusals, asynchronous reads and idempotent recovery together in this write boundary.
+    return yield* Effect.gen(function* (): Effect.fn.Return<
+      TargetWritten,
+      Invalid | NotFound | DatabaseFailure
+    > {
       const { goal } = b;
       const rate = b.rate_pct_bw_week;
 
@@ -92,45 +101,40 @@ export function targetStore(
         .filter(([, v]) => v !== undefined && v !== null)
         .map(([k]) => k);
       if (proteinInputs.length !== 1) {
-        throw new ApiError(
-          422,
-          proteinInputs.length === 0
-            ? `Send exactly one protein input: "protein_g_per_kg_ffm" (the deficit basis — ${PROTEIN_G_PER_KG_FFM_RANGE.join(
-                " to "
-              )}; muscle retention scales with the mass being retained, not the fat being lost), "protein_g_per_kg_bw" (maintenance or surplus — ${PROTEIN_G_PER_KG_BW_RANGE.join(
-                " to "
-              )}), or "protein_g_target" as a finished number when neither basis fits.`
-            : `Send exactly one protein input — got ${proteinInputs.join(
-                " and "
-              )}.`
-        );
+        return yield* new Invalid({
+          message:
+            proteinInputs.length === 0
+              ? `Send exactly one protein input: "protein_g_per_kg_ffm" (the deficit basis — ${PROTEIN_G_PER_KG_FFM_RANGE.join(
+                  " to "
+                )}; muscle retention scales with the mass being retained, not the fat being lost), "protein_g_per_kg_bw" (maintenance or surplus — ${PROTEIN_G_PER_KG_BW_RANGE.join(
+                  " to "
+                )}), or "protein_g_target" as a finished number when neither basis fits.`
+              : `Send exactly one protein input — got ${proteinInputs.join(
+                  " and "
+                )}.`,
+        });
       }
       const { decision } = b;
-      const effectiveFrom = date(
-        b.effective_from ?? romeDate(instant(clock().toISOString()))
-      );
+      const effectiveFrom = yield* date(b.effective_from ?? (yield* today));
       const explicitKcal = b.kcal_target ?? null;
 
       // The direction must match the goal. Catching this here rather than letting
       // a sign slip through is the difference between a cut and an accidental
       // bulk — the rate is the one number the whole loop steers on.
       if (goal === "cut" && rate >= 0) {
-        throw new ApiError(
-          422,
-          `A cut needs a negative rate_pct_bw_week (got ${rate}). Default -0.5, never past -0.7: faster costs lean mass in trained people.`
-        );
+        return yield* new Invalid({
+          message: `A cut needs a negative rate_pct_bw_week (got ${rate}). Default -0.5, never past -0.7: faster costs lean mass in trained people.`,
+        });
       }
       if (goal === "gain" && rate <= 0) {
-        throw new ApiError(
-          422,
-          `A gain needs a positive rate_pct_bw_week (got ${rate}). +0.25 to +0.5 for a trained lifter; past that is mostly fat.`
-        );
+        return yield* new Invalid({
+          message: `A gain needs a positive rate_pct_bw_week (got ${rate}). +0.25 to +0.5 for a trained lifter; past that is mostly fat.`,
+        });
       }
       if (goal === "maintain" && Math.abs(rate) > 0.15) {
-        throw new ApiError(
-          422,
-          `A ${goal} target holds bodyweight roughly flat — rate_pct_bw_week should be near 0 (got ${rate}). If a real rate of change is intended, the goal is a cut or a gain.`
-        );
+        return yield* new Invalid({
+          message: `A ${goal} target holds bodyweight roughly flat — rate_pct_bw_week should be near 0 (got ${rate}). If a real rate of change is intended, the goal is a cut or a gain.`,
+        });
       }
       // Recomp's real bound is in kcal — maintenance to a 200 kcal/day deficit —
       // and the rate a deficit implies moves with bodyweight, so the rate gate
@@ -142,22 +146,21 @@ export function targetStore(
         goal === "recomp" &&
         (rate > 0.15 || rate < -MAX_LOSS_RATE_PCT_BW_WEEK)
       ) {
-        throw new ApiError(
-          422,
-          `A recomp holds bodyweight or drops it slowly — rate_pct_bw_week between -${MAX_LOSS_RATE_PCT_BW_WEEK} and +0.15 (got ${rate}). The kcal target is clipped to a ${MAX_RECOMP_DEFICIT_KCAL} kcal/day deficit whatever the rate implies, so a doctrine recomp needs no relabelling as a cut.`
-        );
+        return yield* new Invalid({
+          message: `A recomp holds bodyweight or drops it slowly — rate_pct_bw_week between -${MAX_LOSS_RATE_PCT_BW_WEEK} and +0.15 (got ${rate}). The kcal target is clipped to a ${MAX_RECOMP_DEFICIT_KCAL} kcal/day deficit whatever the rate implies, so a doctrine recomp needs no relabelling as a cut.`,
+        });
       }
 
-      const trend = await loadTrend();
+      const trend = yield* loadTrend();
       if (trend.length === 0) {
-        throw new ApiError(
-          422,
-          "No bodyweight history, so neither a calorie target nor a protein target can be computed. Log a weigh-in first."
-        );
+        return yield* new Invalid({
+          message:
+            "No bodyweight history, so neither a calorie target nor a protein target can be computed. Log a weigh-in first.",
+        });
       }
       // SAFETY: empty trend history is refused above.
       const trendNow = (trend.at(-1) as (typeof trend)[number]).trend_kg;
-      const bodyfat = (await latestBodyfat())?.percent ?? null;
+      const bodyfat = (yield* latestBodyfat())?.percent ?? null;
 
       // Protein first: it is the one target that does not depend on the
       // expenditure estimate. This computes protein, not a separate persisted
@@ -176,20 +179,19 @@ export function targetStore(
           basis === "ffm" ? b.protein_g_per_kg_ffm : b.protein_g_per_kg_bw
         ) as number;
         if (multiplier <= 0 || multiplier > 5) {
-          throw new ApiError(
-            422,
-            `A protein multiplier of ${multiplier} g/kg is outside anything defensible. Deficit: ${PROTEIN_G_PER_KG_FFM_RANGE.join(
+          return yield* new Invalid({
+            message: `A protein multiplier of ${multiplier} g/kg is outside anything defensible. Deficit: ${PROTEIN_G_PER_KG_FFM_RANGE.join(
               "–"
             )} g/kg fat-free mass. Maintenance or surplus: ${PROTEIN_G_PER_KG_BW_RANGE.join(
               "–"
-            )} g/kg bodyweight.`
-          );
+            )} g/kg bodyweight.`,
+          });
         }
         if (basis === "ffm" && bodyfat === null) {
-          throw new ApiError(
-            422,
-            'Fat-free mass needs a body-fat estimate and there is none on record. POST /bodyfat with a rough figure (BIA, DXA, or an honest visual guess), or send "protein_g_per_kg_bw" to use bodyweight as the basis instead.'
-          );
+          return yield* new Invalid({
+            message:
+              'Fat-free mass needs a body-fat estimate and there is none on record. POST /bodyfat with a rough figure (BIA, DXA, or an honest visual guess), or send "protein_g_per_kg_bw" to use bodyweight as the basis instead.',
+          });
         }
         proteinComputation = proteinFromMultiplier(
           basis,
@@ -210,12 +212,11 @@ export function targetStore(
 
       if (explicitKcal === null) {
         // The normal path: rate in, kcal out, arithmetic on the server.
-        const expenditure = await currentExpenditure(trend);
+        const expenditure = yield* currentExpenditure(trend);
         if (expenditure.tdee_kcal === null) {
-          throw new ApiError(
-            422,
-            `A target cannot be computed yet: ${expenditure.reason} Send an explicit "kcal_target" only if you have a defensible reason for the number and say so in the decision — a formula-derived guess presented as this system's answer is an invention.`
-          );
+          return yield* new Invalid({
+            message: `A target cannot be computed yet: ${expenditure.reason} Send an explicit "kcal_target" only if you have a defensible reason for the number and say so in the decision — a formula-derived guess presented as this system's answer is an invention.`,
+          });
         }
         // oxlint-disable-next-line typescript/no-non-null-assertion -- Preserve the existing snapshot arithmetic after expenditure qualifies; expenditure performs a separate body-fat read, so this is not a same-read guarantee.
         const density = energyDensity(fatMassKg(trendNow, bodyfat!));
@@ -248,8 +249,8 @@ export function targetStore(
       }
 
       // Validate precision here for the refusal contract; storage owns scaling.
-      decimal(rate, 4, 2);
-      const result = await repository.save({
+      yield* decimal(rate, 4, 2);
+      const result = yield* repository.save({
         effective_from: effectiveFrom,
         goal,
         rate_pct_bw_week: rate,
@@ -260,10 +261,10 @@ export function targetStore(
         clipped,
         clipped_reasons: clippedReasons,
         request_id: uuid,
-        created_at: instant(clock().toISOString()),
+        created_at: yield* now,
       });
       const target = wireTarget(
-        requireRow(
+        yield* requireRow(
           result.target ? [result.target] : [],
           "The nutrition target could not be read after saving."
         )
@@ -280,14 +281,23 @@ export function targetStore(
           phase_switch_registered: result.phaseSwitchPresent,
         },
       };
-    } catch (error) {
-      const recovered = await seen();
-      if (recovered) {
-        return { created: false, body: { target: recovered } };
-      }
-      throw databaseError(error);
-    }
-  }
+    }).pipe(
+      // Any failure, defects included, may be a concurrent retry that set
+      // this request first; otherwise it fails as it was.
+      Effect.catchCause((cause) =>
+        seen().pipe(
+          Effect.flatMap((recovered) =>
+            recovered
+              ? Effect.succeed({
+                  created: false as const,
+                  body: { target: recovered },
+                })
+              : Effect.failCause(cause)
+          )
+        )
+      )
+    );
+  });
   return { listTargets, activeTarget, setTarget };
 }
 

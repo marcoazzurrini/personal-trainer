@@ -1,7 +1,9 @@
 // The meaning of a partial correction, shared by single-set and session writes.
 // The caller supplies the current row under the session lock and one timestamp.
 // No database access or clock read belongs in this rule.
-import { ApiError } from "../shared/errors.ts";
+import { Effect } from "effect";
+
+import { Invalid } from "../shared/refusals.ts";
 import { assertEffort, assertSetMeasures } from "./rules.ts";
 import type { Effort, Kind } from "./rules.ts";
 
@@ -60,12 +62,13 @@ export function prepareSetCorrection(
   existing: SetForCorrection,
   input: CorrectSetInput,
   performedAt: string
-): SetChanges {
+): Effect.Effect<SetChanges, Invalid> {
   const target = TARGET_FIELDS.find((f) => input[f] !== undefined);
   if (target) {
-    throw new ApiError(
-      422,
-      `Targets are immutable once the session exists: they are the record of what was asked that day, and "${target}" is one of them. Only actuals (weight_kg, reps, distance_m, duration_s, effort), performed_at, and notes can change. If the whole session was mis-planned and nothing has been performed yet, DELETE /sessions/:id discards the draft — then write it again.`
+    return Effect.fail(
+      new Invalid({
+        message: `Targets are immutable once the session exists: they are the record of what was asked that day, and "${target}" is one of them. Only actuals (weight_kg, reps, distance_m, duration_s, effort), performed_at, and notes can change. If the whole session was mis-planned and nothing has been performed yet, DELETE /sessions/:id discards the draft — then write it again.`,
+      })
     );
   }
   // Omission leaves a value untouched; explicit null clears it. Only these
@@ -77,36 +80,42 @@ export function prepareSetCorrection(
     ])
   );
   if (Object.keys(fields).length === 0) {
-    throw new ApiError(
-      422,
-      'Send at least one of "weight_kg", "reps", "distance_m", "duration_s", "effort", "performed_at", "notes".'
+    return Effect.fail(
+      new Invalid({
+        message:
+          'Send at least one of "weight_kg", "reps", "distance_m", "duration_s", "effort", "performed_at", "notes".',
+      })
     );
   }
   const merged = { ...existing, ...fields };
-  assertSetMeasures(existing.measure, existing.exercise, "actual", {
+  return assertSetMeasures(existing.measure, existing.exercise, "actual", {
     weightKg: merged.weight_kg,
     reps: merged.reps,
     distanceM: merged.distance_m,
     durationS: merged.duration_s,
-  });
-  assertEffort(
-    existing.stimulus_type,
-    existing.exercise,
-    existing.kind,
-    merged.reps,
-    merged.effort
+  }).pipe(
+    Effect.andThen(
+      assertEffort(
+        existing.stimulus_type,
+        existing.exercise,
+        existing.kind,
+        merged.reps,
+        merged.effort
+      )
+    ),
+    Effect.map(() => {
+      const nowMeasured =
+        (fields.reps !== null && fields.reps !== undefined) ||
+        (fields.distance_m !== null && fields.distance_m !== undefined) ||
+        (fields.duration_s !== null && fields.duration_s !== undefined);
+      if (
+        fields.performed_at === undefined &&
+        existing.performed_at === null &&
+        nowMeasured
+      ) {
+        fields.performed_at = performedAt;
+      }
+      return fields;
+    })
   );
-
-  const nowMeasured =
-    (fields.reps !== null && fields.reps !== undefined) ||
-    (fields.distance_m !== null && fields.distance_m !== undefined) ||
-    (fields.duration_s !== null && fields.duration_s !== undefined);
-  if (
-    fields.performed_at === undefined &&
-    existing.performed_at === null &&
-    nowMeasured
-  ) {
-    fields.performed_at = performedAt;
-  }
-  return fields;
 }

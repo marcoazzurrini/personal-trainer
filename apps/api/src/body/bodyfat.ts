@@ -2,19 +2,20 @@ import type {
   BodyfatMeasurement,
   BodyfatRepository,
 } from "@trainer/db/repositories/bodyfat.ts";
+import { Effect } from "effect";
 
+import { effectful } from "../shared/database.ts";
 import { requireNotFuture } from "../shared/dates.ts";
-import { ApiError, databaseError } from "../shared/errors.ts";
+import { Conflict, NotFound } from "../shared/refusals.ts";
+import type { DatabaseFailure, Invalid } from "../shared/refusals.ts";
 import {
   date,
   decimal,
-  instant,
+  now,
   requestId,
   romeDate,
-  systemClock,
   wireInstant,
 } from "../shared/values.ts";
-import type { Clock } from "../shared/values.ts";
 import type {
   BodyfatRow,
   Method,
@@ -39,88 +40,85 @@ function wireMeasurement(row: BodyfatMeasurement): BodyfatRow {
   };
 }
 
-export function bodyfatStore(
-  repository: BodyfatRepository,
-  clock: Clock = systemClock
-) {
-  async function recordBodyfat(
+export function bodyfatStore(rows: BodyfatRepository) {
+  const repository = effectful(rows);
+
+  const recordBodyfat = Effect.fn("bodyfat.recordBodyfat")(function* (
     input: RecordBodyfatInput
-  ): Promise<RecordedBodyfat> {
-    const now = instant(clock().toISOString());
-    const today = romeDate(now);
-    const day = requireNotFuture(date(input.day ?? today), today, "day");
-    const value = decimal(input.percent, 4, 1);
-    function conflict(existing: BodyfatRow): never {
-      throw new ApiError(
-        409,
-        `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${input.method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`
-      );
-    }
-    try {
-      // Natural-key precedence includes request-id validation: an existing
-      // measurement is answered before inspecting the retry identifier.
-      const found = await repository.findByDayMethod(day, input.method);
-      if (found) {
-        const row = wireMeasurement(found);
-        if (found.percent === value / 10) {
-          return { row, created: false };
-        }
-        return conflict(row);
-      }
-      const result = await repository.save({
-        day,
-        percent: input.percent,
-        method: input.method,
-        note: input.note ?? null,
-        requestId: requestId(input.requestId),
-        createdAt: now,
+  ): Effect.fn.Return<
+    RecordedBodyfat,
+    Invalid | NotFound | Conflict | DatabaseFailure
+  > {
+    const createdAt = yield* now;
+    const today = yield* romeDate(createdAt);
+    const day = yield* requireNotFuture(
+      yield* date(input.day ?? today),
+      today,
+      "day"
+    );
+    const value = yield* decimal(input.percent, 4, 1);
+    const conflict = (existing: BodyfatRow) =>
+      new Conflict({
+        message: `A different estimate (${existing.percent}%) is already recorded for ${day} from method "${input.method}". Record the new reading under its own method, or on the day it was actually taken — an estimate is a measurement, not a running opinion.`,
       });
-      if (result.kind === "missing") {
-        throw new ApiError(
-          404,
-          "The body-fat estimate could not be read after saving."
-        );
+    // Natural-key precedence includes request-id validation: an existing
+    // measurement is answered before inspecting the retry identifier.
+    const found = yield* repository.findByDayMethod(day, input.method);
+    if (found) {
+      const row = wireMeasurement(found);
+      if (found.percent === value / 10) {
+        return { row, created: false };
       }
-      const row = wireMeasurement(result.row);
-      if (result.kind === "conflict") {
-        return conflict(row);
-      }
-      return { row, created: result.kind === "created" };
-    } catch (error) {
-      throw databaseError(error);
+      return yield* conflict(row);
     }
-  }
-
-  async function listBodyfat(): Promise<BodyfatRow[]> {
-    try {
-      return (await repository.list()).map(wireMeasurement);
-    } catch (error) {
-      throw databaseError(error);
+    const result = yield* repository.save({
+      day,
+      percent: input.percent,
+      method: input.method,
+      note: input.note ?? null,
+      requestId: yield* requestId(input.requestId),
+      createdAt,
+    });
+    if (result.kind === "missing") {
+      return yield* new NotFound({
+        message: "The body-fat estimate could not be read after saving.",
+      });
     }
-  }
+    const row = wireMeasurement(result.row);
+    if (result.kind === "conflict") {
+      return yield* conflict(row);
+    }
+    return { row, created: result.kind === "created" };
+  });
 
-  async function latestBodyfat(): Promise<BodyfatRow | null> {
-    try {
-      const row = await repository.latest();
+  const listBodyfat = Effect.fn("bodyfat.listBodyfat")(
+    function* (): Effect.fn.Return<BodyfatRow[], DatabaseFailure> {
+      return (yield* repository.list()).map(wireMeasurement);
+    }
+  );
+
+  const latestBodyfat = Effect.fn("bodyfat.latestBodyfat")(
+    function* (): Effect.fn.Return<BodyfatRow | null, DatabaseFailure> {
+      const row = yield* repository.latest();
       return row ? wireMeasurement(row) : null;
-    } catch (error) {
-      throw databaseError(error);
     }
-  }
+  );
 
-  async function removeBodyfat(
+  const removeBodyfat = Effect.fn("bodyfat.removeBodyfat")(function* (
     id: number
-  ): Promise<Pick<BodyfatRow, "day" | "percent" | "method">> {
-    try {
-      const row = await repository.remove(id);
-      if (!row) {
-        throw new ApiError(404, `No body-fat estimate with id ${id}.`);
-      }
-      return { ...row, method: storedMethod(row.method) };
-    } catch (error) {
-      throw databaseError(error);
+  ): Effect.fn.Return<
+    Pick<BodyfatRow, "day" | "percent" | "method">,
+    NotFound | DatabaseFailure
+  > {
+    const row = yield* repository.remove(id);
+    if (!row) {
+      return yield* new NotFound({
+        message: `No body-fat estimate with id ${id}.`,
+      });
     }
-  }
+    return { ...row, method: storedMethod(row.method) };
+  });
+
   return { recordBodyfat, listBodyfat, latestBodyfat, removeBodyfat };
 }
 

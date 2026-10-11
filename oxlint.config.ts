@@ -27,6 +27,22 @@ export default defineConfig({
   },
   overrides: [
     {
+      // The API is written in Effect. These rules read Effect code as promise
+      // code and misfire on its idioms; Effect code has no promise chains.
+      files: ["apps/api/**"],
+      rules: {
+        // Effect.gen and Effect.fn bodies are generators; Effect.fn("name")
+        // already names the work, and that name is the tracing span.
+        "func-names": ["error", "always", { generators: "never" }],
+        // Effect.catch is the Effect error handler, not Promise#catch.
+        "promise/prefer-await-to-then": "off",
+        // An Effect error handler takes the failure first; it is not a
+        // Node-style callback, and its parameter names what it caught.
+        "promise/prefer-await-to-callbacks": "off",
+        "unicorn/catch-error-name": "off",
+      },
+    },
+    {
       files: [
         "apps/api/tests/**/*_test.ts",
         "apps/api/tests/*.test.ts",

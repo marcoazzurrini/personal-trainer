@@ -1,5 +1,7 @@
 import { test } from "node:test";
 
+import { Effect, Redacted } from "effect";
+
 import {
   getWeights,
   refreshTokens,
@@ -47,22 +49,28 @@ test("GitHub and Withings bound stalled headers and bodies without leaking crede
     await Promise.all(
       ["headers", "body"].map(async (mode) => {
         const apiBase = `${base}/${mode}`;
-        const gh = { apiBase, repo: "o/r", token: credential };
+        const gh = { apiBase, repo: "o/r", token: Redacted.make(credential) };
         const withings = {
           apiBase,
           clientId: "test",
-          clientSecret: credential,
+          clientSecret: Redacted.make(credential),
         };
         await Promise.all(
           [
-            () => listCoachIssues(gh),
-            () => openIssue(gh, { title: "t", body: "p", kind: "bug" }),
-            () => commentOnIssue(gh, 1, "note"),
-            () => getWeights(withings, credential, { lastupdate: 0 }),
-            () => refreshTokens(withings, credential),
+            () => Effect.runPromise(listCoachIssues(gh)),
+            () =>
+              Effect.runPromise(
+                openIssue(gh, { title: "t", body: "p", kind: "bug" })
+              ),
+            () => Effect.runPromise(commentOnIssue(gh, 1, "note")),
+            () =>
+              Effect.runPromise(
+                getWeights(withings, credential, { lastupdate: 0 })
+              ),
+            () => Effect.runPromise(refreshTokens(withings, credential)),
           ].map(async (call, i) => {
             const started = performance.now();
-            const err = await assertRejects(
+            const err = await assertRejects<GithubError | WithingsError>(
               call,
               i < 3 ? GithubError : WithingsError,
               "timed out after 5 seconds"

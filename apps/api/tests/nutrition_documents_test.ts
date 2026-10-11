@@ -49,6 +49,6 @@ test("nutrition documents agree with food identity, corrections and target stora
     "utf-8"
   );
   const refusal = operation.indexOf("if (expenditure.tdee_kcal === null)");
-  const write = operation.indexOf("await repository.save(");
+  const write = operation.indexOf("yield* repository.save(");
   assert(refusal !== -1 && write !== -1 && refusal < write);
 });

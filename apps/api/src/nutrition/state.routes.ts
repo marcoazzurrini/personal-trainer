@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { clock, macroTotals, query } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { Entry } from "./intake.routes.ts";
 import { Target } from "./targets.routes.ts";
@@ -162,5 +162,5 @@ nutritionState.openapi(
       },
     },
   }),
-  async (c) => c.json(await services(c).nutritionState.nutritionState())
+  async (c) => c.json(await run(c, services(c).nutritionState.nutritionState()))
 );

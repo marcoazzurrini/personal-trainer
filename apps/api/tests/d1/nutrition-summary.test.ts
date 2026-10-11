@@ -45,7 +45,9 @@ before(async () => {
     "Summary reads must not load PostgreSQL or its environment reader."
   );
   script = compiled.outputFiles[0].text;
-  assert.doesNotMatch(script, /\bDeno\b/u);
+  // Effect's runtime detection names Deno without calling it; what must
+  // never be bundled is a Deno API, as in the sibling Worker suites.
+  assert.doesNotMatch(script, /Deno\./u);
   const directory = migrationsDirectory;
   const files = (await readdir(directory))
     .filter((name) => name.endsWith(".sql"))

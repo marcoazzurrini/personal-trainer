@@ -12,21 +12,29 @@
 // values the caller passes in: the issuer, and the audience this endpoint
 // expects to find in the token.
 //
-// Import-free on purpose, like surfaces/github.ts: the unit tests sign tokens
-// with keys they generate and run this file without a database or API server.
+// Free of the database and the API on purpose, like surfaces/github.ts: the
+// unit tests sign tokens with keys they generate and run this file without a
+// database or API server. Time is the Effect Clock's, so a test sets it.
 
-export class JwtError extends Error {
+/* oxlint-disable max-classes-per-file -- A refusal of the token and an unreachable server are the two failures every caller tells apart. */
+import { Cache, Clock, Data, Effect, Exit } from "effect";
+
+export class JwtError extends Data.TaggedError("JwtError")<{
+  readonly message: string;
   // Set when the token names a key the key set does not hold. The caller may
   // refetch the keys once for that case — a rotated key is the ordinary
   // reason — and every other refusal is final.
-  readonly unknownKid: boolean;
+  readonly unknownKid?: boolean;
+}> {}
 
-  // eslint-disable-next-line unicorn/custom-error-definition -- Preserve the existing Error name; callers distinguish refusals with instanceof JwtError.
-  constructor(message: string, unknownKid = false) {
-    super(message);
-    this.unknownKid = unknownKid;
-  }
-}
+// The metadata or the keys could not be read. Never a JwtError: nothing here
+// is a refusal of the token, only a failure to reach the server that could
+// judge it, and the routes answer those differently.
+export class AuthorizationServerError extends Data.TaggedError(
+  "AuthorizationServerError"
+)<{
+  readonly message: string;
+}> {}
 
 /** Compare credentials through native HMAC verification, not JavaScript equality. */
 export async function timingSafeEqual(
@@ -77,21 +85,24 @@ const LEEWAY_SECONDS = 60;
 // Returns bytes over a plain ArrayBuffer: WebCrypto's verify() refuses a view
 // that might sit on a SharedArrayBuffer, which is what Uint8Array.from yields
 // in the type system.
-export function decodeBase64Url(text: string): Uint8Array<ArrayBuffer> {
+export function decodeBase64Url(
+  text: string
+): Effect.Effect<Uint8Array<ArrayBuffer>, JwtError> {
   const base64 = text.replaceAll("-", "+").replaceAll("_", "/");
   const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  let binary: string;
-  try {
-    binary = atob(padded);
-  } catch {
-    throw new JwtError("The token is not base64url.");
-  }
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let i = 0; i < binary.length; i++) {
-    // eslint-disable-next-line unicorn/prefer-code-point -- atob returns byte-valued code units, not Unicode text; preserve the exact decoded bytes.
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+  return Effect.try({
+    try: () => atob(padded),
+    catch: () => new JwtError({ message: "The token is not base64url." }),
+  }).pipe(
+    Effect.map((binary) => {
+      const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+      for (let i = 0; i < binary.length; i++) {
+        // eslint-disable-next-line unicorn/prefer-code-point -- atob returns byte-valued code units, not Unicode text; preserve the exact decoded bytes.
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    })
+  );
 }
 
 // eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Decoded JWT and issuer JSON fields remain unknown until their individual boundary checks.
@@ -101,17 +112,27 @@ function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function decodeJson(segment: string, what: string): JsonObject {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(new TextDecoder().decode(decodeBase64Url(segment)));
-  } catch {
-    throw new JwtError(`The token's ${what} is not JSON.`);
-  }
-  if (!isJsonObject(parsed)) {
-    throw new JwtError(`The token's ${what} is not an object.`);
-  }
-  return parsed;
+// Undecodable and unparsable read the same from outside: either way the
+// segment is not JSON.
+function decodeJson(
+  segment: string,
+  what: string
+): Effect.Effect<JsonObject, JwtError> {
+  return decodeBase64Url(segment).pipe(
+    Effect.flatMap((bytes) =>
+      Effect.try(() => JSON.parse(new TextDecoder().decode(bytes)))
+    ),
+    Effect.mapError(
+      () => new JwtError({ message: `The token's ${what} is not JSON.` })
+    ),
+    Effect.flatMap((parsed) =>
+      isJsonObject(parsed)
+        ? Effect.succeed(parsed)
+        : Effect.fail(
+            new JwtError({ message: `The token's ${what} is not an object.` })
+          )
+    )
+  );
 }
 
 // The key is imported for the algorithm the header claims, and refused if
@@ -121,53 +142,76 @@ function decodeJson(segment: string, what: string): JsonObject {
 // fields that define the key are handed to importKey — a published key set
 // carries alg, use and key_ops beside them, and WebCrypto is strict about
 // extras.
-async function importKey(jwk: JsonWebKey, alg: Alg): Promise<CryptoKey> {
+function importKey(
+  jwk: JsonWebKey,
+  alg: Alg
+): Effect.Effect<CryptoKey, JwtError> {
   if (alg === "RS256") {
     if (jwk.kty !== "RSA" || !jwk.n || !jwk.e) {
-      throw new JwtError(
-        "The token says RS256 but the key it names is not an RSA key."
+      return Effect.fail(
+        new JwtError({
+          message:
+            "The token says RS256 but the key it names is not an RSA key.",
+        })
       );
     }
-    return await crypto.subtle.importKey(
-      "jwk",
-      { kty: "RSA", n: jwk.n, e: jwk.e },
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["verify"]
+    const { n, e } = jwk;
+    return Effect.promise(() =>
+      crypto.subtle.importKey(
+        "jwk",
+        { kty: "RSA", n, e },
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+        false,
+        ["verify"]
+      )
     );
   }
   if (jwk.kty !== "EC" || jwk.crv !== "P-256" || !jwk.x || !jwk.y) {
-    throw new JwtError(
-      "The token says ES256 but the key it names is not a P-256 key."
+    return Effect.fail(
+      new JwtError({
+        message:
+          "The token says ES256 but the key it names is not a P-256 key.",
+      })
     );
   }
-  return await crypto.subtle.importKey(
-    "jwk",
-    { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["verify"]
+  const { x, y } = jwk;
+  return Effect.promise(() =>
+    crypto.subtle.importKey(
+      "jwk",
+      { kty: "EC", crv: "P-256", x, y },
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    )
   );
 }
 
-function pickKey(jwks: Jwks, kid: string | null): JsonWebKey {
+function pickKey(
+  jwks: Jwks,
+  kid: string | null
+): Effect.Effect<JsonWebKey, JwtError> {
   if (kid !== null) {
     const match = jwks.keys.find((key) => key.kid === kid);
     if (match === undefined) {
-      throw new JwtError(
-        `The token is signed with key "${kid}", which the authorization server does not publish.`,
-        true
+      return Effect.fail(
+        new JwtError({
+          message: `The token is signed with key "${kid}", which the authorization server does not publish.`,
+          unknownKid: true,
+        })
       );
     }
-    return match;
+    return Effect.succeed(match);
   }
   // No kid: only unambiguous when there is one key to choose from.
   if (jwks.keys.length !== 1) {
-    throw new JwtError(
-      "The token names no signing key and the authorization server publishes more than one."
+    return Effect.fail(
+      new JwtError({
+        message:
+          "The token names no signing key and the authorization server publishes more than one.",
+      })
     );
   }
-  return jwks.keys[0];
+  return Effect.succeed(jwks.keys[0]);
 }
 
 // The header alone: the shape of the token and the algorithm it claims, read
@@ -181,18 +225,22 @@ interface TokenHeader {
   segments: [string, string, string];
 }
 
-export function readHeader(token: string): TokenHeader {
+export const readHeader = Effect.fn("jwt.readHeader")(function* (
+  token: string
+): Effect.fn.Return<TokenHeader, JwtError> {
   const parts = token.split(".");
   if (parts.length !== 3) {
-    throw new JwtError("The token is not three dot-separated segments.");
+    return yield* new JwtError({
+      message: "The token is not three dot-separated segments.",
+    });
   }
-  const header = decodeJson(parts[0], "header");
+  const header = yield* decodeJson(parts[0], "header");
   if (!isAlg(header.alg)) {
-    throw new JwtError(
-      `The token is signed with "${String(
+    return yield* new JwtError({
+      message: `The token is signed with "${String(
         header.alg
-      )}"; only RS256 or ES256 is accepted.`
-    );
+      )}"; only RS256 or ES256 is accepted.`,
+    });
   }
   return {
     alg: header.alg,
@@ -200,7 +248,7 @@ export function readHeader(token: string): TokenHeader {
     kid: typeof header.kid === "string" ? header.kid : null,
     segments: [parts[0], parts[1], parts[2]],
   };
-}
+});
 
 // One spelling of a resource URL, so the token's audience and this
 // endpoint's own address compare as the same place however each was
@@ -227,51 +275,60 @@ interface VerifiedClaims extends JsonObject {
 
 // Shared cryptographic checks do not decide which application may use a token.
 // Each public verifier below applies its own, non-interchangeable claim policy.
-async function verifiedClaims(
+// A key WebCrypto cannot use is a defect, not a refusal: the callers answer
+// every failure but a refusal as the server being unreachable.
+const verifiedClaims = Effect.fn("jwt.verifiedClaims")(function* (
   token: string,
-  opts: { issuer: string; jwks: Jwks; now?: number }
-): Promise<VerifiedClaims> {
-  const { alg, kid, segments } = readHeader(token);
+  opts: { issuer: string; jwks: Jwks }
+): Effect.fn.Return<VerifiedClaims, JwtError> {
+  const { alg, kid, segments } = yield* readHeader(token);
   const [headerSegment, payloadSegment, signatureSegment] = segments;
 
-  const key = await importKey(pickKey(opts.jwks, kid), alg);
+  const key = yield* importKey(yield* pickKey(opts.jwks, kid), alg);
   const signed = new TextEncoder().encode(`${headerSegment}.${payloadSegment}`);
-  const valid = await crypto.subtle.verify(
-    alg === "RS256"
-      ? { name: "RSASSA-PKCS1-v1_5" }
-      : { name: "ECDSA", hash: "SHA-256" },
-    key,
-    decodeBase64Url(signatureSegment),
-    signed
+  const signature = yield* decodeBase64Url(signatureSegment);
+  const valid = yield* Effect.promise(() =>
+    crypto.subtle.verify(
+      alg === "RS256"
+        ? { name: "RSASSA-PKCS1-v1_5" }
+        : { name: "ECDSA", hash: "SHA-256" },
+      key,
+      signature,
+      signed
+    )
   );
   if (!valid) {
-    throw new JwtError("The token's signature does not verify.");
+    return yield* new JwtError({
+      message: "The token's signature does not verify.",
+    });
   }
 
-  const claims = decodeJson(payloadSegment, "payload");
-  const now = opts.now ?? Math.floor(Date.now() / 1000);
+  const claims = yield* decodeJson(payloadSegment, "payload");
+  const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
   if (claims.iss !== opts.issuer) {
-    throw new JwtError(
-      `The token was issued by "${String(
+    return yield* new JwtError({
+      message: `The token was issued by "${String(
         claims.iss
-      )}", not by this project's authorization server.`
-    );
+      )}", not by this project's authorization server.`,
+    });
   }
   // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the signed payload's expiry before applying the existing clock leeway.
   if (typeof claims.exp !== "number" || claims.exp + LEEWAY_SECONDS <= now) {
-    throw new JwtError("The token has expired. Sign in again.");
+    return yield* new JwtError({
+      message: "The token has expired. Sign in again.",
+    });
   }
   // eslint-disable-next-line anti-slop/no-runtime-typeof -- Only numeric nbf claims participate in the existing not-before check.
   if (typeof claims.nbf === "number" && claims.nbf - LEEWAY_SECONDS > now) {
-    throw new JwtError("The token is not valid yet.");
+    return yield* new JwtError({ message: "The token is not valid yet." });
   }
 
   // eslint-disable-next-line anti-slop/no-runtime-typeof -- A nonempty string subject is required at the signed-payload boundary.
   if (typeof claims.sub !== "string" || claims.sub === "") {
-    throw new JwtError("The token names no subject.");
+    return yield* new JwtError({ message: "The token names no subject." });
   }
   return { ...claims, sub: claims.sub, exp: claims.exp };
-}
+});
 
 function identity(claims: VerifiedClaims): Identity {
   return {
@@ -287,11 +344,11 @@ function identity(claims: VerifiedClaims): Identity {
   };
 }
 
-export async function verifyJwt(
+export const verifyJwt = Effect.fn("jwt.verifyJwt")(function* (
   token: string,
-  opts: { issuer: string; audience: string; jwks: Jwks; now?: number }
-): Promise<Identity> {
-  const claims = await verifiedClaims(token, opts);
+  opts: { issuer: string; audience: string; jwks: Jwks }
+): Effect.fn.Return<Identity, JwtError> {
+  const claims = yield* verifiedClaims(token, opts);
   // The audience: a token is minted for one resource, and this endpoint
   // accepts only tokens minted for it. A token for another of the
   // authorization server's resources is refused here, whoever signed it.
@@ -302,40 +359,43 @@ export async function verifyJwt(
   ).filter((entry): entry is string => typeof entry === "string");
   const wanted = canonicalResource(opts.audience);
   if (!audiences.some((entry) => canonicalResource(entry) === wanted)) {
-    throw new JwtError(
-      `The token is for "${
+    return yield* new JwtError({
+      message: `The token is for "${
         audiences.join(", ") || "no resource"
-      }", not for this endpoint (${opts.audience}).`
-    );
+      }", not for this endpoint (${opts.audience}).`,
+    });
   }
 
   return identity(claims);
-}
+});
 
 // WorkOS web-session tokens name an application with client_id and a session
 // with sid. Connect/MCP tokens name a resource with aud instead. Do not relax
 // the connector's audience check to accept a web token, or accept a Connect
 // token here merely because its subject belongs to Marco. A signed token stays
 // valid until it expires, even after its WorkOS session is revoked.
-export async function verifyWebSessionJwt(
-  token: string,
-  opts: { issuer: string; clientId: string; jwks: Jwks; now?: number }
-): Promise<Identity> {
-  const claims = await verifiedClaims(token, opts);
-  if (
-    claims.client_id !== opts.clientId ||
-    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Web-session authentication requires a nonempty string sid from the signed payload.
-    typeof claims.sid !== "string" ||
-    claims.sid === "" ||
-    claims.aud !== undefined ||
-    claims.act !== undefined
-  ) {
-    throw new JwtError(
-      "This endpoint requires a direct web session for this application, not a connector or impersonation token. Sign in to the dashboard again."
-    );
+export const verifyWebSessionJwt = Effect.fn("jwt.verifyWebSessionJwt")(
+  function* (
+    token: string,
+    opts: { issuer: string; clientId: string; jwks: Jwks }
+  ): Effect.fn.Return<Identity, JwtError> {
+    const claims = yield* verifiedClaims(token, opts);
+    if (
+      claims.client_id !== opts.clientId ||
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- Web-session authentication requires a nonempty string sid from the signed payload.
+      typeof claims.sid !== "string" ||
+      claims.sid === "" ||
+      claims.aud !== undefined ||
+      claims.act !== undefined
+    ) {
+      return yield* new JwtError({
+        message:
+          "This endpoint requires a direct web session for this application, not a connector or impersonation token. Sign in to the dashboard again.",
+      });
+    }
+    return identity(claims);
   }
-  return identity(claims);
-}
+);
 
 // --- What the authorization server publishes, read rarely -------------------
 
@@ -354,153 +414,197 @@ const REFETCH_INTERVAL_MS = 60 * 1000;
 // the request open for as long as the runtime allows, and the caller would
 // wait with it instead of being told to try again.
 const FETCH_MS = 5000;
-interface Published<T> {
-  value?: T;
-  fetchedAt: number;
-  pending?: Promise<T>;
-  failedAt?: number;
-  failure?: unknown;
-}
-const jwksCache = new Map<string, Published<Jwks>>();
-const metadataCache = new Map<string, Published<string>>();
+// One entry per configured URL; the bound only guards a misconfiguration.
+const CAPACITY = 16;
 
-// Both published documents share one in-flight read and failure cooldown.
-// Entries belong to these caches only; clearing them detaches pending reads
-// so a late completion cannot repopulate a reset cache.
-async function refreshPublished<T>(
-  entry: Published<T>,
-  now: number,
-  read: () => Promise<T>
-): Promise<T> {
-  if (entry.pending) {
-    return await entry.pending;
-  }
-  if (
-    entry.failedAt !== undefined &&
-    now - entry.failedAt < REFETCH_INTERVAL_MS
-  ) {
-    throw entry.failure;
-  }
-  /* oxlint-disable promise/prefer-await-to-then, promise/prefer-await-to-callbacks -- Preserve this shared refresh promise's settlement order, cache publication, failure recording and final cleanup. */
-  entry.pending = read()
-    .then((value) => {
-      entry.value = value;
-      entry.fetchedAt = now;
-      entry.failedAt = undefined;
-      entry.failure = undefined;
-      return value;
-    })
-    .catch((error) => {
-      entry.failedAt = now;
-      entry.failure = error;
-      throw error;
-    })
-    .finally(() => {
-      entry.pending = undefined;
-    });
-  /* oxlint-enable promise/prefer-await-to-then, promise/prefer-await-to-callbacks */
-  return await entry.pending;
+interface Published<T> {
+  readonly value: T;
+  readonly fetchedAt: number;
 }
+
+function unreadable(
+  what: "metadata" | "keys",
+  url: string,
+  reason: string
+): AuthorizationServerError {
+  return new AuthorizationServerError({
+    message: `The authorization server's ${what} could not be read: ${url} ${reason}.`,
+  });
+}
+
+// One read of a published document, headers and body within the deadline.
+// The timeout interrupts the fetch, which aborts it through the signal. Its
+// fields stay unknown until the reader of each document checks them.
+const readPublished = Effect.fn("jwt.readPublished")(function* (
+  what: "metadata" | "keys",
+  url: string
+): Effect.fn.Return<JsonObject | null, AuthorizationServerError> {
+  const { ok, status, text } = yield* Effect.tryPromise({
+    try: async (signal) => {
+      const response = await fetch(url, { signal });
+      return {
+        ok: response.ok,
+        status: response.status,
+        text: response.ok ? await response.text() : "",
+      };
+    },
+    catch: () => unreadable(what, url, "could not be reached"),
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: FETCH_MS,
+      orElse: () =>
+        Effect.fail(
+          unreadable(what, url, `timed out after ${FETCH_MS / 1000} seconds`)
+        ),
+    })
+  );
+  if (!ok) {
+    return yield* unreadable(what, url, `answered ${status}`);
+  }
+  const json = yield* Effect.try({
+    try: () => JSON.parse(text),
+    catch: () => unreadable(what, url, "did not answer with JSON"),
+  });
+  return isJsonObject(json) ? json : null;
+});
 
 // Where an issuer publishes its metadata (RFC 8414 §3.1): the well-known
 // segment goes between the host and the issuer's path, so an issuer with a
 // path — https://x.example/auth/v1 — is described at
 // https://x.example/.well-known/oauth-authorization-server/auth/v1, and one
 // without a path at the well-known URL alone.
-export function metadataUrl(issuer: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(issuer);
-  } catch {
-    throw new Error(`AUTH_ISSUER is not a URL: "${issuer}".`);
-  }
-  const path = parsed.pathname.replace(/\/+$/u, "");
-  return `${parsed.origin}/.well-known/oauth-authorization-server${path}`;
+export function metadataUrl(
+  issuer: string
+): Effect.Effect<string, AuthorizationServerError> {
+  return Effect.try({
+    try: () => new URL(issuer),
+    catch: () =>
+      new AuthorizationServerError({
+        message: `AUTH_ISSUER is not a URL: "${issuer}".`,
+      }),
+  }).pipe(
+    Effect.map((parsed) => {
+      const path = parsed.pathname.replace(/\/+$/u, "");
+      return `${parsed.origin}/.well-known/oauth-authorization-server${path}`;
+    })
+  );
 }
+
+// A success is kept for an hour, a failure for a minute: the cooldown that
+// stops a server that is down from being asked on every call. Concurrent
+// reads of one URL share one fetch. The caches belong to the isolate, built
+// once with no I/O, and read time from the Clock of whoever reads them.
+function timeToLive<A, E>(exit: Exit.Exit<A, E>): number {
+  return Exit.isSuccess(exit) ? CACHE_TTL_MS : REFETCH_INTERVAL_MS;
+}
+
+const metadataCache = Effect.runSync(
+  Cache.makeWith(
+    Effect.fn("jwt.readMetadata")(function* (
+      issuer: string
+    ): Effect.fn.Return<string, AuthorizationServerError> {
+      const url = yield* metadataUrl(issuer);
+      const body = yield* readPublished("metadata", url);
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- Issuer metadata is external JSON; only a string can declare its issuer.
+      const declared = typeof body?.issuer === "string" ? body.issuer : "";
+      if (declared.replace(/\/+$/u, "") !== issuer.replace(/\/+$/u, "")) {
+        return yield* unreadable(
+          "metadata",
+          url,
+          `names issuer "${declared}", not ${issuer}`
+        );
+      }
+      // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the external metadata's nonempty JWKS URL before returning it.
+      if (typeof body?.jwks_uri !== "string" || body.jwks_uri === "") {
+        return yield* unreadable("metadata", url, "did not name a jwks_uri");
+      }
+      return body.jwks_uri;
+    }),
+    { capacity: CAPACITY, timeToLive }
+  )
+);
+
+const readJwks = Effect.fn("jwt.readJwks")(function* (
+  url: string
+): Effect.fn.Return<Published<Jwks>, AuthorizationServerError> {
+  const fetchedAt = yield* Clock.currentTimeMillis;
+  const keys = (yield* readPublished("keys", url))?.keys;
+  if (!Array.isArray(keys)) {
+    return yield* unreadable("keys", url, "did not answer with a key set");
+  }
+  // The array is checked here; individual keys are checked at import.
+  return { value: { keys }, fetchedAt };
+});
+
+const jwksCache = Effect.runSync(
+  Cache.makeWith(readJwks, { capacity: CAPACITY, timeToLive })
+);
+
+// Bumped by forgetJwks, so a rotation still in flight across a reset cannot
+// write its keys into the reset cache.
+let generation = 0;
+
+// A rotation refetch is its own entry, kept a minute whatever it answered:
+// a burst of tokens naming unknown keys shares one request, and asks again
+// at most once a minute. A rotation that fails refuses only the token that
+// named the unknown key. The keys already held stay in the cache above, so
+// every token signed with one of them keeps working through an outage of
+// the authorization server until those keys expire.
+const rotations = Effect.runSync(
+  Cache.makeWith(
+    (url: string) => {
+      const started = generation;
+      return readJwks(url).pipe(
+        Effect.tap((published) =>
+          generation === started
+            ? Cache.set(jwksCache, url, published)
+            : Effect.void
+        )
+      );
+    },
+    { capacity: CAPACITY, timeToLive: () => REFETCH_INTERVAL_MS }
+  )
+);
 
 // The key set's address, learned from the issuer rather than assumed: every
 // authorization server puts its keys somewhere different, and the metadata
-// is where it says so. Throws a plain Error, never a JwtError: nothing here
-// is a refusal of the token, only a failure to reach the server that could
-// judge it, and the route answers those differently.
-export async function discoverJwksUrl(
-  issuer: string,
-  opts: { now?: number } = {}
-): Promise<string> {
-  const now = opts.now ?? Date.now();
-  const cached = metadataCache.get(issuer) ?? { fetchedAt: 0 };
-  metadataCache.set(issuer, cached);
-  if (cached.value !== undefined && now - cached.fetchedAt < CACHE_TTL_MS) {
-    return cached.value;
-  }
-  return await refreshPublished(cached, now, async () => {
-    const url = metadataUrl(issuer);
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(FETCH_MS),
-    });
-    if (!response.ok) {
-      throw new Error(
-        `The authorization server's metadata could not be read: ${url} answered ${response.status}.`
-      );
-    }
-    const json: unknown = await response.json();
-    const body = isJsonObject(json) ? json : null;
-    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Issuer metadata is external JSON; only a string can declare its issuer.
-    const declared = typeof body?.issuer === "string" ? body.issuer : "";
-    if (declared.replace(/\/+$/u, "") !== issuer.replace(/\/+$/u, "")) {
-      throw new Error(
-        `The authorization server's metadata could not be read: ${url} names issuer "${declared}", not ${issuer}.`
-      );
-    }
-    // eslint-disable-next-line anti-slop/no-runtime-typeof -- Validate the external metadata's nonempty JWKS URL before returning it.
-    if (typeof body?.jwks_uri !== "string" || body.jwks_uri === "") {
-      throw new Error(
-        `The authorization server's metadata could not be read: ${url} did not name a jwks_uri.`
-      );
-    }
-    return body.jwks_uri;
-  });
-}
+// is where it says so.
+export const discoverJwksUrl = Effect.fn("jwt.discoverJwksUrl")(function* (
+  issuer: string
+): Effect.fn.Return<string, AuthorizationServerError> {
+  return yield* Cache.get(metadataCache, issuer);
+});
 
-export async function fetchJwks(
+export const fetchJwks = Effect.fn("jwt.fetchJwks")(function* (
   url: string,
-  opts: { unknownKid?: string; now?: number } = {}
-): Promise<Jwks> {
-  const now = opts.now ?? Date.now();
-  const cached = jwksCache.get(url) ?? { fetchedAt: 0 };
-  jwksCache.set(url, cached);
-  const fresh = now - cached.fetchedAt < CACHE_TTL_MS;
-  const holdsKid =
-    opts.unknownKid === undefined ||
-    cached.value?.keys.some((key) => key.kid === opts.unknownKid);
-  const recentlyFetched = now - cached.fetchedAt < REFETCH_INTERVAL_MS;
-  if (cached.value !== undefined && fresh && (holdsKid || recentlyFetched)) {
+  opts: { unknownKid?: string } = {}
+): Effect.fn.Return<Jwks, AuthorizationServerError> {
+  const cached = yield* Cache.get(jwksCache, url);
+  const { unknownKid } = opts;
+  if (
+    unknownKid === undefined ||
+    cached.value.keys.some((key) => key.kid === unknownKid)
+  ) {
     return cached.value;
   }
+  const now = yield* Clock.currentTimeMillis;
+  if (now - cached.fetchedAt < REFETCH_INTERVAL_MS) {
+    return cached.value;
+  }
+  // A key this cache has not seen, on keys read more than a minute ago: what
+  // a rotation looks like from here.
+  return (yield* Cache.get(rotations, url)).value;
+});
 
-  return await refreshPublished(cached, now, async () => {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(FETCH_MS),
-    });
-    if (!response.ok) {
-      throw new Error(
-        `The authorization server's keys could not be read: ${url} answered ${response.status}.`
-      );
-    }
-    const body: unknown = await response.json();
-    const keys = isJsonObject(body) ? body.keys : undefined;
-    if (!Array.isArray(keys)) {
-      throw new TypeError(
-        `The authorization server's keys could not be read: ${url} did not answer with a key set.`
-      );
-    }
-    const jwks: Jwks = { keys }; // The array is checked here; individual keys are checked at import.
-    return jwks;
-  });
-}
-
-// For the tests, which need cold caches between cases.
+// For the tests, which need cold caches between cases. A read still in
+// flight finishes for its own callers and is not kept.
 export function forgetJwks(): void {
-  jwksCache.clear();
-  metadataCache.clear();
+  generation += 1;
+  Effect.runSync(
+    Effect.all([
+      Cache.invalidateAll(jwksCache),
+      Cache.invalidateAll(rotations),
+      Cache.invalidateAll(metadataCache),
+    ])
+  );
 }

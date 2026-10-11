@@ -1,15 +1,18 @@
 // The calendar arithmetic, defined once.
 //
 // Every day in this system is a Rome calendar date carried as a bare
-// "YYYY-MM-DD" string. Persistence converts its injected clock to Europe/Rome;
-// this module never reads a clock. It walks from one day to another using UTC
-// anchors so DST cannot add or remove a day. api/tests/dates_test.ts holds the
+// "YYYY-MM-DD" string. The arithmetic never reads a clock; only the instant
+// check at the end asks the request's Effect Clock. It walks from one day to
+// another using UTC anchors so DST cannot add or remove a day. api/tests/dates_test.ts holds the
 // Monday boundary across calendar and timezone changes.
 //
 // The future checks live here too: whether a day has happened yet is a
 // question about the calendar, not about a field.
 
-import { ApiError } from "./errors.ts";
+import { Effect } from "effect";
+
+import { Invalid } from "./refusals.ts";
+import { currentTime } from "./values.ts";
 
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
@@ -48,15 +51,15 @@ export function requireNotFuture(
   day: string,
   today: string,
   field: string
-): string {
-  if (day > today) {
-    // ISO dates sort lexicographically
-    throw new ApiError(
-      422,
-      `"${field}" is ${day}, which is in the future — today is ${today} in Europe/Rome. A logged day records what was already eaten, weighed or measured. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`
-    );
-  }
-  return day;
+): Effect.Effect<string, Invalid> {
+  // ISO dates sort lexicographically
+  return day > today
+    ? Effect.fail(
+        new Invalid({
+          message: `"${field}" is ${day}, which is in the future — today is ${today} in Europe/Rome. A logged day records what was already eaten, weighed or measured. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`,
+        })
+      )
+    : Effect.succeed(day);
 }
 
 // The same rule for an instant rather than a calendar day. A few minutes of
@@ -66,14 +69,17 @@ const CLOCK_SKEW_MS = 5 * 60_000;
 
 export function requireNotFutureInstant(
   iso: string,
-  field: string,
-  now: number = Date.now()
-): string {
-  if (Date.parse(iso) > now + CLOCK_SKEW_MS) {
-    throw new ApiError(
-      422,
-      `"${field}" is ${iso}, which is in the future. A measurement records something that has already been taken. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`
-    );
-  }
-  return iso;
+  field: string
+): Effect.Effect<string, Invalid> {
+  return currentTime.pipe(
+    Effect.flatMap((at) =>
+      Date.parse(iso) > at.getTime() + CLOCK_SKEW_MS
+        ? Effect.fail(
+            new Invalid({
+              message: `"${field}" is ${iso}, which is in the future. A measurement records something that has already been taken. Check the year first: a slipped year is the usual cause and the hardest to spot afterwards.`,
+            })
+          )
+        : Effect.succeed(iso)
+    )
+  );
 }

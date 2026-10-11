@@ -11,6 +11,8 @@ import { bodyfatStore } from "../../src/body/bodyfat.ts";
 import { bodyweightStore } from "../../src/body/bodyweight.ts";
 import { nutritionStateStore } from "../../src/nutrition/state.ts";
 import { nutritionWeeklyStore } from "../../src/nutrition/weekly.ts";
+import { invocationContext, run } from "../../src/shared/runtime.ts";
+import { clockFrom } from "../../src/shared/values.ts";
 import { summaryInput } from "./test-input.ts";
 
 // Synthetic, local-only harness. Count actual statements and bindings so a
@@ -71,30 +73,48 @@ export default {
         }
       },
     });
-    const clock = () => {
+    // Counts reads of the wall time only; span timing is not a read.
+    const clock = clockFrom(() => {
       const now = clockCalls > 0 && input.nextNow ? input.nextNow : input.now;
       clockCalls += 1;
       return new Date(now);
-    };
+    });
+    const context = invocationContext({
+      env: { DB: db },
+      invocation: {
+        waitUntil() {
+          // The harness answers only after each read settles.
+        },
+        passThroughOnException() {
+          // No upstream service exists in this harness.
+        },
+      },
+      diagnostic: { id: crypto.randomUUID(), route: "test" },
+      clock,
+    });
     const client = createClient(db);
     const repositories = nutritionRepositories(client);
-    const bodyweight = bodyweightStore(bodyweightRepository(client), clock);
-    const bodyfat = bodyfatStore(bodyfatRepository(client), clock);
+    const bodyweight = bodyweightStore(bodyweightRepository(client));
+    const bodyfat = bodyfatStore(bodyfatRepository(client));
     try {
       const result =
         input.method === "nutritionState"
-          ? await nutritionStateStore(
-              repositories.state,
-              bodyweight,
-              bodyfat,
-              clock
-            ).nutritionState()
-          : await nutritionWeeklyStore(
-              repositories.weekly,
-              bodyweight,
-              bodyfat,
-              clock
-            ).finishedWeeks(input.weeks ?? 8);
+          ? await run(
+              context,
+              nutritionStateStore(
+                repositories.state,
+                bodyweight,
+                bodyfat
+              ).nutritionState()
+            )
+          : await run(
+              context,
+              nutritionWeeklyStore(
+                repositories.weekly,
+                bodyweight,
+                bodyfat
+              ).finishedWeeks(input.weeks ?? 8)
+            );
       return Response.json({ result, queries, maxBindings, clockCalls });
     } catch (error) {
       return Response.json({ error: String(error) }, { status: 500 });

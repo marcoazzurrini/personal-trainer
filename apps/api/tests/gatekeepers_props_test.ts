@@ -1,10 +1,11 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
 import fc from "fast-check";
 import type { z } from "zod";
 
 import { requireNotFuture } from "../src/shared/dates.ts";
-import { ApiError } from "../src/shared/errors.ts";
+import type { Invalid } from "../src/shared/refusals.ts";
 import {
   body,
   date,
@@ -17,6 +18,7 @@ import {
 } from "../src/shared/schema.ts";
 import { isDocName, MAX_DOC_NAME } from "../src/surfaces/issues.ts";
 import { assert, assertEquals } from "./assertions.ts";
+import { failureOf } from "./effects.ts";
 // The gatekeepers, tested as laws. Every request the API accepts or refuses
 // passes through these few shapes, so a wrong edge here is a wrong edge on
 // every route at once.
@@ -39,14 +41,12 @@ function accepted<T>(schema: z.ZodType<T>, value: unknown): T {
   );
   return r.data;
 }
-function refused(fn: () => void): boolean {
-  try {
-    fn();
+function refused(check: Effect.Effect<string, Invalid>): boolean {
+  if (Effect.runSyncExit(check)._tag === "Success") {
     return false;
-  } catch (error) {
-    assert(error instanceof ApiError && error.status === 422);
-    return true;
   }
+  assert(failureOf(check).status === 422);
+  return true;
 }
 test("a body refuses exactly the unknown keys", () => {
   // Generated accept-lists against generated bodies: an unrecognized_keys
@@ -105,12 +105,9 @@ test("the lexicographic future check agrees with the calendar", () => {
   fc.assert(
     fc.property(isoDay, isoDay, (day, today) => {
       const future = Date.parse(day) > Date.parse(today);
-      assertEquals(
-        refused(() => requireNotFuture(day, today, "day")),
-        future
-      );
+      assertEquals(refused(requireNotFuture(day, today, "day")), future);
       if (!future) {
-        assertEquals(requireNotFuture(day, today, "day"), day);
+        assertEquals(Effect.runSync(requireNotFuture(day, today, "day")), day);
       }
     })
   );

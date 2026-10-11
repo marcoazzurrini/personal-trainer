@@ -1,50 +1,58 @@
 import type { VolumeRepository } from "@trainer/db/repositories/training/volume.ts";
+import { Effect } from "effect";
 
+import { effectful } from "../shared/database.ts";
 import { mondayOf } from "../shared/dates.ts";
-import { ApiError } from "../shared/errors.ts";
-import { instant, romeDate, systemClock } from "../shared/values.ts";
-import type { Clock } from "../shared/values.ts";
+import { Invalid } from "../shared/refusals.ts";
+import type { DatabaseFailure, NotFound } from "../shared/refusals.ts";
+import { today } from "../shared/values.ts";
 import type { trainingResolver } from "./resolve.ts";
 import { deliveredInDoseUnit } from "./rules.ts";
 import type { ExerciseWeek, VolumeRow } from "./volume.types.ts";
 
 /** The D1 views retain all weeks. Only readers apply the Rome cutoff. */
 export function volumeStore(
-  repository: VolumeRepository,
-  resolver: ReturnType<typeof trainingResolver>,
-  clock: Clock = systemClock
+  rows: VolumeRepository,
+  resolver: ReturnType<typeof trainingResolver>
 ) {
-  async function volumePerMuscle(
+  const repository = effectful(rows);
+
+  const volumePerMuscle = Effect.fn("volume.volumePerMuscle")(function* (
     param: string
-  ): Promise<{ mesocycle_id?: number; weekly_volume: VolumeRow[] }> {
-    const cutoff = mondayOf(romeDate(instant(clock().toISOString())));
+  ): Effect.fn.Return<
+    { mesocycle_id?: number; weekly_volume: VolumeRow[] },
+    Invalid | NotFound | DatabaseFailure
+  > {
+    const cutoff = mondayOf(yield* today);
     if (param === "all") {
       return {
-        weekly_volume: await repository.allMuscles(cutoff),
+        weekly_volume: yield* repository.allMuscles(cutoff),
       };
     }
-    const m = await resolver.resolveMesocycle(param);
+    const m = yield* resolver.resolveMesocycle(param);
     return {
       mesocycle_id: m.id,
-      weekly_volume: await repository.muscles(m.id, cutoff),
+      weekly_volume: yield* repository.muscles(m.id, cutoff),
     };
-  }
-  async function dosePerExercise(param: string): Promise<{
-    mesocycle_id: number;
-    track: string;
-    weekly_exercise_sets: ExerciseWeek[];
-  }> {
+  });
+  const dosePerExercise = Effect.fn("volume.dosePerExercise")(function* (
+    param: string
+  ): Effect.fn.Return<
+    {
+      mesocycle_id: number;
+      track: string;
+      weekly_exercise_sets: ExerciseWeek[];
+    },
+    Invalid | NotFound | DatabaseFailure
+  > {
     if (param === "all") {
-      throw new ApiError(
-        422,
-        '"all" works on GET /weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".'
-      );
+      return yield* new Invalid({
+        message:
+          '"all" works on GET /weekly-volume but not here. These weeks are numbered from a mesocycle\'s start, so week 3 of two different plans are different weeks against different doses — combining them would compare numbers that share no meaning. Pass a mesocycle id, "current", or "current:<track>".',
+      });
     }
-    const m = await resolver.resolveMesocycle(param);
-    const found = await repository.dose(
-      m.id,
-      mondayOf(romeDate(instant(clock().toISOString())))
-    );
+    const m = yield* resolver.resolveMesocycle(param);
+    const found = yield* repository.dose(m.id, mondayOf(yield* today));
     return {
       mesocycle_id: m.id,
       track: m.track,
@@ -61,6 +69,6 @@ export function volumeStore(
               ),
       })),
     };
-  }
+  });
   return { volumePerMuscle, dosePerExercise };
 }

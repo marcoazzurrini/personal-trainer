@@ -2,6 +2,7 @@ import { test } from "node:test";
 
 import { z } from "@hono/zod-openapi";
 
+import type { AppEnv } from "../src/shared/services.ts";
 import type { IssueBindings } from "../src/surfaces/issues.ts";
 import { assert, assertEquals, assertStringIncludes } from "./assertions.ts";
 
@@ -47,9 +48,19 @@ test("the issues routes relay GitHub's answers without database access", async (
   try {
     const { issues } = await import("../src/surfaces/issues.routes.ts");
     const { errorResponse } = await import("../src/shared/errors.ts");
+    const { testContext } = await import("./effects.ts");
     const { Hono } = await import("hono");
-    const app = new Hono();
+    const app = new Hono<{
+      Bindings: IssueBindings;
+      Variables: AppEnv["Variables"];
+    }>();
     app.onError(errorResponse);
+    // What index.ts gives every request: an Effect context whose
+    // configuration is this request's bindings.
+    app.use((c, next) => {
+      c.set("context", testContext(Date.now(), c.env));
+      return next();
+    });
     app.route("/issues", issues);
     // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Send invalid payloads unchanged so the route, not this fixture, validates and refuses them.
     const req = async (method: string, path: string, body?: unknown) => {

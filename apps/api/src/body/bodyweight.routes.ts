@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Effect } from "effect";
 
 import {
   body,
@@ -8,8 +9,9 @@ import {
   optionalTimestamp,
   query,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
+import { currentTime } from "../shared/values.ts";
 
 export const bodyweight = new OpenAPIHono<AppEnv>();
 
@@ -62,10 +64,18 @@ bodyweight.openapi(
     // that would conflate on any day with a second weigh-in. One call now
     // yields both series the bodyweight chart needs; the chart rules forbid
     // computing a trend client-side, and for a long while nothing served one.
-    c.json({
-      bodyweight: await services(c).bodyweight.listBodyweight(),
-      trend: await services(c).bodyweight.loadTrend(),
-    })
+    c.json(
+      await run(
+        c,
+        Effect.all(
+          {
+            bodyweight: services(c).bodyweight.listBodyweight(),
+            trend: services(c).bodyweight.loadTrend(),
+          },
+          { concurrency: "unbounded" }
+        )
+      )
+    )
 );
 
 // Nothing but request shaping: the defaults belong to the HTTP call, and every
@@ -113,11 +123,16 @@ bodyweight.openapi(
   }),
   async (c) => {
     const b = c.req.valid("json");
-    const { row, created } = await services(c).bodyweight.recordBodyweight({
-      valueKg: b.value_kg,
-      source: b.source ?? "manual",
-      measuredAt: b.measured_at ?? services(c).clock().toISOString(),
-    });
+    const { row, created } = await run(
+      c,
+      Effect.gen(function* () {
+        return yield* services(c).bodyweight.recordBodyweight({
+          valueKg: b.value_kg,
+          source: b.source ?? "manual",
+          measuredAt: b.measured_at ?? (yield* currentTime).toISOString(),
+        });
+      })
+    );
     return created
       ? c.json({ bodyweight: row }, 201)
       : c.json({ bodyweight: row }, 200);
@@ -149,7 +164,7 @@ bodyweight.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     return c.json({
-      deleted: await services(c).bodyweight.removeBodyweight(id),
+      deleted: await run(c, services(c).bodyweight.removeBodyweight(id)),
     });
   }
 );

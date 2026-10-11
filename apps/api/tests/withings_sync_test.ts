@@ -1,9 +1,12 @@
 import { test } from "node:test";
 
+import { Effect } from "effect";
+
 import type { Bindings, Invocation } from "../src/environment.ts";
 import { createWithingsService } from "../src/services.ts";
 import { buildRevision } from "../src/shared/build.ts";
-import { instant } from "../src/shared/values.ts";
+import { invocationContext, run } from "../src/shared/runtime.ts";
+import { instant as canonicalInstant } from "../src/shared/values.ts";
 import worker from "../src/worker.ts";
 import {
   assert,
@@ -80,14 +83,28 @@ test("the sync between Withings and the bodyweight table", async (t) => {
     WITHINGS_CLIENT_SECRET: "test-secret",
     WITHINGS_API_BASE: `http://127.0.0.1:${stub.port}`,
   };
-  const { catchUp, catchUpIfDue, syncNotifiedWindow } = createWithingsService(
-    database,
-    {
-      clientId: env.WITHINGS_CLIENT_ID,
-      clientSecret: env.WITHINGS_CLIENT_SECRET,
-      apiBase: env.WITHINGS_API_BASE,
-    }
-  );
+  // The store reads its credentials from the invocation's bindings, and runs
+  // on the system clock like production.
+  const store = createWithingsService(database);
+  const context = invocationContext({
+    env,
+    invocation: {
+      waitUntil() {
+        // Every operation here is awaited before its assertions.
+      },
+      passThroughOnException() {
+        // No upstream origin exists in this in-process invocation.
+      },
+    },
+    diagnostic: { id: crypto.randomUUID(), route: "test" },
+  });
+  const catchUp = (...args: Parameters<typeof store.catchUp>) =>
+    run(context, store.catchUp(...args));
+  const catchUpIfDue = () => run(context, store.catchUpIfDue());
+  const syncNotifiedWindow = (
+    ...args: Parameters<typeof store.syncNotifiedWindow>
+  ) => run(context, store.syncNotifiedWindow(...args));
+  const instant = (value: string) => Effect.runSync(canonicalInstant(value));
   const sql = d1();
   function lastCall(): Call {
     const call = calls.at(-1);

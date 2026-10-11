@@ -12,7 +12,7 @@ import {
   query,
   requestId,
 } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { FLAGS } from "./constants.ts";
 
@@ -69,7 +69,7 @@ intake.openapi(
     },
   }),
   async (c) =>
-    c.json(await services(c).intake.viewDay(c.req.valid("query").day))
+    c.json(await run(c, services(c).intake.viewDay(c.req.valid("query").day)))
 );
 
 intake.openapi(
@@ -118,8 +118,9 @@ intake.openapi(
     },
   }),
   async (c) => {
-    const { view, created } = await services(c).intake.logIntake(
-      c.req.valid("json")
+    const { view, created } = await run(
+      c,
+      services(c).intake.logIntake(c.req.valid("json"))
     );
     return created ? c.json(view, 201) : c.json(view, 200);
   }
@@ -171,9 +172,12 @@ intake.openapi(
     },
   }),
   async (c) => {
-    const { view, movedFrom } = await services(c).intake.correctEntry(
-      c.req.valid("param").id,
-      c.req.valid("json")
+    const { view, movedFrom } = await run(
+      c,
+      services(c).intake.correctEntry(
+        c.req.valid("param").id,
+        c.req.valid("json")
+      )
     );
     return c.json(
       movedFrom === null ? view : { ...view, moved_from: movedFrom }
@@ -200,7 +204,9 @@ intake.openapi(
     },
   }),
   async (c) =>
-    c.json(await services(c).intake.removeEntry(c.req.valid("param").id))
+    c.json(
+      await run(c, services(c).intake.removeEntry(c.req.valid("param").id))
+    )
 );
 
 // ---------------------------------------------------------------------------
@@ -236,9 +242,12 @@ days.openapi(
   }),
   async (c) =>
     c.json(
-      await services(c).intake.flagDay(
-        c.req.valid("param").day,
-        c.req.valid("json").flag
+      await run(
+        c,
+        services(c).intake.flagDay(
+          c.req.valid("param").day,
+          c.req.valid("json").flag
+        )
       ),
       201
     )
@@ -264,6 +273,6 @@ days.openapi(
   }),
   async (c) => {
     const { day, flag } = c.req.valid("param");
-    return c.json(await services(c).intake.unflagDay(day, flag));
+    return c.json(await run(c, services(c).intake.unflagDay(day, flag)));
   }
 );

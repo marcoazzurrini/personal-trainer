@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { body, idParam, query } from "../shared/schema.ts";
-import { services } from "../shared/services.ts";
+import { run, services } from "../shared/services.ts";
 import type { AppEnv } from "../shared/services.ts";
 import { EFFORTS, KINDS } from "./rules.ts";
 import { setCorrectionFields } from "./set_correction.schema.ts";
@@ -63,9 +63,12 @@ sets.openapi(
   }),
   async (c) =>
     c.json({
-      set: await services(c).sessions.correctSet(
-        c.req.valid("param").id,
-        c.req.valid("json")
+      set: await run(
+        c,
+        services(c).sessions.correctSet(
+          c.req.valid("param").id,
+          c.req.valid("json")
+        )
       ),
     })
 );

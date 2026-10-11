@@ -1,11 +1,13 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { OpenAPIHono } from "@hono/zod-openapi";
+import { Effect } from "effect";
 import type { Context } from "hono";
 
 import type { Services } from "../services.ts";
-import { ApiError } from "./errors.ts";
+import { Invalid } from "./refusals.ts";
+import type { Failure } from "./refusals.ts";
 import { aliasList, body, query, text } from "./schema.ts";
-import { services } from "./services.ts";
+import { run, services } from "./services.ts";
 import type { AppEnv } from "./services.ts";
 
 // Exercises, foods and meals all answer to more than one name, and the rule
@@ -39,11 +41,11 @@ interface AliasSurface<Body> {
   kind: keyof Services["aliases"];
   // The entity's own {ref} parameter, carrying its description and example.
   ref: () => z.ZodString;
-  resolve: (c: Context<AppEnv>, ref: string) => Promise<Aliased>;
+  resolve: (c: Context<AppEnv>, ref: string) => Effect.Effect<Aliased, Failure>;
   // The whole response body, reloaded after the write — { exercise: … },
   // { food: … }, { meal: … }. The key is the caller's to choose, which is
   // why it hands back the envelope rather than the row.
-  respond: (c: Context<AppEnv>, id: number) => Promise<Body>;
+  respond: (c: Context<AppEnv>, id: number) => Effect.Effect<Body, Failure>;
   responseSchema: z.ZodType<Body>;
 }
 
@@ -63,7 +65,7 @@ export function addAliasRoute<Body>(
     assertFree: (
       c: Context<AppEnv>,
       aliases: readonly string[]
-    ) => Promise<void>;
+    ) => Effect.Effect<void, Failure>;
   }
 ) {
   router.openapi(
@@ -95,15 +97,18 @@ export function addAliasRoute<Body>(
       },
     }),
     async (c) => {
-      const { id } = await surface.resolve(c, c.req.valid("param").ref);
       const b = c.req.valid("json");
-      const aliases = b.alias === undefined ? (b.aliases ?? []) : [b.alias];
-      if (aliases.length === 0) {
-        throw new ApiError(422, surface.neither);
-      }
-      await surface.assertFree(c, aliases);
-      await services(c).aliases[surface.kind].addAliases(id, aliases);
-      return c.json(await surface.respond(c, id), 201);
+      const added = Effect.gen(function* () {
+        const { id } = yield* surface.resolve(c, c.req.valid("param").ref);
+        const aliases = b.alias === undefined ? (b.aliases ?? []) : [b.alias];
+        if (aliases.length === 0) {
+          return yield* new Invalid({ message: surface.neither });
+        }
+        yield* surface.assertFree(c, aliases);
+        yield* services(c).aliases[surface.kind].addAliases(id, aliases);
+        return yield* surface.respond(c, id);
+      });
+      return c.json(await run(c, added), 201);
     }
   );
 }
@@ -149,14 +154,17 @@ export function releaseAliasRoute<Body>(
     }),
     async (c) => {
       const { ref: reference, alias: rawAlias } = c.req.valid("param");
-      const entity = await surface.resolve(c, reference);
-      const alias = decodeURIComponent(rawAlias);
-      await services(c).aliases[surface.kind].releaseAlias({
-        id: entity.id,
-        alias,
-        notAnAlias: surface.notAnAlias(alias, entity),
+      const released = Effect.gen(function* () {
+        const entity = yield* surface.resolve(c, reference);
+        const alias = decodeURIComponent(rawAlias);
+        yield* services(c).aliases[surface.kind].releaseAlias({
+          id: entity.id,
+          alias,
+          notAnAlias: surface.notAnAlias(alias, entity),
+        });
+        return yield* surface.respond(c, entity.id);
       });
-      return c.json(await surface.respond(c, entity.id));
+      return c.json(await run(c, released));
     }
   );
 }
