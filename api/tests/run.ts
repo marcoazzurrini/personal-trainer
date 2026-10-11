@@ -26,6 +26,24 @@ if (args.includes("--coverage")) {
     "Bun client coverage is not Worker coverage. Use workerd coverage tooling; --coverage is not supported."
   );
 }
+// Contract tests sit at the top of api/tests. The D1 suite in api/tests/d1
+// runs its own Workers through test:d1, never inside this harness.
+const contracts = nodePath.resolve("api/tests");
+const d1Suite = nodePath.join(contracts, "d1");
+function isContractPath(path: string): boolean {
+  return (
+    path === contracts ||
+    (path.startsWith(`${contracts}/`) &&
+      path !== d1Suite &&
+      !path.startsWith(`${d1Suite}/`))
+  );
+}
+async function contractFiles(): Promise<string[]> {
+  return (await readdir(contracts))
+    .filter((name) => name.endsWith("_test.ts"))
+    .toSorted()
+    .map((name) => nodePath.join(contracts, name));
+}
 // Only selectors are configurable. Callers cannot change preloads, environment
 // loading or the disposable database. Bun is not a process-level sandbox.
 const testArgs = [];
@@ -42,12 +60,12 @@ if (!lifecycleProbe) {
       testArgs.push(arg.replace("--filter=", "--test-name-pattern="));
     } else if (/^--fail-fast(?:=\d+)?$/u.test(arg)) {
       testArgs.push(arg.replace("--fail-fast", "--bail"));
-    } else if (
-      !arg.startsWith("-") &&
-      (nodePath.resolve(arg) === nodePath.resolve("api/tests") ||
-        nodePath.resolve(arg).startsWith(`${nodePath.resolve("api/tests")}/`))
-    ) {
-      testArgs.push(nodePath.resolve(arg));
+    } else if (!arg.startsWith("-") && isContractPath(nodePath.resolve(arg))) {
+      testArgs.push(
+        ...(nodePath.resolve(arg) === contracts
+          ? await contractFiles()
+          : [nodePath.resolve(arg)])
+      );
     } else {
       throw new Error(
         "Only API test paths, --filter and --fail-fast are accepted; runner/config overrides are not allowed."
@@ -56,7 +74,7 @@ if (!lifecycleProbe) {
   }
 }
 if (!testArgs.some((arg) => !arg.startsWith("-"))) {
-  testArgs.push(nodePath.resolve("api/tests/"));
+  testArgs.push(...(await contractFiles()));
 }
 const directory = await mkdtemp(nodePath.join(tmpdir(), "pt-worker-test-"));
 // Miniflare also owns signal handlers and may exit before async disposal ends.

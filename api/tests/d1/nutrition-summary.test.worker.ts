@@ -3,14 +3,14 @@ import type {
   D1PreparedStatement,
 } from "@cloudflare/workers-types";
 
-import { bodyfatStore } from "../../api/body/bodyfat.ts";
-import { bodyweightStore } from "../../api/body/bodyweight.ts";
-import { nutritionStateStore } from "../../api/nutrition/state.ts";
-import { nutritionWeeklyStore } from "../../api/nutrition/weekly.ts";
-import { createClient } from "../client.ts";
-import { bodyfatRepository } from "../repositories/bodyfat.ts";
-import { bodyweightRepository } from "../repositories/bodyweight.ts";
-import { nutritionRepositories } from "../repositories/nutrition/index.ts";
+import { createClient } from "../../../db/client.ts";
+import { bodyfatRepository } from "../../../db/repositories/bodyfat.ts";
+import { bodyweightRepository } from "../../../db/repositories/bodyweight.ts";
+import { nutritionRepositories } from "../../../db/repositories/nutrition/index.ts";
+import { bodyfatStore } from "../../body/bodyfat.ts";
+import { bodyweightStore } from "../../body/bodyweight.ts";
+import { nutritionStateStore } from "../../nutrition/state.ts";
+import { nutritionWeeklyStore } from "../../nutrition/weekly.ts";
 import { summaryInput } from "./test-input.ts";
 
 // Synthetic, local-only harness. Count actual statements and bindings so a

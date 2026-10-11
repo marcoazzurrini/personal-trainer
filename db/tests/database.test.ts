@@ -37,7 +37,7 @@ test("production and isolated tests use one D1 migration history without a DB pa
     directories.map((match) => match.groups?.path),
     ["db/migrations"]
   );
-  const local = JSON.parse(await read("db/tests/wrangler.test.json"));
+  const local = JSON.parse(await read("db/testing/wrangler.test.json"));
   assert.equal(local.d1_databases.length, 1);
   assert.equal(local.d1_databases[0].migrations_dir, "../migrations");
   assert.equal(
@@ -84,7 +84,7 @@ test("root ignore rules protect nested database artifacts without hiding migrati
     ["db/migrations/0001_record.sql", 1],
     ["db/migrations/meta/0004_snapshot.json", 1],
     ["db/migrations/meta/_journal.json", 1],
-    ["db/tests/fixtures/storage.json", 1],
+    ["db/testing/storage.json", 1],
   ] as const) {
     const result = spawnSync("git", ["check-ignore", "--no-index", path], {
       cwd: root,

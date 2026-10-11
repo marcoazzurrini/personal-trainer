@@ -1,8 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { test } from "node:test";
 
-import { dependencies } from "../../db/tests/source.ts";
-import { assert, assertEquals } from "./assertions.ts";
+import { assert, assertEquals } from "../api/tests/assertions.ts";
+import { dependencies } from "./source.ts";
 
 // Persistence lives in db/. Arithmetic may use pure value conversion and failure
 // contracts, but must never acquire a query builder or repository.

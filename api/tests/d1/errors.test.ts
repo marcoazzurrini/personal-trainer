@@ -5,16 +5,19 @@ import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Hono } from "hono";
 
 import {
+  classifyDatabaseFailure,
+  DatabaseFailureError,
+} from "../../../db/errors.ts";
+import type { DatabaseFailureKind } from "../../../db/errors.ts";
+import { jsonChunks } from "../../../db/write.ts";
+import {
   ApiError,
   constraintMessages,
   databaseError,
   errorResponse,
-} from "../../api/shared/errors.ts";
-import type { Diagnostic } from "../../api/shared/errors.ts";
-import { retrySessionWrite } from "../../api/training/session_write.ts";
-import { classifyDatabaseFailure, DatabaseFailureError } from "../errors.ts";
-import type { DatabaseFailureKind } from "../errors.ts";
-import { jsonChunks } from "../write.ts";
+} from "../../shared/errors.ts";
+import type { Diagnostic } from "../../shared/errors.ts";
+import { retrySessionWrite } from "../../training/session_write.ts";
 
 const uniqueConstraints = [
   ["exercises.name_key", "exercises_name_key"],

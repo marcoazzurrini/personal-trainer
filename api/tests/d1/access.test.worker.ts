@@ -3,15 +3,15 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 import type { ErrorHandler } from "hono";
 
-import { timingSafeEqual } from "../../api/access/jwt.ts";
-import { createMcpRoutes } from "../../api/access/mcp.routes.ts";
-import type { McpConfig } from "../../api/access/mcp.routes.ts";
-import { tokenStore } from "../../api/access/tokens.ts";
-import { createWebAuthorizer } from "../../api/access/web.ts";
-import type { WebAuthConfig } from "../../api/access/web.ts";
-import { ApiError } from "../../api/shared/errors.ts";
-import { createClient } from "../client.ts";
-import { accessRepository } from "../repositories/access.ts";
+import { createClient } from "../../../db/client.ts";
+import { accessRepository } from "../../../db/repositories/access.ts";
+import { timingSafeEqual } from "../../access/jwt.ts";
+import { createMcpRoutes } from "../../access/mcp.routes.ts";
+import type { McpConfig } from "../../access/mcp.routes.ts";
+import { tokenStore } from "../../access/tokens.ts";
+import { createWebAuthorizer } from "../../access/web.ts";
+import type { WebAuthConfig } from "../../access/web.ts";
+import { ApiError } from "../../shared/errors.ts";
 
 const handleError: ErrorHandler = (error, c) =>
   c.json(

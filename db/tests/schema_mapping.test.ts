@@ -15,8 +15,8 @@ import {
 
 import config from "../drizzle.config.ts";
 import * as schema from "../schema/index.ts";
-import { localDatabase, migrationStatements } from "./local.ts";
-import type { LocalDatabase } from "./local.ts";
+import { localDatabase, migrationStatements } from "../testing/local.ts";
+import type { LocalDatabase } from "../testing/local.ts";
 
 const migrationNames = [
   "0001_record.sql",

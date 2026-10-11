@@ -3,10 +3,10 @@ import type {
   D1PreparedStatement,
 } from "@cloudflare/workers-types";
 
-import { createServices } from "../../api/services.ts";
-import { ApiError, databaseError } from "../../api/shared/errors.ts";
-import { instant } from "../../api/shared/values.ts";
-import { jsonChunks } from "../write.ts";
+import { jsonChunks } from "../../../db/write.ts";
+import { createServices } from "../../services.ts";
+import { ApiError, databaseError } from "../../shared/errors.ts";
+import { instant } from "../../shared/values.ts";
 // Local test harness, not a deployable API. It deliberately bypasses HTTP
 // schemas to exercise persistence under workerd, with synthetic records only.
 import { operationInput } from "./test-input.ts";

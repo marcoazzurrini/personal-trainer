@@ -21,7 +21,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply personal-trainer --remote",
     "test": "bun run test:api && bun run test:d1 && bun run test:tooling",
     "test:api": "bun --no-env-file api/tests/run.ts",
-    "test:d1": "WRANGLER_SEND_METRICS=false bun --no-env-file test ./db/tests/ --timeout 120000",
+    "test:d1": "WRANGLER_SEND_METRICS=false bun --no-env-file test ./db/tests/ ./api/tests/d1/ --timeout 120000",
     "test:tooling": "bun --no-env-file test ./tests/ --timeout 60000"
   },
   "dependencies": {

@@ -14,17 +14,15 @@ import type {
   RequestInit as WorkerRequestInit,
 } from "miniflare";
 
-import { migrationStatements } from "./local.ts";
-import { testJson } from "./test-json.ts";
+import { migrationStatements } from "../../../db/testing/local.ts";
+import { testJson } from "../../../db/testing/test-json.ts";
 
 let migrations: string[];
 let script: string;
 const revision = "c".repeat(40);
 before(async () => {
   const output = await build({
-    entryPoints: [
-      fileURLToPath(new URL("../../api/worker.ts", import.meta.url)),
-    ],
+    entryPoints: [fileURLToPath(new URL("../../worker.ts", import.meta.url))],
     bundle: true,
     write: false,
     format: "esm",
@@ -34,7 +32,7 @@ before(async () => {
   });
   script = output.outputFiles[0].text;
   assert.doesNotMatch(script, /Deno\.(?:env|serve|readTextFile)/u);
-  const directory = new URL("../migrations/", import.meta.url);
+  const directory = new URL("../../../db/migrations/", import.meta.url);
   migrations = migrationStatements(
     (
       await Promise.all(

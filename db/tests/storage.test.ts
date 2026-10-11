@@ -9,7 +9,7 @@ import {
   romeDate,
   scaledInteger,
 } from "../storage.ts";
-import { migrationStatements } from "./local.ts";
+import { migrationStatements } from "../testing/local.ts";
 
 test("decimal storage matches numeric rounding without binary-float ties", () => {
   for (const [value, precision, scale, expected] of [

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { dependencies, queryViolations } from "./source.ts";
 
-const root = fileURLToPath(new URL("../../", import.meta.url));
+const root = fileURLToPath(new URL("../", import.meta.url));
 async function sources(directory: string): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   async function walk(directoryPath: string): Promise<void> {

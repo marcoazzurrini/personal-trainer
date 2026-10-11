@@ -1,11 +1,11 @@
 import type { D1Database } from "@cloudflare/workers-types";
 
-import { bodyweightStore } from "../../api/body/bodyweight.ts";
-import { createWithingsRoutes } from "../../api/body/withings.routes.ts";
-import { withingsStore } from "../../api/body/withings.ts";
-import { createClient } from "../client.ts";
-import { bodyweightRepository } from "../repositories/bodyweight.ts";
-import { withingsRepository } from "../repositories/withings.ts";
+import { createClient } from "../../../db/client.ts";
+import { bodyweightRepository } from "../../../db/repositories/bodyweight.ts";
+import { withingsRepository } from "../../../db/repositories/withings.ts";
+import { bodyweightStore } from "../../body/bodyweight.ts";
+import { createWithingsRoutes } from "../../body/withings.routes.ts";
+import { withingsStore } from "../../body/withings.ts";
 // Local-only harness. outboundService supplies all provider responses.
 import { operationInput } from "./test-input.ts";
 

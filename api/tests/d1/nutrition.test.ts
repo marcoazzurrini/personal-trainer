@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 
-import { migrationStatements } from "./local.ts";
-import { testJson } from "./test-json.ts";
+import { migrationStatements } from "../../../db/testing/local.ts";
+import { testJson } from "../../../db/testing/test-json.ts";
 
 // Fixture inputs include malformed API requests but remain JSON-serializable.
 type JSONValue =
@@ -41,7 +41,7 @@ before(async () => {
     "The Worker persistence bundle must not load the PostgreSQL client or its environment reader."
   );
   script = compiled.outputFiles[0].text;
-  const directory = new URL("../migrations/", import.meta.url);
+  const directory = new URL("../../../db/migrations/", import.meta.url);
   const files = (await readdir(directory))
     .filter((name) => name.endsWith(".sql"))
     .toSorted();

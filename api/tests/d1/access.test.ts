@@ -9,8 +9,8 @@ import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 import type { RequestInit as WorkerRequestInit } from "miniflare";
 
-import { migrationStatements } from "./local.ts";
-import { testJson } from "./test-json.ts";
+import { migrationStatements } from "../../../db/testing/local.ts";
+import { testJson } from "../../../db/testing/test-json.ts";
 
 let jwk: webcrypto.JsonWebKey & { kid: string };
 let migrations: string[];
@@ -37,7 +37,7 @@ before(async () => {
   );
   script = compiled.outputFiles[0].text;
   assert.doesNotMatch(script, /Deno\./u);
-  const dir = new URL("../migrations/", import.meta.url);
+  const dir = new URL("../../../db/migrations/", import.meta.url);
   migrations = migrationStatements(
     (
       await Promise.all(

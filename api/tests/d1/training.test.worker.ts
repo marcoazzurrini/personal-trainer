@@ -3,16 +3,16 @@ import type {
   D1PreparedStatement,
 } from "@cloudflare/workers-types";
 
-import { aliasStore } from "../../api/shared/aliases.ts";
-import { ApiError, databaseError } from "../../api/shared/errors.ts";
-import { exerciseStore } from "../../api/training/exercises.ts";
-import { trainingResolver } from "../../api/training/resolve.ts";
-import { trainingStateStore } from "../../api/training/state.ts";
-import { contextStore } from "../../api/training/user_context.ts";
-import { volumeStore } from "../../api/training/volume.ts";
-import { createClient } from "../client.ts";
-import { aliasRepository } from "../repositories/aliases.ts";
-import { trainingRepositories } from "../repositories/training/index.ts";
+import { createClient } from "../../../db/client.ts";
+import { aliasRepository } from "../../../db/repositories/aliases.ts";
+import { trainingRepositories } from "../../../db/repositories/training/index.ts";
+import { aliasStore } from "../../shared/aliases.ts";
+import { ApiError, databaseError } from "../../shared/errors.ts";
+import { exerciseStore } from "../../training/exercises.ts";
+import { trainingResolver } from "../../training/resolve.ts";
+import { trainingStateStore } from "../../training/state.ts";
+import { contextStore } from "../../training/user_context.ts";
+import { volumeStore } from "../../training/volume.ts";
 // Synthetic local-only harness. No HTTP routes or provider credentials.
 import { operationInput } from "./test-input.ts";
 

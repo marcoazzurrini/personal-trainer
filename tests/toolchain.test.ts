@@ -91,7 +91,7 @@ test("Bun replaces the client runner, not Vitest, Playwright or the Worker runti
   );
   assert.equal(
     manifest.scripts["test:d1"],
-    "WRANGLER_SEND_METRICS=false bun --no-env-file test ./db/tests/ --timeout 120000"
+    "WRANGLER_SEND_METRICS=false bun --no-env-file test ./db/tests/ ./api/tests/d1/ --timeout 120000"
   );
   const runner = await read("api/tests/run.ts");
   assert.match(runner, /new Miniflare\(/u);

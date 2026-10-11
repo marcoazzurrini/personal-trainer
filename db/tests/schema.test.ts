@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 
-import storage from "./fixtures/storage.json" with { type: "json" };
-import { localDatabase } from "./local.ts";
-import type { LocalDatabase } from "./local.ts";
+import { localDatabase } from "../testing/local.ts";
+import type { LocalDatabase } from "../testing/local.ts";
+import storage from "../testing/storage.json" with { type: "json" };
 
 let platform: Awaited<ReturnType<typeof localDatabase>>;
 let db: LocalDatabase;

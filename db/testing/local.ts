@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
-import { z } from "@hono/zod-openapi";
 import type { Miniflare } from "miniflare";
 import { getPlatformProxy } from "wrangler";
+import { z } from "zod";
 
 export type LocalDatabase = Awaited<ReturnType<Miniflare["getD1Database"]>>;
 const testConfig = z.object({

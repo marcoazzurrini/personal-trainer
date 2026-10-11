@@ -32,6 +32,8 @@ export default defineConfig({
         "tests/*.test.ts",
         "db/tests/*.test.ts",
         "db/tests/*.test.worker.ts",
+        "api/tests/d1/*.test.ts",
+        "api/tests/d1/*.test.worker.ts",
         "web/tests/**",
       ],
       rules: {

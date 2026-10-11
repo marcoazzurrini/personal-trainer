@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "@hono/zod-openapi";
 
-import { localDatabase, migrationStatements } from "./local.ts";
+import { localDatabase, migrationStatements } from "../testing/local.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const migrations = path.join(root, "db/migrations");

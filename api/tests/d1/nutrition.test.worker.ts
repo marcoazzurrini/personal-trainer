@@ -1,19 +1,19 @@
 import type { D1Database } from "@cloudflare/workers-types";
 
-import { bodyfatStore } from "../../api/body/bodyfat.ts";
-import { bodyweightStore } from "../../api/body/bodyweight.ts";
-import { eventStore } from "../../api/nutrition/events.ts";
-import { foodStore } from "../../api/nutrition/foods.ts";
-import { intakeStore } from "../../api/nutrition/intake.ts";
-import { mealStore } from "../../api/nutrition/meals.ts";
-import { nutritionReadStore } from "../../api/nutrition/read.ts";
-import { nutritionResolver } from "../../api/nutrition/resolve.ts";
-import { targetStore } from "../../api/nutrition/targets.ts";
-import { ApiError } from "../../api/shared/errors.ts";
-import { createClient } from "../client.ts";
-import { bodyfatRepository } from "../repositories/bodyfat.ts";
-import { bodyweightRepository } from "../repositories/bodyweight.ts";
-import { nutritionRepositories } from "../repositories/nutrition/index.ts";
+import { createClient } from "../../../db/client.ts";
+import { bodyfatRepository } from "../../../db/repositories/bodyfat.ts";
+import { bodyweightRepository } from "../../../db/repositories/bodyweight.ts";
+import { nutritionRepositories } from "../../../db/repositories/nutrition/index.ts";
+import { bodyfatStore } from "../../body/bodyfat.ts";
+import { bodyweightStore } from "../../body/bodyweight.ts";
+import { eventStore } from "../../nutrition/events.ts";
+import { foodStore } from "../../nutrition/foods.ts";
+import { intakeStore } from "../../nutrition/intake.ts";
+import { mealStore } from "../../nutrition/meals.ts";
+import { nutritionReadStore } from "../../nutrition/read.ts";
+import { nutritionResolver } from "../../nutrition/resolve.ts";
+import { targetStore } from "../../nutrition/targets.ts";
+import { ApiError } from "../../shared/errors.ts";
 import { operationInput } from "./test-input.ts";
 
 export default {
