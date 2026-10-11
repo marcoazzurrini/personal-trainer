@@ -11,7 +11,7 @@
     "resolveJsonModule": true,
     "types": ["bun", "node"]
   },
-  "include": ["apps/api/**/*.ts", "packages/db/**/*.ts", "toolchain.test.ts"],
+  "include": ["apps/api/**/*.ts", "packages/db/**/*.ts"],
   "exclude": [
     "**/node_modules",
     ".delta",

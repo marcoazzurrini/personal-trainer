@@ -29,7 +29,6 @@ export default defineConfig({
     {
       files: [
         "apps/api/tests/**/*_test.ts",
-        "toolchain.test.ts",
         "apps/api/tests/*.test.ts",
         "packages/db/tests/*.test.ts",
         "apps/api/tests/d1/*.test.ts",

@@ -16,8 +16,7 @@
     "boundaries": "depcruise --config .dependency-cruiser.cjs apps packages",
     "fix": "ultracite fix",
     "backup": "bun run --cwd packages/db backup",
-    "test": "bun run --cwd apps/api test && bun run --cwd apps/api test:d1 && bun run --cwd packages/db test && bun run test:tooling",
-    "test:tooling": "bun --no-env-file test ./toolchain.test.ts --timeout 120000"
+    "test": "bun run --cwd apps/api test && bun run --cwd apps/api test:d1 && bun run --cwd packages/db test"
   },
   "devDependencies": {
     "@swc/core": "1.16.18",

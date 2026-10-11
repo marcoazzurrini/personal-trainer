@@ -18,6 +18,17 @@ for (const file of pure) {
   }
 }
 
+// dependency-cruiser cannot read TypeScript 7, so swc parses the sources.
+// Without a parser it reads nothing and still reports no violations. Loading
+// swc here makes a missing or unsupported copy stop the run instead.
+const swc = require("@swc/core");
+
+if (!swc.version.startsWith("1.")) {
+  throw new Error(
+    `dependency-cruiser 18 reads TypeScript with @swc/core 1.x, not ${swc.version}.`
+  );
+}
+
 // Code that can query: the client, raw SQL, schema, repositories and Drizzle
 // itself. Drizzle's error classes only classify failures.
 const queries =
@@ -114,8 +125,7 @@ module.exports = {
     exclude: {
       path: "^apps/[^/]+/(\\.output|\\.tanstack|\\.wrangler|dist|test-results)/|(^|/)routeTree\\.gen\\.ts$",
     },
-    // dependency-cruiser cannot read TypeScript 7 yet; swc parses the sources
-    // and still tells type-only imports apart.
+    // swc still tells type-only imports apart.
     parser: "swc",
     tsPreCompilationDeps: true,
   },
