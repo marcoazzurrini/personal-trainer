@@ -16,6 +16,13 @@ const root = new URL("../", import.meta.url);
 const read = (path: string) => readFile(new URL(path, root), "utf-8");
 const manifest = JSON.parse(await read("package.json"));
 const workflow = await read(".github/workflows/ci.yml");
+// Every package that runs Bun scripts or tests keeps dotenv loading off.
+const bunfigs = [
+  "bunfig.toml",
+  "apps/api/bunfig.toml",
+  "apps/web/bunfig.toml",
+  "packages/db/bunfig.toml",
+];
 
 test("first-party tooling stays TypeScript", async () => {
   const files = spawnSync(
@@ -39,9 +46,9 @@ test("first-party tooling stays TypeScript", async () => {
     "bun --no-env-file test ./tests/ --timeout 60000"
   );
   for (const file of [
-    "api/tests/run.ts",
-    "api/tests/fixtures/catalogue.ts",
-    "api/tests/fixtures/catalogue.json",
+    "apps/api/tests/run.ts",
+    "apps/api/tests/fixtures/catalogue.ts",
+    "apps/api/tests/fixtures/catalogue.json",
   ]) {
     await read(file);
   }
@@ -68,13 +75,12 @@ test("local tests and every CI job use the pinned Bun version and frozen workspa
   );
   assert.doesNotMatch(workflow, /bun --cwd \S+ run/u);
   assert.match(await read("bun.lock"), /"lockfileVersion":/u);
-  assert.deepEqual(manifest.workspaces, ["apps/web"]);
+  assert.deepEqual(manifest.workspaces, ["apps/*", "packages/*"]);
   for (const file of [
     "deno.json",
     "deno.lock",
     "package-lock.json",
     "apps/web/package-lock.json",
-    "db/package.json",
     "scripts/test.ts",
   ]) {
     await assert.rejects(read(file), { code: "ENOENT" });
@@ -85,20 +91,18 @@ test("Bun replaces the client runner, not Vitest, Playwright or the Worker runti
   const web = JSON.parse(await read("apps/web/package.json"));
   assert.equal(web.scripts.test, "vitest run");
   assert.equal(web.scripts["test:browser"], "playwright test");
-  assert.match(
-    manifest.scripts["test:api"],
-    /^bun --no-env-file api\/tests\/run\.ts$/u
-  );
+  const api = JSON.parse(await read("apps/api/package.json"));
+  assert.equal(api.scripts.test, "bun --no-env-file tests/run.ts");
   assert.equal(
-    manifest.scripts["test:d1"],
-    "WRANGLER_SEND_METRICS=false bun --no-env-file test ./db/tests/ ./api/tests/d1/ --timeout 120000"
+    api.scripts["test:d1"],
+    "WRANGLER_SEND_METRICS=false bun --no-env-file test ./tests/d1/ --timeout 120000"
   );
-  const runner = await read("api/tests/run.ts");
+  const runner = await read("apps/api/tests/run.ts");
   assert.match(runner, /new Miniflare\(/u);
   assert.match(runner, /d1Persist: false/u);
   assert.match(runner, /outboundService\(/u);
-  assert.match(runner, /--preload=\.\/api\/tests\/preload\.ts/u);
-  for (const file of ["bunfig.toml", "apps/web/bunfig.toml"]) {
+  assert.match(runner, /--preload=\.\/apps\/api\/tests\/preload\.ts/u);
+  for (const file of bunfigs) {
     assert.match(await read(file), /^env = false$/mu);
   }
 });
@@ -109,10 +113,7 @@ test(
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "pt-toolchain-dotenv-"));
     try {
-      for (const [index, file] of [
-        "bunfig.toml",
-        "apps/web/bunfig.toml",
-      ].entries()) {
+      for (const [index, file] of bunfigs.entries()) {
         const cwd = join(directory, String(index));
         await mkdir(cwd);
         await writeFile(join(cwd, "bunfig.toml"), await read(file));
@@ -163,7 +164,7 @@ test(
 );
 
 test("the API documents one local dotenv file without retired hosting settings", async () => {
-  const template = await read(".env.example");
+  const template = await read("apps/api/.env.example");
   const keys = new Set(
     [...template.matchAll(/^\s*(?:#\s*)?(?<key>[A-Z_]+)=/gmu)].map(
       (match) => match.groups?.key ?? ""
@@ -191,7 +192,8 @@ test("the API documents one local dotenv file without retired hosting settings",
     [".env.production", 0],
     ["apps/web/.env", 0],
     [".dev.vars", 0],
-    [".env.example", 1],
+    ["apps/api/.env", 0],
+    ["apps/api/.env.example", 1],
     ["apps/web/.env.example", 1],
   ] as const) {
     const result = spawnSync("git", ["check-ignore", "--no-index", path], {
@@ -302,4 +304,27 @@ test("Oxfmt, Oxlint and bundled Ultracite anti-slop guard the same workspace", a
   assert.match(hooks, /bun run lint \{staged_files\}/u);
   assert.match(hooks, /bun run --cwd apps\/web check/u);
   assert.doesNotMatch(hooks, /deno|rc: \.lefthookrc/u);
+});
+
+// A command that names a missing script fails only when CI or a commit runs it.
+test("every bun run in CI and the commit hook names a script that exists", async () => {
+  const hooks = await read("lefthook.yml");
+  const calls = [
+    ...`${workflow}\n${hooks}`.matchAll(
+      /bun run (?:--cwd (?<cwd>\S+) )?(?<script>[\w:-]+)/gu
+    ),
+  ];
+  assert.ok(
+    calls.length > 10,
+    "Expected the workflow and hooks to run scripts."
+  );
+  for (const call of calls) {
+    const cwd = call.groups?.cwd ?? ".";
+    const { scripts } = JSON.parse(await read(`${cwd}/package.json`));
+    const script = call.groups?.script ?? "";
+    assert.ok(
+      script in scripts || script === "playwright",
+      `${call[0]} names no script in ${cwd}/package.json.`
+    );
+  }
 });

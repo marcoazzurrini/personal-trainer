@@ -1,0 +1,29 @@
+{
+  "name": "@trainer/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run db:migrate:local && wrangler dev --local",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply personal-trainer --local",
+    "db:migrate:remote": "wrangler d1 migrations apply personal-trainer --remote",
+    "test": "bun --no-env-file tests/run.ts",
+    "test:d1": "WRANGLER_SEND_METRICS=false bun --no-env-file test ./tests/d1/ --timeout 120000"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "1.6.3",
+    "@trainer/db": "workspace:*",
+    "hono": "4.13.7",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260930.2",
+    "ajv": "8.20.0",
+    "drizzle-orm": "0.45.3",
+    "esbuild": "0.28.1",
+    "fast-check": "4.9.0",
+    "miniflare": "5.20260911.1-alpha",
+    "wrangler": "4.131.2"
+  }
+}

@@ -1,0 +1,59 @@
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+
+import { constraintMessages } from "../src/shared/errors.ts";
+import { assert, assertEquals, assertStringIncludes } from "./assertions.ts";
+import d1 from "./d1.ts";
+import { api, uuid } from "./helpers.ts";
+// The error map, held against the database it describes.
+//
+// errors.ts names 28 constraints and gives each a message written for the
+// coach. The names only mean something while the constraints exist: rename
+// one in a migration and its message silently demotes to the generic
+// fallback, which is exactly the kind of quiet regression a suite exists to
+// catch. So every named constraint is checked against the live catalog, and
+// a failure names the orphaned entry.
+test("every named constraint exists in the database", async () => {
+  const db = d1();
+  try {
+    const rows =
+      await db`select name, sql from sqlite_schema where sql is not null`;
+    const schema = rows.map((r) => `${r.name} ${r.sql}`).join("\n");
+    // SQLite reports UNIQUE failures by column; the API error boundary maps
+    // those physical constraints to the same public names as the original API.
+    const adapter = await readFile("apps/api/src/shared/errors.ts", "utf-8");
+    for (const name of Object.keys(constraintMessages)) {
+      assert(
+        schema.includes(name) || adapter.includes(`"${name}"`),
+        `errors.ts writes a message for "${name}", but no constraint or ` +
+          "index with that name exists — renamed in a migration? The " +
+          "message now never fires and callers get the generic fallback."
+      );
+    }
+  } finally {
+    await db.end();
+  }
+});
+test("a null in a required column is a prompt, not a 500", async () => {
+  // The one reproducible way through every validator to a not-null
+  // violation: PATCH a near-zero food's kcal to an explicit null. The
+  // energy check passes on its 20 kcal floor, Postgres refuses the write,
+  // and before the 23502 branch existed the answer was "Internal error".
+  const name = `Constraint Probe ${uuid()}`;
+  await api.post("/foods", {
+    name,
+    kcal_100g: 2,
+    protein_100g: 0,
+    carbs_100g: 0,
+    fat_100g: 0,
+    source: "estimate",
+    source_note: "tripwire probe",
+  });
+  const { status, body } = await api.patch(
+    `/foods/${encodeURIComponent(name)}`,
+    { kcal_100g: null }
+  );
+  assertEquals(status, 422);
+  assertStringIncludes(body.error, '"kcal_100g"');
+  await api.delete(`/foods/${encodeURIComponent(name)}`);
+});

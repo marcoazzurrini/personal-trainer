@@ -37,7 +37,7 @@ bun run start
 
 `bun run start` explicitly loads `web/.env` and listens on port 3000. The generated Wrangler configuration lives in `.output/server/`, so implicit Wrangler dotenv lookup would look in the wrong directory. Do not copy credentials into build output. `.dev.vars*` and `.wrangler/` are ignored locally; the documented setup uses `.env` rather than a second secret file. Vite and Nitro dotenv loading are disabled during builds. The development command explicitly loads `.env`. The workspace's `bunfig.toml` also disables Bun's automatic dotenv loading, so launching a build with Bun does not bypass those protections.
 
-Run the API separately using its root configuration. A web session may read only `GET /api/bodyweight`. The API's `WEB_AUTH_*` settings must match this WorkOS application. Confirm its exact issuer, application client ID and signing-key URL, normally `https://api.workos.com/sso/jwks/<client_id>`. The verifier requires `client_id` and `sid` and refuses `aud` and `act`. Do not assume the connector issuer is correct or weaken validation to accept mismatched claims. Do not put a coach token into the web application.
+Run the API separately with `bun run dev` from the repository root. A web session may read only `GET /api/bodyweight`. The API's `WEB_AUTH_*` settings must match this WorkOS application. Confirm its exact issuer, application client ID and signing-key URL, normally `https://api.workos.com/sso/jwks/<client_id>`. The verifier requires `client_id` and `sid` and refuses `aud` and `act`. Do not assume the connector issuer is correct or weaken validation to accept mismatched claims. Do not put a coach token into the web application.
 
 ## Build and checks
 

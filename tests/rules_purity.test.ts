@@ -1,10 +1,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { test } from "node:test";
 
-import { assert, assertEquals } from "../api/tests/assertions.ts";
+import { assert, assertEquals } from "../apps/api/tests/assertions.ts";
 import { dependencies } from "./source.ts";
 
-// Persistence lives in db/. Arithmetic may use pure value conversion and failure
+// Persistence lives in packages/db. Arithmetic may use pure value conversion and failure
 // contracts, but must never acquire a query builder or repository.
 //
 // Throwing ApiError is allowed on purpose. The API's client is a model, and the
@@ -12,16 +12,16 @@ import { dependencies } from "./source.ts";
 // knows why a value is refused writes that sentence; a stricter "no HTTP" rule
 // would split one message across two modules and leave a single pure file.
 const PURE = [
-  "api/body/trend.ts",
-  "api/nutrition/expenditure.ts",
-  "api/nutrition/rules.ts",
-  "api/shared/dates.ts",
-  "api/training/rules.ts",
-  "api/training/set_correction.ts",
+  "apps/api/src/body/trend.ts",
+  "apps/api/src/nutrition/expenditure.ts",
+  "apps/api/src/nutrition/rules.ts",
+  "apps/api/src/shared/dates.ts",
+  "apps/api/src/training/rules.ts",
+  "apps/api/src/training/set_correction.ts",
 ];
 
 function databaseCapability(file: string): boolean {
-  return /^(?:db\/(?:client\.ts|native\.ts|schema\/|repositories\/)|drizzle-orm(?:$|\/(?!errors$)))/u.test(
+  return /^(?:packages\/db\/src\/(?:client\.ts|native\.ts|schema\/|repositories\/)|drizzle-orm(?:$|\/(?!errors$)))/u.test(
     file
   );
 }
@@ -35,6 +35,9 @@ function runtimeImports(source: string): { specifier: string; line: number }[] {
 }
 
 function target(file: string, specifier: string): string {
+  if (specifier.startsWith("@trainer/db/")) {
+    return `packages/db/src/${specifier.slice("@trainer/db/".length)}`;
+  }
   return specifier.startsWith(".")
     ? new URL(specifier, `file:///${file}`).pathname.slice(1)
     : specifier;
@@ -43,7 +46,7 @@ function target(file: string, specifier: string): string {
 async function filesUnder(directory: string): Promise<string[]> {
   const found: string[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.name === "tests") {
+    if (entry.name === "tests" || entry.name === "node_modules") {
       continue;
     }
     const path = `${directory}/${entry.name}`;
@@ -68,7 +71,9 @@ async function chainToDatabase(
     if (databaseCapability(next)) {
       return [...hops, next];
     }
-    if (!specifier.startsWith(".") || seen.has(next)) {
+    const local =
+      specifier.startsWith(".") || specifier.startsWith("@trainer/db/");
+    if (!local || seen.has(next)) {
       continue;
     }
     seen.add(next);
@@ -83,8 +88,8 @@ async function chainToDatabase(
 test("application runtime has no PostgreSQL driver or Deno process globals", async () => {
   const offenders: string[] = [];
   for (const file of [
-    ...(await filesUnder("api")),
-    ...(await filesUnder("db")),
+    ...(await filesUnder("apps/api/src")),
+    ...(await filesUnder("packages/db")),
   ]) {
     const source = await readFile(file, "utf-8");
     if (
@@ -123,10 +128,10 @@ test("nothing pure reaches the database", async () => {
 });
 
 test("no file declaring HTTP routes imports the database", async () => {
-  const routes = (await filesUnder("api")).filter((file) =>
+  const routes = (await filesUnder("apps/api/src")).filter((file) =>
     file.endsWith(".routes.ts")
   );
-  assert(routes.length > 0, "No *.routes.ts found under api.");
+  assert(routes.length > 0, "No *.routes.ts found under apps/api/src.");
   const offenders: string[] = [];
   for (const file of routes) {
     const source = await readFile(file, "utf-8");
@@ -153,18 +158,18 @@ test("no file declaring HTTP routes imports the database", async () => {
 
 test("purity imports preserve runtime edges and ignore erased contracts", () => {
   const imports = runtimeImports(`
-    import type { Client } from "../db/client.ts";
-    import { type Client as Database } from "../db/client.ts";
+    import type { Client } from "@trainer/db/client.ts";
+    import { type Client as Database } from "@trainer/db/client.ts";
     import { type Services, createServices } from "./services.ts";
-    export { createClient } from "../db/client.ts";
-    await import("../db/native.ts");
+    export { createClient } from "@trainer/db/client.ts";
+    await import("@trainer/db/native.ts");
   `);
   assertEquals(
     imports.map((item) => item.specifier),
-    ["./services.ts", "../db/client.ts", "../db/native.ts"]
+    ["./services.ts", "@trainer/db/client.ts", "@trainer/db/native.ts"]
   );
-  assert(databaseCapability("db/repositories/bodyweight.ts"));
+  assert(databaseCapability("packages/db/src/repositories/bodyweight.ts"));
   assert(databaseCapability("drizzle-orm/d1"));
-  assert(!databaseCapability("db/storage.ts"));
-  assert(!databaseCapability("db/errors.ts"));
+  assert(!databaseCapability("packages/db/src/storage.ts"));
+  assert(!databaseCapability("packages/db/src/errors.ts"));
 });

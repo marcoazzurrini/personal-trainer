@@ -31,7 +31,7 @@ jobs:
       - run: bun run check:style
       - run: bun run check
       - run: bun run test:tooling
-      - run: bun run build
+      - run: bun run --cwd apps/api build
 
   test:
     runs-on: ubuntu-latest
@@ -46,7 +46,7 @@ jobs:
       - run: bun install --frozen-lockfile
       # Bun clients use a clean environment, no .env loading and local fixtures.
       # The application itself still executes in workerd with ephemeral D1.
-      - run: bun run test:api
+      - run: bun run --cwd apps/api test
 
   d1:
     runs-on: ubuntu-latest
@@ -59,8 +59,9 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - run: bun run db:check
-      - run: bun run test:d1
+      - run: bun run --cwd packages/db check
+      - run: bun run --cwd packages/db test
+      - run: bun run --cwd apps/api test:d1
 
   web:
     runs-on: ubuntu-latest
@@ -114,9 +115,9 @@ jobs:
         run: bun run --cwd apps/web build
       # Migrations land first, so each one must also work with the API still running.
       - name: Apply database migrations
-        run: bun run db:migrate:remote
+        run: bun run --cwd apps/api db:migrate:remote
       - name: Deploy the API
-        run: bun run deploy --message "Commit $GITHUB_SHA" --define "__BUILD_REVISION__:\"$GITHUB_SHA\""
+        run: bun run --cwd apps/api deploy --message "Commit $GITHUB_SHA" --define "__BUILD_REVISION__:\"$GITHUB_SHA\""
       - name: Wait for the API to serve this commit
         env:
           HEALTH_URL: https://trainer.marcoazzurrini.com/api/health

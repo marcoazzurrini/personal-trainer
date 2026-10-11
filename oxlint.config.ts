@@ -28,12 +28,11 @@ export default defineConfig({
   overrides: [
     {
       files: [
-        "api/tests/**/*_test.ts",
+        "apps/api/tests/**/*_test.ts",
         "tests/*.test.ts",
-        "db/tests/*.test.ts",
-        "db/tests/*.test.worker.ts",
-        "api/tests/d1/*.test.ts",
-        "api/tests/d1/*.test.worker.ts",
+        "packages/db/tests/*.test.ts",
+        "apps/api/tests/d1/*.test.ts",
+        "apps/api/tests/d1/*.test.worker.ts",
         "apps/web/tests/**",
       ],
       rules: {

@@ -17,7 +17,7 @@
 # Generated caches, dependencies and Worker build output
 /.cache/
 node_modules/
-/dist/
+dist/
 .wrangler/
 .dev.vars*
 
