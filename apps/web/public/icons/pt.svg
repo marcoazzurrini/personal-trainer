@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"
-  viewBox="0 0 512 512">
+  viewBox="0 0 100 100">
   <title>Personal trainer</title>
-  <rect width="512" height="512" fill="#f6f5f0" />
-  <!-- Original letter outlines keep every export independent of installed fonts. -->
-  <path fill="#246449" fill-rule="evenodd"
-    d="M115 160h62c44 0 70 24 70 62s-26 62-70 62h-22v68h-40V160zm40 36v52h22c20 0 30-9 30-26s-10-26-30-26h-22z" />
-  <path fill="#246449" d="M265 160h132v38h-46v154h-40V198h-46z" />
+  <rect width="100" height="100" fill="#151412" />
+  <!-- The kettlebell stays inside the central circle, so iOS and Android masks never cut it. -->
+  <path fill="none" stroke="#f3f1ea" stroke-width="8" stroke-linecap="round"
+    stroke-linejoin="round" d="M34 50V34q0-12 12-12h8q12 0 12 12v16" />
+  <path fill="#f3f1ea" d="M38.13 80a25 25 0 1 1 23.74 0z" />
 </svg>
