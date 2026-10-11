@@ -32,8 +32,8 @@ interface Aliased {
 // that the reload and the declared schema are checked against each other.
 // Without it both sides widen to unknown, the handler needs a cast to return
 // anything at all, and the response declaration stops catching the drift it
-// was added to catch — which ADR-0002 records as the reason for declaring
-// responses in the first place.
+// was added to catch, which is the reason for declaring responses in the first
+// place.
 interface AliasSurface<Body> {
   tag: string;
   kind: keyof Services["aliases"];

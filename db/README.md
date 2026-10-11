@@ -57,12 +57,6 @@ Session writes use the internal version and assertion table introduced by `0002_
 
 Only a failed version assertion is retried, at most three attempts. Each attempt reads and validates again. Uncertain failures are not retried. Exhausted contention returns 409 and asks the caller to read the record. Provider calls must not occur inside this retry boundary.
 
-Plan decisions use conditional SQL and affected-row assertions, not a second version counter. Removal or redose with a lost precondition rolls back the whole decision before revalidation. The displaced intent is read inside the INSERT; removal deletes membership, not dose history. ADR-0013 still owns historical dose selection.
+Plan decisions use conditional SQL and affected-row assertions, not a second version counter. Removal or redose with a lost precondition rolls back the whole decision before revalidation. The displaced intent is read inside the INSERT; removal deletes membership, not dose history.
 
 Large writes use bounded JSON parameters in one atomic batch. Session creation and plan writes batch reference lookups while preserving canonical-name, alias and numeric-ID precedence. Tests retain large-write, partial-failure, retry, concurrency, precision and request-replay coverage.
-
-## Retired transfer tooling
-
-The PostgreSQL transfer is complete. Its historical SQL, exporter, converter, verification command and disposable PostgreSQL comparison suite are preserved in Git at commit `f11c43d`, not maintained as a second active database toolchain. Their removal does not change the D1 schema or stored records. The historical header in `0001_record.sql` refers to the PostgreSQL directory at the time of the transfer; the released file remains byte-for-byte unchanged.
-
-[ADR-0015](../docs/adr/0015-workers-and-d1-replace-the-managed-vps.md) records this retirement. The [cutover receipt](../docs/cloudflare-cutover.md) identifies the verified transfer and private recovery archive. Keep every retained backup and its existing retention policy; retiring source code does not authorize deleting recovery material. New backups and restores use the current D1 procedures in [the recovery runbook](../docs/hosting.md#database-recovery), not another import of the original PostgreSQL snapshot.

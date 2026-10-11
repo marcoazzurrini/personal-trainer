@@ -4,8 +4,13 @@ import { test } from "node:test";
 import { dependencies } from "../../db/tests/source.ts";
 import { assert, assertEquals } from "./assertions.ts";
 
-// ADR-0017 moves persistence into db/. Arithmetic may use pure value conversion
-// and failure contracts, but must never acquire a query builder or repository.
+// Persistence lives in db/. Arithmetic may use pure value conversion and failure
+// contracts, but must never acquire a query builder or repository.
+//
+// Throwing ApiError is allowed on purpose. The API's client is a model, and the
+// refusal sentence is what tells it how a correct call looks. The code that
+// knows why a value is refused writes that sentence; a stricter "no HTTP" rule
+// would split one message across two modules and leave a single pure file.
 const PURE = [
   "api/body/trend.ts",
   "api/nutrition/expenditure.ts",

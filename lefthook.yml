@@ -6,7 +6,6 @@ pre-commit:
     - name: format
       glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,yml,yaml,css,md}"
       exclude:
-        - docs/**
         # Skill frontmatter is an executable contract. Keep it out of formatters.
         - plugin/**
       run: bun run fmt {staged_files}

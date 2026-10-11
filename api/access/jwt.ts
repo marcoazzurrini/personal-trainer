@@ -315,7 +315,8 @@ export async function verifyJwt(
 // WorkOS web-session tokens name an application with client_id and a session
 // with sid. Connect/MCP tokens name a resource with aud instead. Do not relax
 // the connector's audience check to accept a web token, or accept a Connect
-// token here merely because its subject belongs to Marco.
+// token here merely because its subject belongs to Marco. A signed token stays
+// valid until it expires, even after its WorkOS session is revoked.
 export async function verifyWebSessionJwt(
   token: string,
   opts: { issuer: string; clientId: string; jwks: Jwks; now?: number }

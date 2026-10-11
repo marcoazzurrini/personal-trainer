@@ -356,6 +356,9 @@ export const sets = sqliteTable(
   ]
 );
 
+// The only store of a plan exercise's weekly dose. Membership rows keep no
+// current copy, so a dose decision is written once and history answers both
+// "what does this week ask for" and "what did a finished week ask for".
 export const mesocycle_exercise_doses = sqliteTable(
   "mesocycle_exercise_doses",
   {

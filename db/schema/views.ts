@@ -29,6 +29,9 @@ export const daily_bodyweight = sqliteView("daily_bodyweight", {
   measured_at: text("measured_at").notNull(),
 }).existing();
 
+// Food-backed entries store grams, not macros. A food edit corrects its label,
+// so history must follow it; copying macros into entries only meant rewriting
+// every linked entry on each correction. Explicit overrides are the exception.
 export const intake_values = sqliteView("intake_values", {
   id: integer("id").notNull(),
   day: text("day").notNull(),
@@ -54,6 +57,9 @@ export const daily_intake = sqliteView("daily_intake", {
   protein_entries: integer("protein_entries").notNull(),
 }).existing();
 
+// Goal switches are derived from saved targets, not stored as events. A stored
+// event went wrong when a target was backdated or revised on the same day: the
+// next transition moved but its event did not.
 export const nutrition_goal_switches = sqliteView("nutrition_goal_switches", {
   id: integer("id").notNull(),
   day: text("day").notNull(),

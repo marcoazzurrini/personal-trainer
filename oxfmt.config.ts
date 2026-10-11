@@ -23,7 +23,6 @@ export default defineConfig({
     "**/test-results/**",
     "**/playwright-report/**",
     "web/src/routeTree.gen.ts",
-    "docs/**",
     // Plugin frontmatter is an executable skill contract, not formatter input.
     "plugin/**",
   ],

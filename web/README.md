@@ -2,8 +2,6 @@
 
 A read-only React/TanStack Start web client hosted on Cloudflare Workers with Workers Static Assets. It shows measurements and the trend returned by the API. There is no database binding, direct database access, or browser API token. WorkOS sessions remain encrypted HttpOnly cookies handled only on the server. The dashboard does not gain the coach's write permissions.
 
-The design and authentication boundaries are in [ADR-0009](../docs/adr/0009-the-dashboard-is-a-web-client-and-web-sessions-can-only-read.md). [ADR-0010](../docs/adr/0010-the-dashboard-is-installable-and-remains-online-only.md) defines installation without offline storage. The Workers build replaces ADR-0009's container deployment section, not its authentication policy. Production now runs on Workers; see [the cutover receipt](../docs/cloudflare-cutover.md) for data verification, integration checks and retained recovery copies.
-
 ## Install on iPhone
 
 Open the hosted HTTPS dashboard in Safari. Open Share, select **Add to Home Screen**, enable **Open as Web App** if shown, and tap **Add**. Launch the PT icon and sign in if asked. There is no App Store submission or native build.
@@ -103,8 +101,8 @@ Production setup and the coordinated traffic switch are complete. These steps ap
 5. In an approved release job, check out the tested commit, export `BUILD_REVISION` to that commit, and run `bun install --frozen-lockfile` from the repository root. Build and run all checks above, then run `bun run --cwd web deploy`. `bun run --cwd web deploy:check` is a dry run only. The deploy command intentionally uploads the already-tested generated output; it does not silently rebuild another revision.
 6. Verify `/api/health` reports the exact tested commit, then explicitly verify real sign-in, authenticated API read, refresh, sign-out and iPhone behavior. A health response or local synthetic session does not prove hosted identity.
 
-A Worker rollback does not restore API records or rotated secrets. Keep the recovery copies described in the cutover receipt. Deleting recovery material requires separate approval.
+A Worker rollback does not restore API records or rotated secrets.
 
 ## Repository release integration
 
-`.github/workflows/ci.yml` checks the API, D1 transfer and dashboard, then runs one serialized Cloudflare release from the tested commit. It builds the dashboard before changing production, migrates and verifies the API, deploys the dashboard, and verifies its separate immutable health identity. `api/tests/deploy_test.ts` protects this release contract. The retired container commands, Coolify deployment hooks and obsolete repository secrets are removed. See [the hosting runbook](../docs/hosting.md) for provisioning and recovery.
+`.github/workflows/ci.yml` checks the API, database and dashboard, then runs one serialized Cloudflare release from the tested commit. It builds the dashboard before changing production, migrates and verifies the API, deploys the dashboard, and verifies its separate immutable health identity. See [the runbook](../RUNBOOK.md) for what lives outside the repository and for recovery.

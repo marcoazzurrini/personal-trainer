@@ -214,7 +214,7 @@ async function filesUnder(dir: string): Promise<string[]> {
 //
 // A non-empty guard would not have caught it either: it stays green with one
 // file left. So the set is defined by what a route file *is* rather than by
-// where it sits — the *.routes.ts convention ADR-0006 establishes — and that
+// where it sits — the *.routes.ts convention — and that
 // is why a topic added tomorrow is covered without anyone remembering to add
 // it.
 async function routeFiles(): Promise<string[]> {
