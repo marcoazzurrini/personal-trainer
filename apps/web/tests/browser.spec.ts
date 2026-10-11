@@ -306,7 +306,7 @@ test("client assets contain no server-only configuration or coach access", async
       "coachResponse",
       "trainer-coach.internal",
       "COACH_AGENT_TOKEN",
-      "ANTHROPIC_API_KEY",
+      "OPENROUTER_API_KEY",
       "DATABASE_URL",
     ]) {
       expect(source, `${file} contains ${forbidden}`).not.toContain(forbidden);

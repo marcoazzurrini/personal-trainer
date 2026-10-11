@@ -1,22 +1,26 @@
 import { createProvider } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 
-// The model catalog pinned with this Flue release predates Claude Haiku 5.5.
-// Its entry is the Opus 5.5 entry with Haiku's identity and prices: same API,
-// context window, output limit and adaptive-only thinking. Delete this file
-// once the catalog lists the model itself.
-const builtIn = anthropicProvider();
-const template = builtIn.getModels().find(({ id }) => id === "claude-opus-5-5");
+// The coach reaches Claude Haiku 5.5 through OpenRouter, with OPENROUTER_API_KEY.
+// The model catalog pinned with this Flue release predates Haiku 5.5, so its
+// entry is OpenRouter's Opus 4.7 entry with Haiku's identity and prices: same
+// wire API, adaptive-only thinking, 1M context and 128K output. Delete the
+// added entry once the catalog lists the model itself.
+const builtIn = openrouterProvider();
+const template = builtIn
+  .getModels()
+  .find(({ id }) => id === "anthropic/claude-opus-4.7");
 if (!template) {
   throw new Error(
-    "The pinned model catalog no longer lists claude-opus-5-5; update the Claude Haiku 5.5 entry."
+    "The pinned model catalog no longer lists anthropic/claude-opus-4.7 on OpenRouter; update the Claude Haiku 5.5 entry."
   );
 }
 
-export const HAIKU = "claude-haiku-5-5";
+export const HAIKU = "anthropic/claude-haiku-5.5";
 
-export const anthropic = createProvider({
+export const openrouter = createProvider({
   id: builtIn.id,
   name: builtIn.name,
   baseUrl: builtIn.baseUrl,
@@ -26,10 +30,15 @@ export const anthropic = createProvider({
     {
       ...template,
       id: HAIKU,
-      name: "Claude Haiku 5.5",
-      // USD per million tokens, for prompts up to 100K tokens.
+      name: "Anthropic: Claude Haiku 5.5",
+      // USD per million tokens, as OpenRouter lists them.
       cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
     },
   ],
-  api: anthropicMessagesApi(),
+  // OpenRouter serves Claude over the Anthropic wire API and the rest of its
+  // catalog over the OpenAI one, as the built-in provider does.
+  api: {
+    "anthropic-messages": anthropicMessagesApi(),
+    "openai-completions": openAICompletionsApi(),
+  },
 });
